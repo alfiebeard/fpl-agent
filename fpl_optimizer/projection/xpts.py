@@ -23,6 +23,58 @@ class ExpectedPointsCalculator:
         self.optimization_config = config.get_optimization_config()
         self.injury_config = config.get_injury_config()
         
+        # Historical data for better estimates
+        self.historical_data = {
+            'yellow_cards_per_90': {
+                'DEF': 0.25,  # Average yellow cards per 90 mins for defenders
+                'MID': 0.20,  # Average yellow cards per 90 mins for midfielders
+                'FWD': 0.15,  # Average yellow cards per 90 mins for forwards
+                'GK': 0.05,   # Average yellow cards per 90 mins for goalkeepers
+            },
+            'red_cards_per_90': {
+                'DEF': 0.02,
+                'MID': 0.015,
+                'FWD': 0.01,
+                'GK': 0.005,
+            },
+            'bonus_points_per_90': {
+                'DEF': 0.15,
+                'MID': 0.25,
+                'FWD': 0.30,
+                'GK': 0.10,
+            },
+            'minutes_per_game': {
+                'GK': 0.95,   # Goalkeepers play most games
+                'DEF': 0.85,  # Defenders play most games
+                'MID': 0.75,  # Midfielders get rotated more
+                'FWD': 0.70,  # Forwards get subbed more
+            }
+        }
+        
+        # Team-specific data for better estimates
+        self.team_rotation_risk = {
+            'Man City': 0.8,    # High rotation risk
+            'Arsenal': 0.7,     # Medium-high rotation risk
+            'Liverpool': 0.7,   # Medium-high rotation risk
+            'Chelsea': 0.8,     # High rotation risk
+            'Spurs': 0.6,       # Medium rotation risk
+            'Man Utd': 0.7,     # Medium-high rotation risk
+            'Newcastle': 0.6,   # Medium rotation risk
+            'Aston Villa': 0.5, # Lower rotation risk
+            'Brighton': 0.7,    # Medium-high rotation risk
+            'Brentford': 0.5,   # Lower rotation risk
+            'West Ham': 0.5,    # Lower rotation risk
+            'Crystal Palace': 0.5,
+            'Fulham': 0.5,
+            'Wolves': 0.5,
+            'Everton': 0.5,
+            'Bournemouth': 0.5,
+            'Burnley': 0.5,
+            'Nott\'m Forest': 0.5,
+            'Sunderland': 0.6,  # Newly promoted - might rotate
+            'Leeds': 0.6,       # Newly promoted - might rotate
+        }
+        
     def calculate_player_xpts(self, player: Player, fixture: Fixture, 
                             home_team: Team, away_team: Team) -> float:
         """Calculate expected points for a player in a specific fixture"""
@@ -50,8 +102,8 @@ class ExpectedPointsCalculator:
         bonus_prob = self._calculate_bonus_probability(player, xG_pred, xA_pred)
         
         # Calculate card probabilities
-        yc_prob = self._calculate_yellow_card_probability(player)
-        rc_prob = self._calculate_red_card_probability(player)
+        yc_prob = self._calculate_yellow_card_probability(player, fixture)
+        rc_prob = self._calculate_red_card_probability(player, fixture)
         
         # Calculate expected minutes
         xMins_pct = self._calculate_expected_minutes(player, fixture)
@@ -134,44 +186,52 @@ class ExpectedPointsCalculator:
     
     def _calculate_expected_goals(self, player: Player, fixture: Fixture,
                                 home_team: Team, away_team: Team) -> float:
-        """Calculate expected goals for a player"""
+        """Calculate expected goals for a player with improved logic"""
         
         # Use player's xG if available, otherwise estimate from position and price
         if player.xG > 0:
             base_xg = player.xG
         else:
-            # Estimate xG based on position and price (more realistic for pre-season)
+            # Improved estimation based on position, price, and historical performance
             if player.position == Position.FWD:
-                # Forwards: higher price = higher xG expectation
-                base_xg = 0.15 + (player.price - 4.5) * 0.05  # 0.15-0.35 range
+                # Forwards: use price and points per game as indicators
+                price_factor = (player.price - 4.5) / 10.0  # 0-1 scale
+                ppg_factor = min(player.points_per_game / 10.0, 1.0)  # 0-1 scale
+                base_xg = 0.10 + (price_factor * 0.20) + (ppg_factor * 0.15)  # 0.10-0.45 range
             elif player.position == Position.MID:
-                # Midfielders: moderate xG expectation
-                base_xg = 0.08 + (player.price - 4.5) * 0.03  # 0.08-0.20 range
+                # Midfielders: consider attacking vs defensive midfielders
+                price_factor = (player.price - 4.5) / 10.0
+                ppg_factor = min(player.points_per_game / 10.0, 1.0)
+                base_xg = 0.05 + (price_factor * 0.12) + (ppg_factor * 0.10)  # 0.05-0.27 range
             elif player.position == Position.DEF:
-                # Defenders: low xG expectation
-                base_xg = 0.02 + (player.price - 4.0) * 0.01  # 0.02-0.08 range
+                # Defenders: mostly attacking full-backs
+                price_factor = (player.price - 4.0) / 6.0
+                ppg_factor = min(player.points_per_game / 8.0, 1.0)
+                base_xg = 0.01 + (price_factor * 0.04) + (ppg_factor * 0.03)  # 0.01-0.08 range
             else:  # GK
-                base_xg = 0.0  # Goalkeepers don't score goals
+                base_xg = 0.0
         
-        # Adjust based on fixture difficulty
+        # Adjust based on fixture difficulty (opposition consideration)
         if player.team_id == fixture.home_team_id:
-            # Player is playing at home
-            difficulty_factor = (6 - fixture.home_difficulty) / 5.0  # 1-5 scale inverted
+            difficulty_factor = (6 - fixture.home_difficulty) / 5.0
         else:
-            # Player is playing away
             difficulty_factor = (6 - fixture.away_difficulty) / 5.0
         
-        # Adjust based on player form (if available)
-        if player.form > 0:
-            form_factor = 1.0 + (player.form / 100.0)
+        # Adjust based on team strength
+        if player.team_id == fixture.home_team_id:
+            team_strength = home_team.strength / 1000.0  # Normalize to 0-1
+            opponent_strength = away_team.strength / 1000.0
         else:
-            # For pre-season, use a neutral factor
-            form_factor = 1.0
+            team_strength = away_team.strength / 1000.0
+            opponent_strength = home_team.strength / 1000.0
+        
+        # Home advantage
+        home_advantage = 1.1 if player.team_id == fixture.home_team_id else 0.9
         
         # Calculate final xG
-        xg = base_xg * difficulty_factor * form_factor
+        final_xg = base_xg * difficulty_factor * team_strength * home_advantage
         
-        return max(0.0, xg)
+        return max(0.0, final_xg)
     
     def _calculate_expected_assists(self, player: Player, fixture: Fixture,
                                  home_team: Team, away_team: Team) -> float:
@@ -259,78 +319,106 @@ class ExpectedPointsCalculator:
         
         return max(0.0, min(1.0, bonus_prob))
     
-    def _calculate_yellow_card_probability(self, player: Player) -> float:
-        """Calculate yellow card probability"""
+    def _calculate_yellow_card_probability(self, player: Player, fixture: Fixture) -> float:
+        """Calculate yellow card probability with improved logic"""
         
-        # Base yellow card probability
-        base_yc_prob = 0.15  # ~15% chance per game
+        # Base probability from historical data
+        base_prob = self.historical_data['yellow_cards_per_90'].get(player.position.value, 0.20)
         
-        # Adjust based on position (defenders/midfielders more likely)
-        if player.position == Position.DEF:
-            position_factor = 1.3
-        elif player.position == Position.MID:
-            position_factor = 1.1
+        # Adjust based on opponent team (some teams get more cards against them)
+        opponent_team = fixture.away_team_name if player.team_id == fixture.home_team_id else fixture.home_team_name
+        opponent_factor = self._get_opponent_card_factor(opponent_team)
+        
+        # Adjust based on fixture difficulty (harder games = more cards)
+        if player.team_id == fixture.home_team_id:
+            difficulty_factor = 1.0 + (fixture.home_difficulty - 3) * 0.1
         else:
-            position_factor = 0.8
+            difficulty_factor = 1.0 + (fixture.away_difficulty - 3) * 0.1
         
-        # Adjust based on player's historical cards (if available)
-        historical_cards = player.custom_data.get('yellow_cards', 3)
-        historical_factor = 1.0 + (historical_cards - 3) * 0.1
+        # Adjust based on player's disciplinary history (if available)
+        if hasattr(player, 'yellow_cards') and player.yellow_cards > 0:
+            history_factor = 1.0 + (player.yellow_cards / 10.0)
+        else:
+            history_factor = 1.0
         
-        yc_prob = base_yc_prob * position_factor * historical_factor
+        final_prob = base_prob * opponent_factor * difficulty_factor * history_factor
         
-        return max(0.0, min(1.0, yc_prob))
-    
-    def _calculate_red_card_probability(self, player: Player) -> float:
-        """Calculate red card probability"""
+        return min(0.5, max(0.01, final_prob))  # Keep within reasonable bounds
+
+    def _calculate_red_card_probability(self, player: Player, fixture: Fixture) -> float:
+        """Calculate red card probability with improved logic"""
         
-        # Base red card probability (much lower than yellow)
-        base_rc_prob = 0.02  # ~2% chance per game
+        # Base probability from historical data
+        base_prob = self.historical_data['red_cards_per_90'].get(player.position.value, 0.01)
         
-        # Adjust based on player's historical cards (if available)
-        historical_cards = player.custom_data.get('red_cards', 0)
-        historical_factor = 1.0 + historical_cards * 0.5
+        # Adjust based on opponent team
+        opponent_team = fixture.away_team_name if player.team_id == fixture.home_team_id else fixture.home_team_name
+        opponent_factor = self._get_opponent_card_factor(opponent_team)
         
-        rc_prob = base_rc_prob * historical_factor
+        # Adjust based on fixture difficulty (harder games = more cards)
+        if player.team_id == fixture.home_team_id:
+            difficulty_factor = 1.0 + (fixture.home_difficulty - 3) * 0.15
+        else:
+            difficulty_factor = 1.0 + (fixture.away_difficulty - 3) * 0.15
         
-        return max(0.0, min(1.0, rc_prob))
+        # Adjust based on player's disciplinary history (if available)
+        if hasattr(player, 'red_cards') and player.red_cards > 0:
+            history_factor = 1.0 + (player.red_cards * 0.5)
+        else:
+            history_factor = 1.0
+        
+        final_prob = base_prob * opponent_factor * difficulty_factor * history_factor
+        
+        return min(0.1, max(0.001, final_prob))  # Keep within reasonable bounds
+
+    def _get_opponent_card_factor(self, opponent_team: str) -> float:
+        """Get card factor based on opponent team"""
+        # Some teams historically get more cards against them
+        high_card_teams = {
+            'Man City': 1.2,    # Teams that dominate possession
+            'Arsenal': 1.1,     # Teams that play attacking football
+            'Liverpool': 1.1,
+            'Spurs': 1.1,
+            'Chelsea': 1.1,
+            'Man Utd': 1.1,
+        }
+        
+        return high_card_teams.get(opponent_team, 1.0)
     
     def _calculate_expected_minutes(self, player: Player, fixture: Fixture) -> float:
-        """Calculate expected playing time percentage"""
+        """Calculate expected minutes as a percentage (0.0-1.0) with improved logic"""
         
-        # Start with player's base expected minutes
-        base_minutes = player.xMins_pct
+        # Base minutes based on position
+        base_minutes = self.historical_data['minutes_per_game'].get(player.position.value, 0.75)
         
-        # If no xMins_pct data, estimate based on position and form
-        if base_minutes <= 0:
-            if player.position == Position.GK:
-                base_minutes = 0.9  # Goalkeepers usually play full matches
-            elif player.position == Position.DEF:
-                base_minutes = 0.8  # Defenders usually play most of the match
-            elif player.position == Position.MID:
-                base_minutes = 0.7  # Midfielders may be rotated more
-            else:  # FWD
-                base_minutes = 0.6  # Forwards may be subbed more often
+        # Adjust based on price (more expensive players play more)
+        price_factor = min(1.0, 0.7 + (player.price - 4.5) * 0.06)  # 0.7-1.0 range
+        
+        # Adjust based on team rotation risk
+        team_rotation = self.team_rotation_risk.get(player.team_name, 0.6)
+        rotation_factor = 1.0 - (team_rotation * 0.2)  # Higher rotation risk = lower minutes
+        
+        # Adjust based on fixture difficulty (easier games = more rotation)
+        if player.team_id == fixture.home_team_id:
+            difficulty_factor = 1.0 + (3 - fixture.home_difficulty) * 0.05
+        else:
+            difficulty_factor = 1.0 + (3 - fixture.away_difficulty) * 0.05
         
         # Adjust based on injury status
         if player.is_injured:
-            if player.injury_expected_return and fixture.kickoff_time and player.injury_expected_return > fixture.kickoff_time:
-                return 0.0  # Won't be available
-            else:
-                base_minutes *= 0.5  # Doubtful
+            if (hasattr(player, 'injury_expected_return') and player.injury_expected_return and 
+                fixture.kickoff_time and hasattr(player.injury_expected_return, 'replace')):
+                try:
+                    # Handle timezone-aware datetime comparison
+                    if player.injury_expected_return > fixture.kickoff_time:
+                        return 0.0  # Won't be available
+                except (TypeError, ValueError):
+                    # If datetime comparison fails, assume doubtful
+                    pass
+            base_minutes *= 0.5  # Doubtful
         
-        # Adjust based on player form (better form = more minutes)
-        form_factor = 1.0 + (player.form / 100.0)
-        
-        # Adjust based on fixture difficulty (easier fixtures = more attacking minutes)
-        if fixture.difficulty <= 2:  # Easy fixture
-            difficulty_factor = 1.1
-        elif fixture.difficulty >= 4:  # Hard fixture
-            difficulty_factor = 0.9
-        else:
-            difficulty_factor = 1.0
-        
-        minutes = base_minutes * form_factor * difficulty_factor
+        # Calculate final minutes
+        minutes = base_minutes * price_factor * rotation_factor * difficulty_factor
         
         return max(0.0, min(1.0, minutes))
     
