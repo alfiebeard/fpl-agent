@@ -1,0 +1,81 @@
+# FPL Optimizer Configuration
+
+# API Configuration
+api:
+  fpl_base_url: "https://fantasy.premierleague.com/api"
+  understat_base_url: "https://understat.com"
+  fbref_base_url: "https://fbref.com"
+  
+# LLM Configuration
+llm:
+  provider: "openai"  # openai, anthropic, local
+  model: "gpt-4"  # gpt-4, gpt-3.5-turbo, claude-3-sonnet
+  max_tokens: 2000
+  temperature: 0.1
+  
+# Optimization Settings
+optimization:
+  planning_window: 5  # Number of gameweeks to plan ahead
+  xpts_decay_factor: 0.85  # Decay factor for future gameweeks
+  transfer_hit_threshold: 4  # Minimum xPts gain to justify transfer hit
+  max_transfers_per_week: 2
+  
+# Team Constraints
+team:
+  budget: 100.0  # Maximum team value in millions
+  max_players_per_team: 3
+  valid_formations:
+    - [3, 4, 3]  # [def, mid, fwd]
+    - [3, 5, 2]
+    - [4, 3, 3]
+    - [4, 4, 2]
+    - [4, 5, 1]
+    - [5, 3, 2]
+    - [5, 4, 1]
+  
+# Points Configuration
+points:
+  goal:
+    gk: 6
+    def: 6
+    mid: 5
+    fwd: 4
+  assist: 3
+  clean_sheet:
+    gk: 4
+    def: 4
+    mid: 1
+    fwd: 0
+  bonus: 1.5
+  yellow_card: -1
+  red_card: -3
+  
+# Injury Settings
+injury:
+  default_return_probability: 0.8  # Probability of return after injury period
+  minimum_playing_time: 0.6  # Minimum expected playing time to consider
+  
+# Scheduling
+scheduler:
+  deadline_offset_minutes: 30  # Run 30 minutes before deadline
+  timezone: "Europe/London"
+  
+# Data Sources
+data_sources:
+  tips_sources:
+    - "Fantasy Football Scout"
+    - "Reddit r/FantasyPL"
+    - "FPL Twitter community"
+    - "Official FPL Scout"
+  
+# Output Settings
+output:
+  save_reports: true
+  report_format: "html"  # html, json, csv
+  enable_gui: true
+  gui_port: 8501
+  
+# Testing
+testing:
+  mock_data: true
+  test_mode: false

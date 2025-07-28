@@ -1,0 +1,47 @@
+# Core data handling
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+
+# Optimization
+PuLP>=2.7.0
+ortools>=9.7.0
+
+# Machine learning & modeling
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# LLM integration
+openai>=1.0.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+
+# Web scraping (for future use)
+beautifulsoup4>=4.12.0
+selenium>=4.15.0
+playwright>=1.40.0
+
+# Visualization & GUI
+matplotlib>=3.7.0
+plotly>=5.17.0
+streamlit>=1.28.0
+
+# Scheduling & automation
+schedule>=1.2.0
+APScheduler>=3.10.0
+
+# Database & caching
+duckdb>=0.9.0
+
+# Configuration
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Utilities
+tqdm>=4.66.0
+click>=8.1.0
+rich>=13.6.0
