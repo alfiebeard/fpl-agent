@@ -110,5 +110,5 @@ class Config:
         return self.get('testing.test_mode', False)
     
     def use_mock_data(self) -> bool:
-        """Check if should use mock data"""
-        return self.get('testing.mock_data', True) 
+        """Check if should use mock data - always returns False as mock data is not allowed"""
+        return False 

@@ -1,1 +1,0 @@
-# Utils package for FPL Optimizer 

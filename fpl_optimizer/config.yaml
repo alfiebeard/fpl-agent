@@ -36,7 +36,7 @@ team:
 # Points Configuration
 points:
   goal:
-    gk: 6
+    gk: 10
     def: 6
     mid: 5
     fwd: 4
@@ -77,5 +77,5 @@ output:
   
 # Testing
 testing:
-  mock_data: true
+  # Mock data has been removed - only real API data is allowed
   test_mode: false
