@@ -38,6 +38,7 @@ class Config:
     def _override_with_env(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Override config values with environment variables"""
         env_mappings = {
+            'GEMINI_API_KEY': ('llm', 'api_key'),
             'OPENAI_API_KEY': ('llm', 'api_key'),
             'ANTHROPIC_API_KEY': ('llm', 'api_key'),
             'FPL_LEAGUE_ID': ('fpl', 'league_id'),

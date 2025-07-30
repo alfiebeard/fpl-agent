@@ -17,6 +17,11 @@ try:
 except ImportError:
     anthropic = None
 
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+
 from ..models import Player, FPLTeam, Position, OptimizationResult, Transfer
 from ..config import Config
 
@@ -33,13 +38,15 @@ class FPLLLMAnalyzer:
     - Suggest transfers based on expert opinions
     - Select captains and vice-captains
     - Determine wildcard usage timing
+    
+    Supports: Google Gemini (best free tier), OpenAI GPT, and Anthropic Claude
     """
     
     def __init__(self, config: Config):
         self.config = config
         self.llm_config = config.get_llm_config()
-        self.provider = self.llm_config.get('provider', 'openai')
-        self.model = self.llm_config.get('model', 'gpt-4')
+        self.provider = self.llm_config.get('provider', 'gemini')
+        self.model = self.llm_config.get('model', 'gemini-1.5-flash')
         self.max_tokens = self.llm_config.get('max_tokens', 4000)
         self.temperature = self.llm_config.get('temperature', 0.7)
         
@@ -50,7 +57,32 @@ class FPLLLMAnalyzer:
         """Initialize the appropriate LLM client"""
         api_key = self.llm_config.get('api_key')
         
-        if self.provider == 'openai' and openai:
+        if self.provider == 'gemini' and genai:
+            if not api_key:
+                api_key = self.config.get_env_var('GEMINI_API_KEY')
+            if api_key:
+                genai.configure(api_key=api_key)
+                try:
+                    # Configure safety settings for FPL content
+                    safety_settings = self.llm_config.get('gemini', {}).get('safety_settings', {})
+                    generation_config = self.llm_config.get('gemini', {}).get('generation_config', {})
+                    
+                    model = genai.GenerativeModel(
+                        model_name=self.model,
+                        generation_config=generation_config,
+                        safety_settings=[
+                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": safety_settings.get('harassment', 'BLOCK_NONE')},
+                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": safety_settings.get('hate_speech', 'BLOCK_NONE')},
+                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": safety_settings.get('sexually_explicit', 'BLOCK_NONE')},
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": safety_settings.get('dangerous_content', 'BLOCK_NONE')},
+                        ]
+                    )
+                    return model
+                except Exception as e:
+                    logger.error(f"Failed to initialize Gemini model: {e}")
+                    return None
+            
+        elif self.provider == 'openai' and openai:
             if not api_key:
                 api_key = self.config.get_env_var('OPENAI_API_KEY')
             return openai.OpenAI(api_key=api_key) if api_key else None
@@ -226,9 +258,17 @@ class FPLLLMAnalyzer:
     def _query_llm(self, prompt: str) -> str:
         """Query the LLM with the given prompt"""
         try:
-            if self.provider == 'openai' and self.client:
+            if self.provider == 'gemini' and self.client:
+                # Gemini API call
+                system_prompt = "You are an expert Fantasy Premier League analyst with deep knowledge of player performance, tactics, and strategy."
+                full_prompt = f"{system_prompt}\n\n{prompt}"
+                
+                response = self.client.generate_content(full_prompt)
+                return response.text
+                
+            elif self.provider == 'openai' and self.client:
                 response = self.client.chat.completions.create(
-                    model=self.model,
+                    model=self.llm_config.get('openai', {}).get('model', 'gpt-3.5-turbo'),
                     messages=[
                         {"role": "system", "content": "You are an expert Fantasy Premier League analyst with deep knowledge of player performance, tactics, and strategy."},
                         {"role": "user", "content": prompt}
@@ -240,7 +280,7 @@ class FPLLLMAnalyzer:
                 
             elif self.provider == 'anthropic' and self.client:
                 response = self.client.messages.create(
-                    model=self.model,
+                    model=self.llm_config.get('anthropic', {}).get('model', 'claude-3-haiku-20240307'),
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
                     system="You are an expert Fantasy Premier League analyst with deep knowledge of player performance, tactics, and strategy.",
