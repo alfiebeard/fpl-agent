@@ -1,81 +1,116 @@
 # FPL Optimizer Configuration
 
-# API Configuration
-api:
-  fpl_base_url: "https://fantasy.premierleague.com/api"
-  understat_base_url: "https://understat.com"
-  fbref_base_url: "https://fbref.com"
-  
-# LLM Configuration
-llm:
-  provider: "openai"  # openai, anthropic, local
-  model: "gpt-4"  # gpt-4, gpt-3.5-turbo, claude-3-sonnet
-  max_tokens: 2000
-  temperature: 0.1
-  
-# Optimization Settings
-optimization:
-  planning_window: 5  # Number of gameweeks to plan ahead
-  xpts_decay_factor: 0.85  # Decay factor for future gameweeks
-  transfer_hit_threshold: 4  # Minimum xPts gain to justify transfer hit
-  max_transfers_per_week: 2
-  
-# Team Constraints
-team:
-  budget: 100.0  # Maximum team value in millions
-  max_players_per_team: 3
-  valid_formations:
-    - [3, 4, 3]  # [def, mid, fwd]
-    - [3, 5, 2]
-    - [4, 3, 3]
-    - [4, 4, 2]
-    - [4, 5, 1]
-    - [5, 3, 2]
-    - [5, 4, 1]
-  
-# Points Configuration
-points:
-  goal:
-    gk: 10
-    def: 6
-    mid: 5
-    fwd: 4
-  assist: 3
-  clean_sheet:
-    gk: 4
-    def: 4
-    mid: 1
-    fwd: 0
-  bonus: 1.5
-  yellow_card: -1
-  red_card: -3
-  
-# Injury Settings
-injury:
-  default_return_probability: 0.8  # Probability of return after injury period
-  minimum_playing_time: 0.6  # Minimum expected playing time to consider
-  
-# Scheduling
-scheduler:
-  deadline_offset_minutes: 30  # Run 30 minutes before deadline
-  timezone: "Europe/London"
-  
+# FPL API Configuration
+fpl:
+  base_url: "https://fantasy.premierleague.com/api"
+  league_id: null  # Set via environment variable FPL_LEAGUE_ID
+  team_id: null    # Set via environment variable FPL_TEAM_ID
+  email: null      # Set via environment variable FPL_EMAIL
+  password: null   # Set via environment variable FPL_PASSWORD
+
 # Data Sources
 data_sources:
-  tips_sources:
-    - "Fantasy Football Scout"
-    - "Reddit r/FantasyPL"
-    - "FPL Twitter community"
-    - "Official FPL Scout"
+  fpl_api:
+    enabled: true
+    timeout: 30
+  fbref:
+    enabled: true
+    timeout: 60
+  understat:
+    enabled: true
+    timeout: 60
+
+# Team Configuration
+team:
+  budget: 100.0
+  squad_size: 15
+  formation_constraints:
+    goalkeepers: 2
+    defenders: 5
+    midfielders: 5
+    forwards: 3
+  max_players_per_team: 3
+
+# Optimization Configuration
+optimization:
+  solver: "PULP_CBC_CMD"
+  time_limit: 300  # seconds
+  gap_tolerance: 0.01
+  focus_horizons:
+    - 1   # Next gameweek
+    - 5   # Next 5 gameweeks
+    - 10  # Next 10 gameweeks
+
+# Expected Points Configuration
+xpts:
+  weights:
+    form: 0.3
+    xg_xa: 0.4
+    fixtures: 0.2
+    minutes: 0.1
+  fixture_difficulty_adjustment: true
+  injury_adjustment: true
+  price_change_consideration: true
+
+# LLM Configuration
+llm:
+  provider: "gemini"  # "gemini", "openai", or "anthropic" - Gemini has the best free tier
+  model: "gemini-1.5-flash"  # Fast and generous free tier
+  api_key: null  # Set via environment variable GEMINI_API_KEY
+  max_tokens: 4000
+  temperature: 0.7
   
-# Output Settings
-output:
-  save_reports: true
-  report_format: "html"  # html, json, csv
-  enable_gui: true
-  gui_port: 8501
+  # Gemini-specific settings
+  gemini:
+    safety_settings:
+      harassment: "BLOCK_NONE"
+      hate_speech: "BLOCK_NONE"
+      sexually_explicit: "BLOCK_NONE"
+      dangerous_content: "BLOCK_NONE"
+    generation_config:
+      candidate_count: 1
+      max_output_tokens: 4000
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 40
   
-# Testing
-testing:
-  # Mock data has been removed - only real API data is allowed
-  test_mode: false
+  # Alternative providers (for fallback)
+  openai:
+    model: "gpt-3.5-turbo"  # More affordable option
+    max_tokens: 4000
+    temperature: 0.7
+  
+  anthropic:
+    model: "claude-3-haiku-20240307"  # Most affordable Claude model
+    max_tokens: 4000
+    temperature: 0.7
+  
+  # Web search configuration
+  web_search:
+    enabled: true
+    max_results: 20
+    search_terms:
+      - "fantasy premier league tips"
+      - "FPL expert picks"
+      - "fantasy football captain picks"
+      - "FPL transfer tips"
+      - "fantasy premier league wildcard"
+    expert_sources:
+      - "fantasyfootballscout.co.uk"
+      - "fantasyfootballpundit.com"
+      - "planetfpl.com"
+      - "fplanalytics.com"
+      - "twitter.com"
+      - "reddit.com/r/FantasyPL"
+  
+  # Analysis configuration
+  analysis:
+    gather_insights_timeout: 180  # seconds
+    min_sources: 5
+    max_age_days: 7  # Only consider insights from last 7 days
+    confidence_threshold: 0.6
+
+# Logging Configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

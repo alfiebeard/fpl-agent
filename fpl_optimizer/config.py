@@ -38,7 +38,9 @@ class Config:
     def _override_with_env(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Override config values with environment variables"""
         env_mappings = {
+            'GEMINI_API_KEY': ('llm', 'api_key'),
             'OPENAI_API_KEY': ('llm', 'api_key'),
+            'ANTHROPIC_API_KEY': ('llm', 'api_key'),
             'FPL_LEAGUE_ID': ('fpl', 'league_id'),
             'FPL_TEAM_ID': ('fpl', 'team_id'),
             'FPL_EMAIL': ('fpl', 'email'),
@@ -48,67 +50,96 @@ class Config:
         for env_var, config_path in env_mappings.items():
             env_value = os.getenv(env_var)
             if env_value:
-                self._set_nested_value(config, config_path, env_value)
+                # Navigate to nested config
+                current = config
+                for key in config_path[:-1]:
+                    if key not in current:
+                        current[key] = {}
+                    current = current[key]
+                current[config_path[-1]] = env_value
         
         return config
     
-    def _set_nested_value(self, config: Dict[str, Any], path: tuple, value: Any):
-        """Set a nested value in the config dictionary"""
-        current = config
-        for key in path[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
-        current[path[-1]] = value
-    
     def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value by dot notation (e.g., 'llm.model')"""
+        """Get configuration value by key"""
         keys = key.split('.')
-        value = self._config
+        current = self._config
         
-        try:
-            for k in keys:
-                value = value[k]
-            return value
-        except (KeyError, TypeError):
-            return default
+        for k in keys:
+            if isinstance(current, dict) and k in current:
+                current = current[k]
+            else:
+                return default
+        
+        return current
     
-    def get_llm_config(self) -> Dict[str, Any]:
-        """Get LLM configuration"""
-        return self._config.get('llm', {})
+    def get_env_var(self, var_name: str) -> Optional[str]:
+        """Get environment variable"""
+        return os.getenv(var_name)
     
-    def get_optimization_config(self) -> Dict[str, Any]:
-        """Get optimization configuration"""
-        return self._config.get('optimization', {})
+    def get_fpl_config(self) -> Dict[str, Any]:
+        """Get FPL API configuration"""
+        return self._config.get('fpl', {})
+    
+    def get_data_sources_config(self) -> Dict[str, Any]:
+        """Get data sources configuration"""
+        return self._config.get('data_sources', {})
     
     def get_team_config(self) -> Dict[str, Any]:
         """Get team configuration"""
         return self._config.get('team', {})
     
-    def get_points_config(self) -> Dict[str, Any]:
-        """Get points configuration"""
-        return self._config.get('points', {})
+    def get_optimization_config(self) -> Dict[str, Any]:
+        """Get optimization configuration"""
+        return self._config.get('optimization', {})
     
-    def get_injury_config(self) -> Dict[str, Any]:
-        """Get injury configuration"""
-        return self._config.get('injury', {})
+    def get_xpts_config(self) -> Dict[str, Any]:
+        """Get expected points configuration"""
+        return self._config.get('xpts', {})
     
-    def get_scheduler_config(self) -> Dict[str, Any]:
-        """Get scheduler configuration"""
-        return self._config.get('scheduler', {})
+    def get_llm_config(self) -> Dict[str, Any]:
+        """Get LLM configuration"""
+        return self._config.get('llm', {})
     
-    def get_output_config(self) -> Dict[str, Any]:
-        """Get output configuration"""
-        return self._config.get('output', {})
+    def get_logging_config(self) -> Dict[str, Any]:
+        """Get logging configuration"""
+        return self._config.get('logging', {})
     
-    def get_testing_config(self) -> Dict[str, Any]:
-        """Get testing configuration"""
-        return self._config.get('testing', {})
+    def set(self, key: str, value: Any) -> None:
+        """Set configuration value by key"""
+        keys = key.split('.')
+        current = self._config
+        
+        for k in keys[:-1]:
+            if k not in current:
+                current[k] = {}
+            current = current[k]
+        
+        current[keys[-1]] = value
     
-    def is_test_mode(self) -> bool:
-        """Check if running in test mode"""
-        return self.get('testing.test_mode', False)
+    def save(self, path: Optional[str] = None) -> None:
+        """Save configuration to file"""
+        save_path = Path(path) if path else self.config_path
+        
+        with open(save_path, 'w') as f:
+            yaml.safe_dump(self._config, f, default_flow_style=False, indent=2)
     
-    def use_mock_data(self) -> bool:
-        """Check if should use mock data - always returns False as mock data is not allowed"""
-        return False 
+    def reload(self) -> None:
+        """Reload configuration from file"""
+        self._config = self._load_config()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Return configuration as dictionary"""
+        return self._config.copy()
+    
+    def __getitem__(self, key: str) -> Any:
+        """Allow dictionary-style access"""
+        return self.get(key)
+    
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Allow dictionary-style setting"""
+        self.set(key, value)
+    
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in configuration"""
+        return self.get(key) is not None 
