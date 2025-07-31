@@ -4,15 +4,28 @@ Main FPL Optimizer application - Enhanced with dual team creation methods
 
 import logging
 import sys
+import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import argparse
 
-from .config import Config
-from .ingestion import get_test_data
-from .optimizer import ILPSolver
-from .models import Player, Team, Position, FPLTeam
-from .team_creators import APITeamCreator, LLMTeamCreator
+# Handle imports for both direct execution and module execution
+try:
+    # When run as module (python -m fpl_optimizer.main)
+    from .config import Config
+    from .ingestion import get_test_data
+
+    from .models import Player, Team, Position, FPLTeam
+    from .team_creators import APITeamCreator, FPLTeamManager
+except ImportError:
+    # When run directly (python fpl_optimizer/main.py)
+    # Add the parent directory to the path
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from fpl_optimizer.config import Config
+    from fpl_optimizer.ingestion import get_test_data
+
+    from fpl_optimizer.models import Player, Team, Position, FPLTeam
+    from fpl_optimizer.team_creators import APITeamCreator, FPLTeamManager
 
 
 # Configure logging
@@ -34,12 +47,13 @@ class FPLOptimizer:
         """Initialize the FPL Optimizer"""
         self.config = Config(config_path)
         
-        # Initialize both team creators
+        # Initialize team creators
         self.api_team_creator = APITeamCreator(self.config)
-        self.llm_team_creator = LLMTeamCreator(self.config)
         
-        # Legacy ILP solver for backward compatibility
-        self.ilp_solver = ILPSolver(self.config)
+        # Initialize comprehensive team manager
+        self.team_manager = FPLTeamManager(self.config)
+        
+
     
     def fetch_data(self, sample_size: int = 50) -> Dict[str, Any]:
         """Fetch player data without optimization"""
@@ -97,28 +111,31 @@ class FPLOptimizer:
             raise
     
     def create_team_llm(self, budget: float = 100.0, gameweek: Optional[int] = None) -> Dict[str, Any]:
-        """Create team using LLM-based expert insights approach"""
+        """Create team using comprehensive LLM-based approach with FPL integration"""
         
         try:
-            logger.info("Creating team using LLM-based expert insights approach...")
+            logger.info("Creating team using comprehensive LLM-based approach...")
             
-            # Use LLM team creator
-            result = self.llm_team_creator.create_team_from_scratch(budget, gameweek)
+            # Use comprehensive team manager
+            result = self.team_manager.create_team(budget, gameweek or 1)
             
-            # Get additional data for display
-            data = get_test_data(self.config, sample_size=500)
-            
-            logger.info("LLM-based team creation completed successfully!")
+            logger.info("Comprehensive LLM-based team creation completed successfully!")
             return {
-                'method': 'LLM-based Expert Insights',
-                'optimization_result': result,
-                'players': data['players'],
-                'teams': data['teams'],
-                'summary': data['summary']
+                'method': 'Comprehensive LLM-based Team Creation',
+                'team_data': result
             }
             
         except Exception as e:
-            logger.error(f"LLM-based team creation failed: {e}")
+            logger.error(f"Comprehensive LLM-based team creation failed: {e}")
+            # If it's a ValueError with the LLM response, extract and show it
+            if isinstance(e, ValueError) and "LLM failed to generate a valid team" in str(e):
+                error_msg = str(e)
+                llm_response = error_msg.split("Response: ", 1)[1] if "Response: " in error_msg else "No response available"
+                print(f"\n" + "="*80)
+                print("LLM RESPONSE (FAILED TO PARSE)")
+                print("="*80)
+                print(llm_response)
+                print("="*80)
             raise
     
     def get_weekly_recommendations_api(self, current_team: FPLTeam, 
@@ -172,10 +189,8 @@ class FPLOptimizer:
         try:
             logger.info("Generating weekly recommendations using LLM-based approach...")
             
-            # Use LLM team creator for comprehensive weekly analysis
-            recommendations = self.llm_team_creator.get_weekly_recommendations(
-                current_team, free_transfers, gameweek
-            )
+            # Use comprehensive team manager for weekly analysis
+            recommendations = self.team_manager.update_team_weekly(gameweek)
             
             # Add method identifier
             recommendations['method'] = 'LLM-based Expert Insights'
@@ -187,52 +202,22 @@ class FPLOptimizer:
             logger.error(f"LLM-based weekly recommendations failed: {e}")
             raise
     
-    def compare_approaches(self, current_team: Optional[FPLTeam] = None, 
-                         budget: float = 100.0,
-                         gameweek: Optional[int] = None) -> Dict[str, Any]:
-        """Compare both team creation approaches side by side"""
-        
-        try:
-            logger.info("Comparing API-based and LLM-based approaches...")
-            
-            # Create teams using both approaches
-            if current_team:
-                # Weekly recommendations comparison
-                api_result = self.get_weekly_recommendations_api(current_team, 1)
-                llm_result = self.get_weekly_recommendations_llm(current_team, 1, gameweek)
-                
-                comparison = {
-                    'comparison_type': 'Weekly Recommendations',
-                    'api_approach': api_result,
-                    'llm_approach': llm_result,
-                    'differences': self._analyze_recommendation_differences(api_result, llm_result)
-                }
-            else:
-                # Team creation comparison
-                api_result = self.create_team_api(budget, 500)
-                llm_result = self.create_team_llm(budget, gameweek)
-                
-                comparison = {
-                    'comparison_type': 'Team Creation',
-                    'api_approach': api_result,
-                    'llm_approach': llm_result,
-                    'differences': self._analyze_team_differences(api_result, llm_result)
-                }
-            
-            comparison['generated_at'] = datetime.now().isoformat()
-            
-            logger.info("Approach comparison completed successfully!")
-            return comparison
-            
-        except Exception as e:
-            logger.error(f"Approach comparison failed: {e}")
-            raise
+
     
-    # Legacy method for backward compatibility
-    def optimize_team(self, sample_size: int = 50) -> Dict[str, Any]:
-        """Legacy optimize team method - now uses API approach"""
-        logger.info("Using legacy optimize_team method - redirecting to API approach...")
-        return self.create_team_api(100.0, sample_size)
+
+    
+
+    
+    def update_team_weekly_comprehensive(self, gameweek: Optional[int] = None) -> Dict[str, Any]:
+        """Update the current FPL team weekly using the comprehensive LLM team manager"""
+        try:
+            logger.info(f"Updating team weekly for gameweek {gameweek or 'current'}...")
+            result = self.team_manager.update_team_weekly(gameweek)
+            logger.info("Weekly team update completed successfully!")
+            return result
+        except Exception as e:
+            logger.error(f"Weekly team update failed: {e}")
+            raise
     
     # Helper methods
     
@@ -247,49 +232,7 @@ class FPLOptimizer:
         
         return "Unknown"
     
-    def _analyze_recommendation_differences(self, api_result: Dict[str, Any], 
-                                         llm_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze differences between API and LLM recommendations"""
-        differences = {
-            'transfer_count_difference': (
-                len(llm_result['transfers']['recommended_transfers']) - 
-                len(api_result['transfers']['recommended_transfers'])
-            ),
-            'confidence_difference': (
-                llm_result['overall_confidence'] - api_result['overall_confidence']
-            ),
-            'captain_agreement': (
-                api_result['captaincy']['captain_name'] == llm_result['captaincy']['captain_name']
-            ),
-            'wildcard_agreement': (
-                api_result['wildcard']['should_use_wildcard'] == 
-                llm_result['wildcard']['should_use_wildcard']
-            )
-        }
-        
-        return differences
-    
-    def _analyze_team_differences(self, api_result: Dict[str, Any], 
-                                llm_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze differences between API and LLM team creation"""
-        api_players = set(p.name for p in api_result['optimization_result'].selected_players)
-        llm_players = set(p.name for p in llm_result['optimization_result'].selected_players)
-        
-        differences = {
-            'common_players': len(api_players.intersection(llm_players)),
-            'unique_to_api': list(api_players - llm_players),
-            'unique_to_llm': list(llm_players - api_players),
-            'confidence_difference': (
-                llm_result['optimization_result'].confidence - 
-                api_result['optimization_result'].confidence
-            ),
-            'expected_points_difference': (
-                llm_result['optimization_result'].expected_points - 
-                api_result['optimization_result'].expected_points
-            )
-        }
-        
-        return differences
+
 
 
 def main():
@@ -298,8 +241,8 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'create-api', 'create-llm', 'weekly-api', 'weekly-llm', 
-        'compare', 'optimize'  # optimize kept for backward compatibility
+        'fetch', 'create-api', 'create-team-llm', 'weekly-api', 'weekly-llm', 
+        'update-team'
     ], help='Command to run')
     
     # Common arguments
@@ -332,10 +275,15 @@ def main():
             result = optimizer.create_team_api(args.budget, args.sample_size)
             display_team_creation_result(result)
             
-        elif args.command == 'create-llm':
-            # Create team using LLM approach
+        elif args.command == 'create-team-llm':
+            # Create team using comprehensive LLM approach
             result = optimizer.create_team_llm(args.budget, args.gameweek)
-            display_team_creation_result(result)
+            display_comprehensive_team_result(result)
+            
+        elif args.command == 'update-team':
+            # Update team weekly using comprehensive LLM team manager
+            result = optimizer.update_team_weekly_comprehensive(args.gameweek)
+            display_comprehensive_team_result(result)
             
         elif args.command == 'weekly-api':
             # Weekly recommendations using API approach
@@ -349,16 +297,9 @@ def main():
             result = optimizer.get_weekly_recommendations_llm(current_team, args.free_transfers, args.gameweek)
             display_weekly_recommendations(result)
             
-        elif args.command == 'compare':
-            # Compare both approaches
-            current_team = load_team_from_file(args.team_file) if args.team_file else None
-            result = optimizer.compare_approaches(current_team, args.budget, args.gameweek)
-            display_comparison_result(result)
+
             
-        elif args.command == 'optimize':
-            # Legacy command - use API approach
-            result = optimizer.optimize_team(args.sample_size)
-            display_team_creation_result(result)
+
         
     except Exception as e:
         logger.error(f"Command failed: {e}")
@@ -405,6 +346,86 @@ def display_player_data(result):
         print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {player.form:<6.1f} {player.total_points:<10} {xpts:<6.1f} {xg:<6.3f} {xa:<6.3f}")
     
     print(f"\nData fetch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+def display_comprehensive_team_result(result):
+    """Display comprehensive team creation/update results"""
+    print("\n" + "="*80)
+    print("FPL COMPREHENSIVE TEAM RESULT")
+    print("="*80)
+    
+    # Check if this is a team_data result (from create-team-llm) or a direct result
+    if isinstance(result, dict) and 'team_data' in result:
+        # This is from create-team-llm, show the LLM response
+        print(f"\n" + "="*80)
+        print("LLM RESPONSE")
+        print("="*80)
+        print("Method: " + result.get('method', 'Unknown'))
+        
+        team_data = result['team_data']
+        
+        # Display basic team info
+        print(f"\nCaptain: {team_data.get('captain', 'Not set')}")
+        print(f"Vice Captain: {team_data.get('vice_captain', 'Not set')}")
+        print(f"Total Cost: £{team_data.get('total_cost', 0):.1f}m")
+        print(f"Bank: £{team_data.get('bank', 0):.1f}m")
+        print(f"Expected Points: {team_data.get('expected_points', 0):.1f}")
+        
+        # Show raw LLM response if available
+        if 'raw_llm_response' in team_data:
+            print(f"\n" + "="*80)
+            print("RAW LLM RESPONSE")
+            print("="*80)
+            print(team_data['raw_llm_response'])
+            print("="*80)
+    else:
+        # Direct result (from update-team)
+        print(f"\nCaptain: {result.get('captain', 'Not set')}")
+        print(f"Vice Captain: {result.get('vice_captain', 'Not set')}")
+        print(f"Total Cost: £{result.get('total_cost', 0):.1f}m")
+        print(f"Bank: £{result.get('bank', 0):.1f}m")
+        print(f"Expected Points: {result.get('expected_points', 0):.1f}")
+    
+    # Display chip/wildcard usage if present
+    if 'wildcard_or_chip' in result and result['wildcard_or_chip']:
+        print(f"Chip/Wildcard Used: {result['wildcard_or_chip']}")
+    
+    # Display transfers if present
+    if 'transfers' in result and result['transfers']:
+        print(f"\n" + "="*60)
+        print("TRANSFERS")
+        print("="*60)
+        for transfer in result['transfers']:
+            print(f"OUT: {transfer.get('out', 'Unknown')}")
+            print(f"IN:  {transfer.get('in', 'Unknown')}")
+            if 'reason' in transfer:
+                print(f"Reason: {transfer['reason']}")
+            print("-" * 40)
+    
+    # Display starting 11
+    if 'team' in result and 'starting' in result['team']:
+        print(f"\n" + "="*80)
+        print("STARTING 11")
+        print("="*80)
+        print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6}")
+        print("-" * 80)
+        
+        for player in result['team']['starting']:
+            print(f"{player.get('name', 'Unknown'):<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f}")
+    
+    # Display substitutes
+    if 'team' in result and 'substitutes' in result['team']:
+        print(f"\n" + "="*80)
+        print("SUBSTITUTES")
+        print("="*80)
+        print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Sub Order':<10}")
+        print("-" * 80)
+        
+        for player in result['team']['substitutes']:
+            sub_order = player.get('sub_order', 'GK')
+            print(f"{player.get('name', 'Unknown'):<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f} {sub_order:<10}")
+    
+    print(f"\nComprehensive team operation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 def display_team_creation_result(result):
@@ -505,55 +526,7 @@ def display_weekly_recommendations(result):
     print(f"Generated at: {result['generated_at']}")
 
 
-def display_comparison_result(result):
-    """Display comparison between API and LLM approaches"""
-    print("\n" + "="*100)
-    print(f"APPROACH COMPARISON - {result['comparison_type']}")
-    print("="*100)
-    
-    print(f"\n{'API-based Approach':<50} {'LLM-based Approach':<50}")
-    print("-" * 100)
-    
-    api_result = result['api_approach']
-    llm_result = result['llm_approach']
-    
-    if result['comparison_type'] == 'Team Creation':
-        # Team creation comparison
-        api_players = len(api_result['optimization_result'].selected_players)
-        llm_players = len(llm_result['optimization_result'].selected_players)
-        
-        print(f"{'Players Selected: ' + str(api_players):<50} {'Players Selected: ' + str(llm_players):<50}")
-        print(f"{'Expected Points: ' + str(api_result['optimization_result'].expected_points):<50} {'Expected Points: ' + str(llm_result['optimization_result'].expected_points):<50}")
-        print(f"{'Confidence: ' + str(api_result['optimization_result'].confidence):<50} {'Confidence: ' + str(llm_result['optimization_result'].confidence):<50}")
-        
-        # Show differences
-        differences = result['differences']
-        print(f"\n" + "="*80)
-        print("DIFFERENCES ANALYSIS")
-        print("="*80)
-        print(f"Common players: {differences['common_players']}")
-        print(f"Unique to API: {len(differences['unique_to_api'])}")
-        print(f"Unique to LLM: {len(differences['unique_to_llm'])}")
-        
-    else:
-        # Weekly recommendations comparison
-        api_transfers = len(api_result['transfers']['recommended_transfers'])
-        llm_transfers = len(llm_result['transfers']['recommended_transfers'])
-        
-        print(f"{'Transfers: ' + str(api_transfers):<50} {'Transfers: ' + str(llm_transfers):<50}")
-        print(f"{'Captain: ' + api_result['captaincy']['captain_name']:<50} {'Captain: ' + llm_result['captaincy']['captain_name']:<50}")
-        print(f"{'Wildcard: ' + str(api_result['wildcard']['should_use_wildcard']):<50} {'Wildcard: ' + str(llm_result['wildcard']['should_use_wildcard']):<50}")
-        
-        # Show agreement analysis
-        differences = result['differences']
-        print(f"\n" + "="*80)
-        print("AGREEMENT ANALYSIS")
-        print("="*80)
-        print(f"Captain Agreement: {'YES' if differences['captain_agreement'] else 'NO'}")
-        print(f"Wildcard Agreement: {'YES' if differences['wildcard_agreement'] else 'NO'}")
-        print(f"Transfer Count Difference: {differences['transfer_count_difference']}")
-    
-    print(f"\nComparison completed at: {result['generated_at']}")
+
 
 
 def load_team_from_file(file_path: str) -> FPLTeam:

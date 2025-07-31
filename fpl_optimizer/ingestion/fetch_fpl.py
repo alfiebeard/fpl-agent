@@ -69,6 +69,32 @@ class FPLDataFetcher:
         logger.info(f"Fetching FPL team {team_id} transfers...")
         return self._make_request(f"entry/{team_id}/transfers/")
     
+    def get_user_team(self, team_id: int) -> Dict[str, Any]:
+        """Get current user team data"""
+        logger.info(f"Fetching FPL user team {team_id}...")
+        return self._make_request(f"entry/{team_id}/event/")
+    
+    def get_user_team_picks(self, team_id: int, gameweek: int) -> Dict[str, Any]:
+        """Get user team picks for a specific gameweek"""
+        logger.info(f"Fetching FPL team {team_id} picks for gameweek {gameweek}...")
+        return self._make_request(f"entry/{team_id}/event/{gameweek}/picks/")
+    
+    def get_user_chips(self, team_id: int) -> List[Dict[str, Any]]:
+        """Get user chips usage"""
+        logger.info(f"Fetching FPL team {team_id} chips...")
+        history = self.get_team_history(team_id)
+        return history.get('chips', [])
+    
+    def get_user_team_value(self, team_id: int) -> Dict[str, Any]:
+        """Get user team value information"""
+        logger.info(f"Fetching FPL team {team_id} value...")
+        team_data = self.get_team_data(team_id)
+        return {
+            'team_value': team_data.get('summary_overall_points', 0),
+            'bank': team_data.get('summary_event_points', 0),
+            'total_value': team_data.get('summary_overall_rank', 0)
+        }
+    
     def parse_players(self, bootstrap_data: Dict[str, Any]) -> List[Player]:
         """Parse players from bootstrap data"""
         players = []
