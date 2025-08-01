@@ -98,6 +98,8 @@ class FPLOptimizer:
             
             # Import here to avoid circular imports
             from .ingestion.fetch_fpl import FPLDataFetcher
+            from .utils.data_transformers import transform_fpl_data_to_teams
+            from .models import Position
             
             # Initialize FPL fetcher
             fpl_fetcher = FPLDataFetcher(self.config)
@@ -106,13 +108,24 @@ class FPLOptimizer:
             logger.info("Fetching FPL bootstrap data...")
             bootstrap_data = fpl_fetcher.get_bootstrap_data()
             
-            # Parse players
-            logger.info("Parsing player data...")
-            all_players = fpl_fetcher.parse_players(bootstrap_data)
+            # Use data transformer to get rich player data
+            logger.info("Transforming data with rich player information...")
+            filters = {
+                'exclude_injured': False,      # Include all players for display
+                'exclude_unavailable': False,  # Include all players for display
+                'min_chance_of_playing': 0,    # Include all players
+                'min_minutes': 0,              # Include all players
+                'max_price': float('inf'),     # No price limit
+                'min_form': float('-inf'),     # No form minimum
+                'positions': [Position.GK, Position.DEF, Position.MID, Position.FWD]
+            }
             
-            # Parse teams
-            logger.info("Parsing team data...")
-            teams = fpl_fetcher.parse_teams(bootstrap_data)
+            teams = transform_fpl_data_to_teams(bootstrap_data, filters)
+            
+            # Extract all players from teams
+            all_players = []
+            for team_summary in teams.values():
+                all_players.extend(team_summary.players)
             
             # Apply limit if specified
             if limit and limit > 0:
@@ -121,8 +134,6 @@ class FPLOptimizer:
             else:
                 players = all_players
                 logger.info(f"Using all {len(players)} players")
-            
-            # No xPts calculation needed for simple data fetch
             
             # Create summary
             position_distribution = {}
@@ -149,14 +160,14 @@ class FPLOptimizer:
                 'total_teams': len(teams),
                 'position_distribution': position_distribution,
                 'price_range_distribution': price_range_distribution,
-                'data_source': 'FPL API',
+                'data_source': 'FPL API (with rich data)',
                 'fetched_at': datetime.now().isoformat()
             }
             
             logger.info("FPL data fetch completed successfully!")
             return {
                 'players': players,
-                'teams': teams,
+                'teams': [team_summary.team for team_summary in teams.values()],
                 'summary': summary
             }
             
@@ -339,6 +350,10 @@ def main():
     parser.add_argument('--team-file', type=str,
                        help='Path to JSON file containing current team data')
     
+    # Debug options
+    parser.add_argument('--show-prompt', action='store_true',
+                       help='Show the LLM prompt without executing (for debugging)')
+    
     args = parser.parse_args()
     
     try:
@@ -361,8 +376,18 @@ def main():
             
         elif args.command == 'create-team-llm':
             # Create team using comprehensive LLM approach
-            result = optimizer.create_team_llm(args.budget, args.gameweek)
-            display_comprehensive_team_result(result)
+            if args.show_prompt:
+                # Show the prompt without executing
+                prompt = optimizer.llm_strategy._create_team_creation_prompt(args.budget, args.gameweek or 1)
+                print("\n" + "="*80)
+                print("LLM TEAM CREATION PROMPT (DEBUG MODE)")
+                print("="*80)
+                print(prompt)
+                print("="*80)
+            else:
+                # Execute normally
+                result = optimizer.create_team_llm(args.budget, args.gameweek)
+                display_comprehensive_team_result(result)
             
         elif args.command == 'update-team':
             # Update team weekly using comprehensive LLM team manager
@@ -422,8 +447,10 @@ def display_player_data(result):
     print("="*120)
     
     # Header
-    print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Form':<6} {'Total Pts':<10} {'Pts/Game':<8} {'Selected %':<10}")
-    print("-" * 100)
+    print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Chance':<6} {'Form':<6} {'Total Pts':<10} {'Pts/Game':<8} {'Selected %':<10}")
+    print("-" * 110)
+    print("Note: 'Chance' shows likelihood of playing this gameweek (100% = Available during off-season)")
+    print("-" * 110)
     
     # Sort players: club alphabetically, then position (GK, DEF, MID, FWD), then player name alphabetically
     position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
@@ -431,7 +458,14 @@ def display_player_data(result):
                           key=lambda p: (p.team_name, position_order[p.position.value], p.name))
     
     for player in sorted_players:
-        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {player.form:<6.1f} {player.total_points:<10} {player.points_per_game:<8.1f} {player.selected_by_pct:<10.1f}")
+        # Get chance of playing from custom_data
+        chance_of_playing = player.custom_data.get('chance_of_playing')
+        if chance_of_playing is None:
+            chance_str = "100%"  # Available (default during off-season)
+        else:
+            chance_str = f"{chance_of_playing}%"
+        
+        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {chance_str:<6} {player.form:<6.1f} {player.total_points:<10} {player.points_per_game:<8.1f} {player.selected_by_pct:<10.1f}")
     
     print(f"\nData fetch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 

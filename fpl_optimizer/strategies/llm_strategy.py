@@ -9,6 +9,8 @@ from typing import Dict, Optional, Any
 from ..config import Config
 from ..ingestion.fetch_fpl import FPLDataFetcher
 from .llm_engine import LLMEngine
+from ..utils.data_transformers import transform_fpl_data_to_teams
+from ..models import Position
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,66 @@ class LLMStrategy:
         
         if not self.team_id:
             logger.warning("No FPL team ID configured. Weekly updates will not work.")
+    
+    def _get_available_players_data(self) -> str:
+        """
+        Get available players data formatted for LLM prompts.
+        
+        Returns:
+            String containing all available players organized by team
+        """
+        logger.info("Fetching and formatting available players data...")
+        
+        try:
+            # Fetch FPL data
+            bootstrap_data = self.fpl_fetcher.get_bootstrap_data()
+            
+            # Apply filters for available players only
+            filters = {
+                'exclude_injured': True,      # Exclude injured players
+                'exclude_unavailable': True,  # Exclude unavailable players
+                'min_chance_of_playing': 25,  # Only players with >25% chance of playing
+                'min_minutes': 0,             # Include all players regardless of minutes
+                'max_price': float('inf'),    # No price limit
+                'min_form': float('-inf'),    # No form minimum
+                'positions': [Position.GK, Position.DEF, Position.MID, Position.FWD]  # All positions
+            }
+            
+            # Transform data
+            teams = transform_fpl_data_to_teams(bootstrap_data, filters)
+            
+            # Format the data
+            formatted_data = []
+            
+            for team_name, team_summary in sorted(teams.items()):
+                formatted_data.append(team_name.upper())
+                
+                # Sort players by position (GK, DEF, MID, FWD) then by total points
+                position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
+                sorted_players = sorted(
+                    team_summary.players, 
+                    key=lambda p: (position_order.get(p.position.value, 4), -p.total_points)
+                )
+                
+                for player in sorted_players:
+                    # Get chance of playing as raw percentage (or "100%" if missing during off-season)
+                    chance_of_playing = player.custom_data.get('chance_of_playing')
+                    if chance_of_playing is None:
+                        chance_str = "100%"  # Available (default during off-season)
+                    else:
+                        chance_str = f"{chance_of_playing}%"
+                    
+                    formatted_data.append(
+                        f"{player.name}, {player.position.value}, £{player.price}, {chance_str}"
+                    )
+                
+                formatted_data.append("")  # Empty line between teams
+            
+            return "\n".join(formatted_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to get available players data: {e}")
+            return "Error: Could not fetch player data"
     
     def create_team(self, budget: float = 100.0, gameweek: int = 1) -> Dict[str, Any]:
         """
@@ -114,6 +176,10 @@ class LLMStrategy:
     
     def _create_team_creation_prompt(self, budget: float, gameweek: int) -> str:
         """Create the team creation prompt"""
+        
+        # Get available players data
+        players_data = self._get_available_players_data()
+        
         return f"""You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
 You must strictly follow all official FPL rules and constraints when building the team:
@@ -131,6 +197,11 @@ You must strictly follow all official FPL rules and constraints when building th
     * 1 to 3 forwards
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
+
+The list of teams, their available players, the players positions, their costs and their likelihood of playing are below. You must select the players from this list:
+{players_data}
+
+If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
 Once the squad is selected:
 1. Choose a starting 11 based on expected Gameweek {gameweek} performance and the upcoming gameweeks.
@@ -172,6 +243,9 @@ Ensure the team meets all FPL rules and constraints before returning the output.
         # Format available chips
         chips_str = self._format_chips_for_prompt(chips_data)
         
+        # Get available players data
+        players_data = self._get_available_players_data()
+        
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {team_str}
 
@@ -187,6 +261,11 @@ Evaluate your team using the latest information available. Consider:
 * Insights from expert sources, fantasy blogs, forums, news sites, and tipsters
 
 Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
+
+The list of teams, their available players, the players positions, their costs and their likelihood of playing are below. You must select the players from this list:
+{players_data}
+
+If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
 Transfer rules:
 * You have {transfers_data.get('free_transfers', 1)} free transfers this week.
