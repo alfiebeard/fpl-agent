@@ -16,7 +16,7 @@ try:
     from .ingestion import get_test_data
 
     from .models import Player, Team, Position, FPLTeam
-    from .team_creators import ModelTeamCreator, FPLManager
+    from .strategies import ModelStrategy, LLMStrategy
 except ImportError:
     # When run directly (python fpl_optimizer/main.py)
     # Add the parent directory to the path
@@ -25,7 +25,7 @@ except ImportError:
     from fpl_optimizer.ingestion import get_test_data
 
     from fpl_optimizer.models import Player, Team, Position, FPLTeam
-    from fpl_optimizer.team_creators import ModelTeamCreator, FPLManager
+    from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
 
 
 # Configure logging
@@ -47,11 +47,11 @@ class FPLOptimizer:
         """Initialize the FPL Optimizer"""
         self.config = Config(config_path)
         
-        # Initialize team creators
-        self.model_team_creator = ModelTeamCreator(self.config)
+        # Initialize strategies
+        self.model_strategy = ModelStrategy(self.config)
         
-        # Initialize comprehensive team manager
-        self.team_manager = FPLManager(self.config)
+        # Initialize LLM strategy
+        self.llm_strategy = LLMStrategy(self.config)
         
 
     
@@ -71,7 +71,7 @@ class FPLOptimizer:
             
             # Calculate expected points using model method
             logger.info("Calculating expected points...")
-            player_xpts = self.model_team_creator._calculate_comprehensive_xpts(players)
+            player_xpts = self.model_strategy._calculate_comprehensive_xpts(players)
             
             logger.info("Data fetch completed successfully!")
             return {
@@ -91,8 +91,8 @@ class FPLOptimizer:
         try:
             logger.info("Creating team using model-based statistical approach...")
             
-            # Use model team creator
-            result = self.model_team_creator.create_team_from_scratch(budget)
+            # Use model strategy
+            result = self.model_strategy.create_team_from_scratch(budget)
             
             # Get additional data for display
             data = get_test_data(self.config, sample_size)
@@ -116,8 +116,8 @@ class FPLOptimizer:
         try:
             logger.info("Creating team using comprehensive LLM-based approach...")
             
-            # Use comprehensive team manager
-            result = self.team_manager.create_team(budget, gameweek or 1)
+            # Use LLM strategy
+            result = self.llm_strategy.create_team(budget, gameweek or 1)
             
             logger.info("Comprehensive LLM-based team creation completed successfully!")
             return {
@@ -146,15 +146,15 @@ class FPLOptimizer:
             logger.info("Generating weekly recommendations using model-based approach...")
             
             # Get transfer suggestions
-            transfer_result = self.model_team_creator.suggest_weekly_transfers(
+            transfer_result = self.model_strategy.suggest_weekly_transfers(
                 current_team, free_transfers
             )
             
             # Get captain selections
-            captain_id, vice_captain_id = self.model_team_creator.select_captain_and_vice(current_team)
+            captain_id, vice_captain_id = self.model_strategy.select_captain_and_vice(current_team)
             
             # Get wildcard analysis
-            wildcard_analysis = self.model_team_creator.analyze_wildcard_usage(current_team)
+            wildcard_analysis = self.model_strategy.analyze_wildcard_usage(current_team)
             
             recommendations = {
                 'method': 'Model-based Statistical Analysis',
@@ -212,7 +212,7 @@ class FPLOptimizer:
         """Update the current FPL team weekly using the comprehensive LLM team manager"""
         try:
             logger.info(f"Updating team weekly for gameweek {gameweek or 'current'}...")
-            result = self.team_manager.update_team_weekly(gameweek)
+            result = self.llm_strategy.update_team_weekly(gameweek)
             logger.info("Weekly team update completed successfully!")
             return result
         except Exception as e:

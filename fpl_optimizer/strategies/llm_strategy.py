@@ -4,16 +4,8 @@ FPL team manager using LLM for comprehensive team management
 
 import logging
 import json
-import os
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
+from typing import Dict, Optional, Any
 
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
-
-from ..models import FPLTeam, Position, OptimizationResult
 from ..config import Config
 from ..ingestion.fetch_fpl import FPLDataFetcher
 from .llm_engine import LLMEngine
@@ -21,14 +13,14 @@ from .llm_engine import LLMEngine
 logger = logging.getLogger(__name__)
 
 
-class FPLManager:
+class LLMStrategy:
     """
-    Comprehensive FPL team manager using LLM for team creation and weekly updates.
+    LLM-based strategy for FPL team creation and weekly management.
     
     This class handles:
-    - Team creation for Gameweek 1
-    - Weekly team updates and transfers
-    - Chip and wildcard management
+    - Team creation for Gameweek 1 using LLM analysis
+    - Weekly team updates and transfers using LLM insights
+    - Chip and wildcard management with LLM recommendations
     - Integration with FPL API for current team data
     """
     

@@ -14,7 +14,7 @@ from ..ingestion import get_test_data
 logger = logging.getLogger(__name__)
 
 
-class ModelTeamCreator:
+class ModelStrategy:
     """
     Model-driven team creator using statistical analysis, xPts, and optimization algorithms.
     
