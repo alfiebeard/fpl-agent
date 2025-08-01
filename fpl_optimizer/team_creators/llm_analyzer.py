@@ -8,10 +8,7 @@ import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
+from google import genai
 
 from ..models import Player, FPLTeam, Position
 from ..config import Config
