@@ -67,8 +67,6 @@ class LLMEngine:
             logger.error(f"Failed to initialize Gemini model: {e}")
             return None
     
-
-    
     def _query_gemini_with_search(self, prompt: str) -> str:
         """Query Gemini with web search enabled"""
         try:
