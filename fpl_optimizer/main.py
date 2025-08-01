@@ -47,14 +47,12 @@ class FPLOptimizer:
         """Initialize the FPL Optimizer"""
         self.config = Config(config_path)
         
-        # Initialize strategies
+        # Initialize model strategy (always needed)
         self.model_strategy = ModelStrategy(self.config)
         
-        # Initialize LLM strategy
-        self.llm_strategy = LLMStrategy(self.config)
+        # LLM strategy will be initialized lazily when needed
+        self._llm_strategy = None
         
-
-    
     def fetch_data(self, sample_size: int = 50) -> Dict[str, Any]:
         """Fetch player data without optimization"""
         
@@ -83,6 +81,87 @@ class FPLOptimizer:
             
         except Exception as e:
             logger.error(f"Data fetch failed: {e}")
+            raise
+    
+    @property
+    def llm_strategy(self):
+        """Lazy initialization of LLM strategy"""
+        if self._llm_strategy is None:
+            self._llm_strategy = LLMStrategy(self.config)
+        return self._llm_strategy
+    
+    def fetch_fpl_players(self, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Fetch real FPL player data from the API"""
+        
+        try:
+            logger.info("Starting FPL API data fetch...")
+            
+            # Import here to avoid circular imports
+            from .ingestion.fetch_fpl import FPLDataFetcher
+            
+            # Initialize FPL fetcher
+            fpl_fetcher = FPLDataFetcher(self.config)
+            
+            # Get bootstrap data
+            logger.info("Fetching FPL bootstrap data...")
+            bootstrap_data = fpl_fetcher.get_bootstrap_data()
+            
+            # Parse players
+            logger.info("Parsing player data...")
+            all_players = fpl_fetcher.parse_players(bootstrap_data)
+            
+            # Parse teams
+            logger.info("Parsing team data...")
+            teams = fpl_fetcher.parse_teams(bootstrap_data)
+            
+            # Apply limit if specified
+            if limit and limit > 0:
+                players = all_players[:limit]
+                logger.info(f"Limited to {limit} players out of {len(all_players)} total")
+            else:
+                players = all_players
+                logger.info(f"Using all {len(players)} players")
+            
+            # No xPts calculation needed for simple data fetch
+            
+            # Create summary
+            position_distribution = {}
+            price_range_distribution = {}
+            
+            for player in players:
+                # Position distribution
+                pos = player.position.value
+                position_distribution[pos] = position_distribution.get(pos, 0) + 1
+                
+                # Price range distribution
+                if player.price <= 5.0:
+                    price_range = "£0-5m"
+                elif player.price <= 7.5:
+                    price_range = "£5-7.5m"
+                elif player.price <= 10.0:
+                    price_range = "£7.5-10m"
+                else:
+                    price_range = "£10m+"
+                price_range_distribution[price_range] = price_range_distribution.get(price_range, 0) + 1
+            
+            summary = {
+                'total_players': len(players),
+                'total_teams': len(teams),
+                'position_distribution': position_distribution,
+                'price_range_distribution': price_range_distribution,
+                'data_source': 'FPL API',
+                'fetched_at': datetime.now().isoformat()
+            }
+            
+            logger.info("FPL data fetch completed successfully!")
+            return {
+                'players': players,
+                'teams': teams,
+                'summary': summary
+            }
+            
+        except Exception as e:
+            logger.error(f"FPL data fetch failed: {e}")
             raise
     
     def create_team_model(self, budget: float = 100.0, sample_size: int = 500) -> Dict[str, Any]:
@@ -241,13 +320,13 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
+        'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
         'update-team'
     ], help='Command to run')
     
     # Common arguments
-    parser.add_argument('--sample-size', type=int, default=50, 
-                       help='Number of players to sample (default: 50)')
+    parser.add_argument('--sample-size', type=int, default=0, 
+                       help='Number of players to sample/limit (default: 0 = all players, specify number to limit)')
     parser.add_argument('--config', type=str, help='Path to config file')
     parser.add_argument('--budget', type=float, default=100.0,
                        help='Team budget in millions (default: 100.0)')
@@ -268,6 +347,11 @@ def main():
         if args.command == 'fetch':
             # Just fetch and display data
             result = optimizer.fetch_data(args.sample_size)
+            display_player_data(result)
+            
+        elif args.command == 'fetch-fpl-players':
+            # Fetch real FPL data from API
+            result = optimizer.fetch_fpl_players(args.sample_size)
             display_player_data(result)
             
         elif args.command == 'create-model':
@@ -318,6 +402,12 @@ def display_player_data(result):
     print(f"  Players: {summary['total_players']}")
     print(f"  Teams: {summary['total_teams']}")
     
+    # Show data source if available
+    if 'data_source' in summary:
+        print(f"  Data Source: {summary['data_source']}")
+    if 'fetched_at' in summary:
+        print(f"  Fetched At: {summary['fetched_at']}")
+    
     print(f"\nPosition Distribution:")
     for pos, count in summary['position_distribution'].items():
         print(f"  {pos}: {count}")
@@ -332,18 +422,16 @@ def display_player_data(result):
     print("="*120)
     
     # Header
-    print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Form':<6} {'Total Pts':<10} {'xPts':<6} {'xG':<6} {'xA':<6}")
-    print("-" * 120)
+    print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Form':<6} {'Total Pts':<10} {'Pts/Game':<8} {'Selected %':<10}")
+    print("-" * 100)
     
-    # Sort players by expected points
-    sorted_players = sorted(result['players'], key=lambda p: result['player_xpts'].get(p.id, 0), reverse=True)
+    # Sort players: club alphabetically, then position (GK, DEF, MID, FWD), then player name alphabetically
+    position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
+    sorted_players = sorted(result['players'], 
+                          key=lambda p: (p.team_name, position_order[p.position.value], p.name))
     
     for player in sorted_players:
-        xpts = result['player_xpts'].get(player.id, 0)
-        xg = getattr(player, 'xG', 0)
-        xa = getattr(player, 'xA', 0)
-        
-        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {player.form:<6.1f} {player.total_points:<10} {xpts:<6.1f} {xg:<6.3f} {xa:<6.3f}")
+        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {player.form:<6.1f} {player.total_points:<10} {player.points_per_game:<8.1f} {player.selected_by_pct:<10.1f}")
     
     print(f"\nData fetch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
