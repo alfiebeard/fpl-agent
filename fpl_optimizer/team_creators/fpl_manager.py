@@ -1,5 +1,5 @@
 """
-Comprehensive LLM team manager for FPL using Gemini's web search
+FPL team manager using LLM for comprehensive team management
 """
 
 import logging
@@ -16,14 +16,14 @@ except ImportError:
 from ..models import FPLTeam, Position, OptimizationResult
 from ..config import Config
 from ..ingestion.fetch_fpl import FPLDataFetcher
-from .llm_analyzer import FPLLLMAnalyzer
+from .llm_engine import LLMEngine
 
 logger = logging.getLogger(__name__)
 
 
-class FPLTeamManager:
+class FPLManager:
     """
-    Comprehensive FPL team manager using Gemini's web search for both team creation and weekly updates.
+    Comprehensive FPL team manager using LLM for team creation and weekly updates.
     
     This class handles:
     - Team creation for Gameweek 1
@@ -35,7 +35,7 @@ class FPLTeamManager:
     def __init__(self, config: Config):
         self.config = config
         self.fpl_fetcher = FPLDataFetcher(config)
-        self.llm_analyzer = FPLLLMAnalyzer(config)
+        self.llm_engine = LLMEngine(config)
         self.team_id = config.get('fpl.team_id')
         
         if not self.team_id:
@@ -59,7 +59,7 @@ class FPLTeamManager:
         # Get LLM response
         logger.info("Querying LLM for team creation...")
         try:
-            response = self.llm_analyzer._query_gemini_with_search(prompt)
+            response = self.llm_engine._query_gemini_with_search(prompt)
             logger.info(f"LLM Response received (length: {len(response)})")
             logger.debug(f"LLM Response preview: {response[:500]}...")
         except Exception as e:
@@ -112,7 +112,7 @@ class FPLTeamManager:
         )
         
         # Get LLM response
-        response = self.llm_analyzer._query_gemini_with_search(prompt)
+        response = self.llm_engine._query_gemini_with_search(prompt)
         
         # Parse and validate the response
         team_data = self._parse_team_response(response)

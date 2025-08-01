@@ -1,5 +1,5 @@
 """
-API-based team creator using statistical analysis and xPts calculations
+Model-based team creator using statistical analysis and xPts calculations
 """
 
 import logging
@@ -14,9 +14,9 @@ from ..ingestion import get_test_data
 logger = logging.getLogger(__name__)
 
 
-class APITeamCreator:
+class ModelTeamCreator:
     """
-    API-driven team creator using statistical analysis, xPts, and optimization algorithms.
+    Model-driven team creator using statistical analysis, xPts, and optimization algorithms.
     
     This approach focuses on:
     - Real-time FPL API data
@@ -36,7 +36,7 @@ class APITeamCreator:
     
     def create_team_from_scratch(self, budget: float = 100.0) -> OptimizationResult:
         """
-        Create a completely new team from scratch using API data and statistical analysis.
+        Create a completely new team from scratch using model data and statistical analysis.
         
         Args:
             budget: Available budget in millions
@@ -44,7 +44,7 @@ class APITeamCreator:
         Returns:
             OptimizationResult with selected team and analysis
         """
-        logger.info("Creating team from scratch using API-based approach...")
+        logger.info("Creating team from scratch using model-based approach...")
         
         try:
             # Fetch all available players
@@ -93,7 +93,7 @@ class APITeamCreator:
         Returns:
             OptimizationResult with suggested transfers
         """
-        logger.info("Generating weekly transfer suggestions using API-based approach...")
+        logger.info("Generating weekly transfer suggestions using model-based approach...")
         
         try:
             # Fetch latest player data

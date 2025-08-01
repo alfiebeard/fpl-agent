@@ -54,25 +54,11 @@ xpts:
 
 # LLM Configuration
 llm:
-  provider: "gemini"  # "gemini", "openai", or "anthropic" - Gemini has the best free tier
-  model: "gemini-2.5-pro"  # Fast and generous free tier
-  api_key: null  # Set via environment variable GEMINI_API_KEY
-  max_tokens: 1000000
-  temperature: 0.7
-  
-  # Gemini-specific settings
-  gemini:
-    safety_settings:
-      harassment: "BLOCK_NONE"
-      hate_speech: "BLOCK_NONE"
-      sexually_explicit: "BLOCK_NONE"
-      dangerous_content: "BLOCK_NONE"
-    generation_config:
-      candidate_count: 1
-      max_output_tokens: 4000
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 40
+  model: "gemini-2.5-pro"  # Thinking and web search
+  max_output_tokens: 2048
+  temperature: 0.3
+  top_p: 0.8
+  top_k: 25
 
 # Logging Configuration
 logging:

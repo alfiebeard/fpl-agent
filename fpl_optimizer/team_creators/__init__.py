@@ -2,10 +2,10 @@
 Team creation package for FPL Optimizer
 """
 
-from .api_team_creator import APITeamCreator
-from .llm_team_manager import FPLTeamManager
+from .model_team_creator import ModelTeamCreator
+from .fpl_manager import FPLManager
 
 __all__ = [
-    "APITeamCreator",
-    "FPLTeamManager"
+    "ModelTeamCreator",
+    "FPLManager"
 ]

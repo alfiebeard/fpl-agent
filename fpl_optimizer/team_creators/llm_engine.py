@@ -1,5 +1,5 @@
 """
-Simplified LLM analyzer for FPL team creation using Gemini's web search
+LLM engine for FPL team creation using Gemini's web search
 """
 
 import logging
@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from google import genai
+from google.genai import types
+
 
 from ..models import Player, FPLTeam, Position
 from ..config import Config
@@ -16,47 +18,54 @@ from ..config import Config
 logger = logging.getLogger(__name__)
 
 
-class FPLLLMAnalyzer:
+class LLMEngine:
     """
-    Simplified LLM-powered analyzer for FPL team creation using Gemini's web search.
+    Core LLM engine for FPL team creation using Gemini's web search.
     
-    This class uses Google Gemini to:
-    - Search the web for current FPL insights and expert tips
-    - Analyze player data and form
-    - Create optimized FPL teams based on current information
-    - Provide reasoning for selections
+    This class handles:
+    - Gemini API initialization and configuration
+    - Web search integration for current FPL insights
+    - LLM response parsing and validation
+    - Core LLM communication functionality
     """
     
     def __init__(self, config: Config):
         self.config = config
         self.llm_config = config.get_llm_config()
-        self.model_name = self.llm_config.get('model', 'gemini-1.5-flash')
-        self.max_tokens = self.llm_config.get('max_tokens', 4000)
-        self.temperature = self.llm_config.get('temperature', 0.7)
-        
-        # Initialize Gemini client
-        self.client = self._initialize_gemini_client()
-    
-    def _initialize_gemini_client(self):
-        """Initialize the Gemini client"""
-        api_key = self.llm_config.get('api_key')
-        if not api_key:
-            api_key = self.config.get_env_var('GEMINI_API_KEY')
-        
-        if not api_key:
-            logger.error("No Gemini API key found")
-            return None
+        self.model_name = self.llm_config.get('model', 'gemini-2.5-pro')
+
+        # Initialize Gemini client and search config
+        self.model = self._initialize_gemini_model()
+
+    def _initialize_gemini_model(self):
+        """Initialize the Gemini client and search config"""
+        api_key = self.config.get_env_var('GEMINI_API_KEY')
         
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(
-                model_name=self.model_name,
-                generation_config={
-                    'temperature': self.temperature,
-                    'max_output_tokens': self.max_tokens,
-                }
+            client = genai.Client(api_key=api_key)
+
+            # Define the grounding tool
+            grounding_tool = types.Tool(
+                google_search=types.GoogleSearch()
             )
-            return model
+
+            # Configure generation settings
+            generation_config = types.GenerateContentConfig(
+                tools=[grounding_tool],
+                generation_config=types.GenerationConfig(
+                    temperature=self.llm_config.get('temperature'),
+                    max_output_tokens=self.llm_config.get('max_output_tokens'),
+                    top_p=self.llm_config.get('top_p'),
+                    top_k=self.llm_config.get('top_k')
+                )
+            )
+            
+            # Return the model
+            return client.GenerativeModel(
+                model_name=self.model_name,
+                generation_config=generation_config
+            )
+
         except Exception as e:
             logger.error(f"Failed to initialize Gemini model: {e}")
             return None
@@ -75,7 +84,7 @@ class FPLLLMAnalyzer:
         Returns:
             Dictionary with team selection and reasoning
         """
-        if not self.client:
+        if not self.model:
             logger.error("Gemini client not available")
             return self._fallback_team_creation(available_players, budget)
         
@@ -166,7 +175,7 @@ Base your recommendations on current web search results for the latest FPL insig
         """Query Gemini with web search enabled"""
         try:
             # Use Gemini's built-in web search (enabled at model level)
-            response = self.client.generate_content(prompt)
+            response = self.model.generate_content(prompt)
             return response.text
         except Exception as e:
             logger.error(f"Failed to query Gemini: {e}")

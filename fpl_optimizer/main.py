@@ -16,7 +16,7 @@ try:
     from .ingestion import get_test_data
 
     from .models import Player, Team, Position, FPLTeam
-    from .team_creators import APITeamCreator, FPLTeamManager
+    from .team_creators import ModelTeamCreator, FPLManager
 except ImportError:
     # When run directly (python fpl_optimizer/main.py)
     # Add the parent directory to the path
@@ -25,7 +25,7 @@ except ImportError:
     from fpl_optimizer.ingestion import get_test_data
 
     from fpl_optimizer.models import Player, Team, Position, FPLTeam
-    from fpl_optimizer.team_creators import APITeamCreator, FPLTeamManager
+    from fpl_optimizer.team_creators import ModelTeamCreator, FPLManager
 
 
 # Configure logging
@@ -48,10 +48,10 @@ class FPLOptimizer:
         self.config = Config(config_path)
         
         # Initialize team creators
-        self.api_team_creator = APITeamCreator(self.config)
+        self.model_team_creator = ModelTeamCreator(self.config)
         
         # Initialize comprehensive team manager
-        self.team_manager = FPLTeamManager(self.config)
+        self.team_manager = FPLManager(self.config)
         
 
     
@@ -69,9 +69,9 @@ class FPLOptimizer:
             
             logger.info(f"Fetched {len(players)} players and {len(teams)} teams")
             
-            # Calculate expected points using API method
+            # Calculate expected points using model method
             logger.info("Calculating expected points...")
-            player_xpts = self.api_team_creator._calculate_comprehensive_xpts(players)
+            player_xpts = self.model_team_creator._calculate_comprehensive_xpts(players)
             
             logger.info("Data fetch completed successfully!")
             return {
@@ -85,21 +85,21 @@ class FPLOptimizer:
             logger.error(f"Data fetch failed: {e}")
             raise
     
-    def create_team_api(self, budget: float = 100.0, sample_size: int = 500) -> Dict[str, Any]:
-        """Create team using API-based statistical approach"""
+    def create_team_model(self, budget: float = 100.0, sample_size: int = 500) -> Dict[str, Any]:
+        """Create team using model-based statistical approach"""
         
         try:
-            logger.info("Creating team using API-based statistical approach...")
+            logger.info("Creating team using model-based statistical approach...")
             
-            # Use API team creator
-            result = self.api_team_creator.create_team_from_scratch(budget)
+            # Use model team creator
+            result = self.model_team_creator.create_team_from_scratch(budget)
             
             # Get additional data for display
             data = get_test_data(self.config, sample_size)
             
-            logger.info("API-based team creation completed successfully!")
+            logger.info("Model-based team creation completed successfully!")
             return {
-                'method': 'API-based Statistical Analysis',
+                'method': 'Model-based Statistical Analysis',
                 'optimization_result': result,
                 'players': data['players'],
                 'teams': data['teams'],
@@ -107,7 +107,7 @@ class FPLOptimizer:
             }
             
         except Exception as e:
-            logger.error(f"API-based team creation failed: {e}")
+            logger.error(f"Model-based team creation failed: {e}")
             raise
     
     def create_team_llm(self, budget: float = 100.0, gameweek: Optional[int] = None) -> Dict[str, Any]:
@@ -138,26 +138,26 @@ class FPLOptimizer:
                 print("="*80)
             raise
     
-    def get_weekly_recommendations_api(self, current_team: FPLTeam, 
+    def get_weekly_recommendations_model(self, current_team: FPLTeam, 
                                      free_transfers: int = 1) -> Dict[str, Any]:
-        """Get weekly recommendations using API-based approach"""
+        """Get weekly recommendations using model-based approach"""
         
         try:
-            logger.info("Generating weekly recommendations using API-based approach...")
+            logger.info("Generating weekly recommendations using model-based approach...")
             
             # Get transfer suggestions
-            transfer_result = self.api_team_creator.suggest_weekly_transfers(
+            transfer_result = self.model_team_creator.suggest_weekly_transfers(
                 current_team, free_transfers
             )
             
             # Get captain selections
-            captain_id, vice_captain_id = self.api_team_creator.select_captain_and_vice(current_team)
+            captain_id, vice_captain_id = self.model_team_creator.select_captain_and_vice(current_team)
             
             # Get wildcard analysis
-            wildcard_analysis = self.api_team_creator.analyze_wildcard_usage(current_team)
+            wildcard_analysis = self.model_team_creator.analyze_wildcard_usage(current_team)
             
             recommendations = {
-                'method': 'API-based Statistical Analysis',
+                'method': 'Model-based Statistical Analysis',
                 'transfers': {
                     'recommended_transfers': transfer_result.transfers,
                     'reasoning': transfer_result.reasoning,
@@ -174,7 +174,7 @@ class FPLOptimizer:
                 'generated_at': datetime.now().isoformat()
             }
             
-            logger.info("API-based weekly recommendations completed successfully!")
+            logger.info("Model-based weekly recommendations completed successfully!")
             return recommendations
             
         except Exception as e:
@@ -241,7 +241,7 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'create-api', 'create-team-llm', 'weekly-api', 'weekly-llm', 
+        'fetch', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
         'update-team'
     ], help='Command to run')
     
@@ -270,9 +270,9 @@ def main():
             result = optimizer.fetch_data(args.sample_size)
             display_player_data(result)
             
-        elif args.command == 'create-api':
-            # Create team using API approach
-            result = optimizer.create_team_api(args.budget, args.sample_size)
+        elif args.command == 'create-model':
+            # Create team using model approach
+            result = optimizer.create_team_model(args.budget, args.sample_size)
             display_team_creation_result(result)
             
         elif args.command == 'create-team-llm':
@@ -285,10 +285,10 @@ def main():
             result = optimizer.update_team_weekly_comprehensive(args.gameweek)
             display_comprehensive_team_result(result)
             
-        elif args.command == 'weekly-api':
-            # Weekly recommendations using API approach
+        elif args.command == 'weekly-model':
+            # Weekly recommendations using model approach
             current_team = load_team_from_file(args.team_file) if args.team_file else create_sample_team()
-            result = optimizer.get_weekly_recommendations_api(current_team, args.free_transfers)
+            result = optimizer.get_weekly_recommendations_model(current_team, args.free_transfers)
             display_weekly_recommendations(result)
             
         elif args.command == 'weekly-llm':
