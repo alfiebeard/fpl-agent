@@ -209,6 +209,15 @@ Once the squad is selected:
 3. Select a captain with the highest expected points and a strong fixture.
 4. Select a vice-captain who is a reliable starter with good expected value.
 
+IMPORTANT: For each player selection, provide a clear, detailed reason explaining:
+- Why this player was selected (form, fixtures, value, etc.)
+- For starting players: Why they are in the starting 11
+- For substitutes: Why they are on the bench and their sub order priority
+- For captain: Why they are the best captain choice (fixtures, form, reliability)
+- For vice-captain: Why they are the best vice-captain choice
+
+Base your reasoning on the latest expert tips, community insights, and statistical analysis you've researched.
+
 Return the team in the following JSON format:
 
 {{
@@ -219,19 +228,53 @@ Return the team in the following JSON format:
   "expected_points": 65.0,
   "team": {{
     "starting": [
-      {{ "name": "Player 1", "position": "MID", "price": 8.5, "team": "Arsenal" }},
+      {{ 
+        "name": "Player 1", 
+        "position": "MID", 
+        "price": 8.5, 
+        "team": "Arsenal",
+        "reason": "Detailed explanation of why this player was selected for the starting 11, including form, fixtures, value, and expert recommendations"
+      }},
       ...
     ],
     "substitutes": [
-      {{ "name": "Sub 1", "position": "DEF", "price": 4.5, "team": "Brentford", "sub_order": 1 }},
-      {{ "name": "Sub 2", "position": "MID", "price": 5.0, "team": "Burnley", "sub_order": 2 }},
-      {{ "name": "Sub 3", "position": "FWD", "price": 5.5, "team": "Wolves", "sub_order": 3 }},
-      {{ "name": "Backup Goalkeeper", "position": "GK", "price": 4.0, "team": "Sheffield Utd", "sub_order": null }}
+      {{ 
+        "name": "Sub 1", 
+        "position": "DEF", 
+        "price": 4.5, 
+        "team": "Brentford", 
+        "sub_order": 1,
+        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+      }},
+      {{ 
+        "name": "Sub 2", 
+        "position": "MID", 
+        "price": 5.0, 
+        "team": "Burnley", 
+        "sub_order": 2,
+        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+      }},
+      {{ 
+        "name": "Sub 3", 
+        "position": "FWD", 
+        "price": 5.5, 
+        "team": "Wolves", 
+        "sub_order": 3,
+        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+      }},
+      {{ 
+        "name": "Backup Goalkeeper", 
+        "position": "GK", 
+        "price": 4.0, 
+        "team": "Sheffield Utd", 
+        "sub_order": null,
+        "reason": "Detailed explanation of why this goalkeeper was selected as backup"
+      }}
     ]
   }}
 }}
 
-Ensure the team meets all FPL rules and constraints before returning the output."""
+Ensure the team meets all FPL rules and constraints before returning the output. Each player must have a detailed, informative reason for their selection."""
     
     def _create_weekly_update_prompt(self, current_team: Dict, gameweek: int, 
                                    chips_data: Dict, transfers_data: Dict) -> str:
@@ -294,33 +337,80 @@ After completing your analysis:
     * Bench ordered by expected points
     * Captain and vice-captain optimised for expected value
 
+IMPORTANT: For each decision, provide clear, detailed reasoning explaining:
+- **Transfers**: Why each transfer is being made (form, fixtures, injuries, value, etc.)
+- **Chip usage**: Why a chip should be used (or not used) this gameweek
+- **Captain/Vice-captain**: Why they are the best choices for this gameweek
+- **Starting 11**: Why each player is in the starting lineup
+- **Substitutes**: Why each player is on the bench and their sub order priority
+- **Formation**: Why this formation is optimal for the current fixtures
+
+Base your reasoning on the latest expert tips, community insights, and statistical analysis you've researched.
+
 Return your updated squad in this JSON format:
 
 {{
   "wildcard_or_chip": null,  // or "wildcard", "bench_boost", "free_hit", "triple_captain"
+  "chip_reason": "Detailed explanation of why this chip is being used (or why no chip is needed)",
   "transfers": [
     {{
       "out": "Player Out Name",
       "in": "Player In Name",
-      "reason": "Optional short explanation for the transfer"
+      "reason": "Detailed explanation of why this transfer is being made, including form, fixtures, injuries, value, and expert recommendations"
     }}
     // Multiple allowed if using wildcard or taking points hit
   ],
   "captain": "CAPTAIN NAME",
   "vice_captain": "VICE CAPTAIN NAME",
+  "captain_reason": "Detailed explanation of why this player is the best captain choice for this gameweek",
+  "vice_captain_reason": "Detailed explanation of why this player is the best vice-captain choice for this gameweek",
   "total_cost": 99.9,
   "bank": 0.1,
   "expected_points": 66.7,
   "team": {{
     "starting": [
-      {{ "name": "Player 1", "position": "DEF", "price": 5.5, "team": "Chelsea" }},
+      {{ 
+        "name": "Player 1", 
+        "position": "DEF", 
+        "price": 5.5, 
+        "team": "Chelsea",
+        "reason": "Detailed explanation of why this player is in the starting 11 for this gameweek, including form, fixtures, and tactical considerations"
+      }},
       ...
     ],
     "substitutes": [
-      {{ "name": "Sub 1", "position": "MID", "price": 5.0, "team": "Brentford", "sub_order": 1 }},
-      {{ "name": "Sub 2", "position": "DEF", "price": 4.0, "team": "Luton", "sub_order": 2 }},
-      {{ "name": "Sub 3", "position": "FWD", "price": 5.5, "team": "Crystal Palace", "sub_order": 3 }},
-      {{ "name": "Backup Goalkeeper", "position": "GK", "price": 4.0, "team": "Burnley", "sub_order": null }}
+      {{ 
+        "name": "Sub 1", 
+        "position": "MID", 
+        "price": 5.0, 
+        "team": "Brentford", 
+        "sub_order": 1,
+        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+      }},
+      {{ 
+        "name": "Sub 2", 
+        "position": "DEF", 
+        "price": 4.0, 
+        "team": "Luton", 
+        "sub_order": 2,
+        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+      }},
+      {{ 
+        "name": "Sub 3", 
+        "position": "FWD", 
+        "price": 5.5, 
+        "team": "Crystal Palace", 
+        "sub_order": 3,
+        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+      }},
+      {{ 
+        "name": "Backup Goalkeeper", 
+        "position": "GK", 
+        "price": 4.0, 
+        "team": "Burnley", 
+        "sub_order": null,
+        "reason": "Detailed explanation of why this goalkeeper is the backup choice"
+      }}
     ]
   }}
 }}
@@ -330,8 +420,6 @@ Ensure the final team meets all FPL constraints before submitting:
 * 15 total players: 2 goalkeepers, 5 defenders, 5 midfielders, 3 forwards
 * Max 3 players from any single club
 * Valid formation for starting 11 (1GK, 3–5 DEF, 2–5 MID, 1–3 FWD)"""
-    
-
     
     def _format_current_team_for_prompt(self, team_data: Dict) -> str:
         """Format current team data for the prompt"""

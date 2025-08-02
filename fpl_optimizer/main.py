@@ -469,7 +469,12 @@ def main():
                         'starting': saved_team_data.get('squad', {}).get('starting_11', []),
                         'substitutes': saved_team_data.get('squad', {}).get('substitutes', [])
                     },
-                    'raw_llm_response': saved_team_data.get('raw_llm_response', '')
+                    'raw_llm_response': saved_team_data.get('raw_llm_response', ''),
+                    # Add reasoning fields
+                    'captain_reason': saved_team_data.get('reasoning', {}).get('captain_reason', ''),
+                    'vice_captain_reason': saved_team_data.get('reasoning', {}).get('vice_captain_reason', ''),
+                    'chip_reason': saved_team_data.get('reasoning', {}).get('chip_reason', ''),
+                    'transfers': saved_team_data.get('reasoning', {}).get('transfers', [])
                 }
                 
                 display_comprehensive_team_result({'team_data': team_data})
@@ -576,6 +581,11 @@ def display_comprehensive_team_result(result):
         print(f"Bank: £{team_data.get('bank', 0):.1f}m")
         print(f"Expected Points: {team_data.get('expected_points', 0):.1f}")
         
+        # Display team reasoning summary
+        print(f"\n" + "="*80)
+        print("TEAM SELECTION REASONING")
+        print("="*80)
+        
         # Show raw LLM response if available
         if 'raw_llm_response' in team_data:
             print(f"\n" + "="*80)
@@ -593,42 +603,82 @@ def display_comprehensive_team_result(result):
     
     # Display chip/wildcard usage if present
     if 'wildcard_or_chip' in result and result['wildcard_or_chip']:
-        print(f"Chip/Wildcard Used: {result['wildcard_or_chip']}")
+        print(f"\n" + "="*80)
+        print("CHIP/WILDCARD USAGE")
+        print("="*80)
+        print(f"Chip Used: {result['wildcard_or_chip']}")
+        if 'chip_reason' in result:
+            print(f"Reason: {result['chip_reason']}")
+        print("="*80)
     
     # Display transfers if present
     if 'transfers' in result and result['transfers']:
-        print(f"\n" + "="*60)
+        print(f"\n" + "="*80)
         print("TRANSFERS")
-        print("="*60)
+        print("="*80)
         for transfer in result['transfers']:
             print(f"OUT: {transfer.get('out', 'Unknown')}")
             print(f"IN:  {transfer.get('in', 'Unknown')}")
             if 'reason' in transfer:
                 print(f"Reason: {transfer['reason']}")
-            print("-" * 40)
+            print("-" * 80)
+    
+    # Display captaincy reasoning if present
+    if 'captain_reason' in result or 'vice_captain_reason' in result:
+        print(f"\n" + "="*80)
+        print("CAPTAINCY REASONING")
+        print("="*80)
+        if 'captain_reason' in result:
+            print(f"Captain ({result.get('captain', 'Unknown')}): {result['captain_reason']}")
+        if 'vice_captain_reason' in result:
+            print(f"Vice Captain ({result.get('vice_captain', 'Unknown')}): {result['vice_captain_reason']}")
+        print("="*80)
+    
+    # Get the correct team data structure
+    team_data_to_display = None
+    if isinstance(result, dict) and 'team_data' in result:
+        team_data_to_display = result['team_data']
+    else:
+        team_data_to_display = result
     
     # Display starting 11
-    if 'team' in result and 'starting' in result['team']:
+    if 'team' in team_data_to_display and 'starting' in team_data_to_display['team']:
         print(f"\n" + "="*80)
         print("STARTING 11")
         print("="*80)
         print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6}")
         print("-" * 80)
         
-        for player in result['team']['starting']:
-            print(f"{player.get('name', 'Unknown'):<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f}")
+        for player in team_data_to_display['team']['starting']:
+            captain_marker = " (C)" if player.get('name') == team_data_to_display.get('captain') else ""
+            vice_marker = " (VC)" if player.get('name') == team_data_to_display.get('vice_captain') else ""
+            markers = captain_marker + vice_marker
+            print(f"{player.get('name', 'Unknown') + markers:<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f}")
+            
+            # Display reasoning if available
+            if 'reason' in player:
+                print(f"  └─ {player['reason']}")
+        
+        print("-" * 80)
     
     # Display substitutes
-    if 'team' in result and 'substitutes' in result['team']:
+    if 'team' in team_data_to_display and 'substitutes' in team_data_to_display['team']:
         print(f"\n" + "="*80)
         print("SUBSTITUTES")
         print("="*80)
         print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Sub Order':<10}")
         print("-" * 80)
         
-        for player in result['team']['substitutes']:
+        for player in team_data_to_display['team']['substitutes']:
             sub_order = player.get('sub_order', 'GK')
-            print(f"{player.get('name', 'Unknown'):<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f} {sub_order:<10}")
+            sub_order_str = str(sub_order) if sub_order is not None else 'GK'
+            print(f"{player.get('name', 'Unknown'):<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f} {sub_order_str:<10}")
+            
+            # Display reasoning if available
+            if 'reason' in player:
+                print(f"  └─ {player['reason']}")
+        
+        print("-" * 80)
     
     print(f"\nComprehensive team operation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -781,6 +831,12 @@ def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None
             "free_transfers": 1,
             "transfer_hits": 0,
             "transfers_made": []
+        },
+        "reasoning": {
+            "captain_reason": team_data.get('captain_reason', ''),
+            "vice_captain_reason": team_data.get('vice_captain_reason', ''),
+            "chip_reason": team_data.get('chip_reason', ''),
+            "transfers": []
         }
     }
     
@@ -794,7 +850,8 @@ def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None
                 "price": player.get('price', 0.0),
                 "is_captain": player.get('name') == team_data.get('captain'),
                 "is_vice_captain": player.get('name') == team_data.get('vice_captain'),
-                "is_starting": True
+                "is_starting": True,
+                "reason": player.get('reason', '')
             }
             fpl_team_data["squad"]["starting_11"].append(fpl_player)
     
@@ -807,9 +864,21 @@ def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None
                 "team": player.get('team'),
                 "price": player.get('price', 0.0),
                 "sub_order": player.get('sub_order'),
-                "is_starting": False
+                "is_starting": False,
+                "reason": player.get('reason', '')
             }
             fpl_team_data["squad"]["substitutes"].append(fpl_player)
+    
+    # Process transfers with reasoning
+    if 'transfers' in team_data and team_data['transfers']:
+        for transfer in team_data['transfers']:
+            transfer_data = {
+                "out": transfer.get('out'),
+                "in": transfer.get('in'),
+                "reason": transfer.get('reason', '')
+            }
+            fpl_team_data["reasoning"]["transfers"].append(transfer_data)
+            fpl_team_data["transfers"]["transfers_made"].append(transfer_data)
     
     # Add raw LLM response for reference
     if 'raw_llm_response' in team_data:
