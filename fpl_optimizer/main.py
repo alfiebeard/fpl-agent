@@ -5,6 +5,7 @@ Main FPL Optimizer application - Enhanced with dual team creation methods
 import logging
 import sys
 import os
+import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import argparse
@@ -280,7 +281,7 @@ class FPLOptimizer:
             logger.info("Generating weekly recommendations using LLM-based approach...")
             
             # Use comprehensive team manager for weekly analysis
-            recommendations = self.team_manager.update_team_weekly(gameweek)
+            recommendations = self.llm_strategy.update_team_weekly(gameweek)
             
             # Add method identifier
             recommendations['method'] = 'LLM-based Expert Insights'
@@ -332,7 +333,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
-        'update-team'
+        'update-team', 'load-team', 'list-teams'
     ], help='Command to run')
     
     # Common arguments
@@ -349,6 +350,14 @@ def main():
     # Team file for weekly commands
     parser.add_argument('--team-file', type=str,
                        help='Path to JSON file containing current team data')
+    parser.add_argument('--latest-team', action='store_true',
+                       help='Use the most recently created team file')
+    
+    # Save options
+    parser.add_argument('--save-team', action='store_true',
+                       help='Save the created team to a JSON file')
+    parser.add_argument('--save-file', type=str,
+                       help='Specific file path to save team (if not provided, auto-generates filename)')
     
     # Debug options
     parser.add_argument('--show-prompt', action='store_true',
@@ -388,6 +397,20 @@ def main():
                 # Execute normally
                 result = optimizer.create_team_llm(args.budget, args.gameweek)
                 display_comprehensive_team_result(result)
+                
+                # Save team if requested
+                if args.save_team:
+                    try:
+                        team_data = result['team_data']
+                        saved_file = save_team_to_json(team_data, args.save_file)
+                        print(f"\n" + "="*80)
+                        print("TEAM SAVED")
+                        print("="*80)
+                        print(f"Team saved to: {saved_file}")
+                        print("="*80)
+                    except Exception as e:
+                        logger.error(f"Failed to save team: {e}")
+                        print(f"\nError saving team: {e}")
             
         elif args.command == 'update-team':
             # Update team weekly using comprehensive LLM team manager
@@ -396,15 +419,75 @@ def main():
             
         elif args.command == 'weekly-model':
             # Weekly recommendations using model approach
-            current_team = load_team_from_file(args.team_file) if args.team_file else create_sample_team()
+            team_file = args.team_file
+            if args.latest_team:
+                team_file = get_latest_team_file()
+                if team_file:
+                    print(f"Using latest team: {os.path.basename(team_file)}")
+            
+            current_team = load_team_from_file(team_file) if team_file else create_sample_team()
             result = optimizer.get_weekly_recommendations_model(current_team, args.free_transfers)
             display_weekly_recommendations(result)
             
         elif args.command == 'weekly-llm':
             # Weekly recommendations using LLM approach
-            current_team = load_team_from_file(args.team_file) if args.team_file else create_sample_team()
+            team_file = args.team_file
+            if args.latest_team:
+                team_file = get_latest_team_file()
+                if team_file:
+                    print(f"Using latest team: {os.path.basename(team_file)}")
+            
+            current_team = load_team_from_file(team_file) if team_file else create_sample_team()
             result = optimizer.get_weekly_recommendations_llm(current_team, args.free_transfers, args.gameweek)
             display_weekly_recommendations(result)
+            
+        elif args.command == 'load-team':
+            # Load and display a saved team
+            team_file = args.team_file
+            
+            if args.latest_team:
+                team_file = get_latest_team_file()
+                if not team_file:
+                    print("Error: No saved teams found")
+                    sys.exit(1)
+                print(f"Loading latest team: {os.path.basename(team_file)}")
+            elif not args.team_file:
+                print("Error: --team-file is required for load-team command (or use --latest-team)")
+                sys.exit(1)
+            
+            try:
+                saved_team_data = load_team_from_json(team_file)
+                
+                # Convert saved format back to the format expected by display function
+                team_data = {
+                    'captain': saved_team_data.get('team_info', {}).get('captain'),
+                    'vice_captain': saved_team_data.get('team_info', {}).get('vice_captain'),
+                    'total_cost': saved_team_data.get('team_info', {}).get('total_cost', 0.0),
+                    'bank': saved_team_data.get('team_info', {}).get('bank', 0.0),
+                    'expected_points': saved_team_data.get('team_info', {}).get('expected_points', 0.0),
+                    'team': {
+                        'starting': saved_team_data.get('squad', {}).get('starting_11', []),
+                        'substitutes': saved_team_data.get('squad', {}).get('substitutes', [])
+                    },
+                    'raw_llm_response': saved_team_data.get('raw_llm_response', '')
+                }
+                
+                display_comprehensive_team_result({'team_data': team_data})
+            except Exception as e:
+                logger.error(f"Failed to load team: {e}")
+                sys.exit(1)
+            
+        elif args.command == 'list-teams':
+            team_files = list_saved_teams()
+            if not team_files:
+                print("No saved teams found.")
+            else:
+                print("\n" + "="*80)
+                print("SAVED TEAMS")
+                print("="*80)
+                for file_path in team_files:
+                    print(f"- {os.path.basename(file_path)}")
+                print("="*80)
             
 
             
@@ -648,15 +731,184 @@ def display_weekly_recommendations(result):
     print(f"Generated at: {result['generated_at']}")
 
 
+def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None) -> str:
+    """
+    Save team data to a JSON file aligned with FPL API structure.
+    
+    Args:
+        team_data: Team data from LLM strategy
+        file_path: Optional file path, if not provided will generate one
+        
+    Returns:
+        Path to the saved file
+    """
+    if file_path is None:
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = f"fpl_team_{timestamp}.json"
+    
+    # Ensure output directory exists
+    output_dir = "output/teams"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # If only filename provided, prepend output directory
+    if not os.path.dirname(file_path):
+        file_path = os.path.join(output_dir, file_path)
+    
+    # Create FPL API-aligned structure
+    fpl_team_data = {
+        "team_info": {
+            "captain": team_data.get('captain'),
+            "vice_captain": team_data.get('vice_captain'),
+            "total_cost": team_data.get('total_cost', 0.0),
+            "bank": team_data.get('bank', 0.0),
+            "expected_points": team_data.get('expected_points', 0.0),
+            "created_at": datetime.now().isoformat(),
+            "gameweek": 1  # Default to GW1 for new teams
+        },
+        "squad": {
+            "starting_11": [],
+            "substitutes": []
+        },
+        "formation": [3, 4, 3],  # Default formation
+        "chips": {
+            "wildcard_used": False,
+            "free_hit_used": False,
+            "triple_captain_used": False,
+            "bench_boost_used": False
+        },
+        "transfers": {
+            "free_transfers": 1,
+            "transfer_hits": 0,
+            "transfers_made": []
+        }
+    }
+    
+    # Process starting 11
+    if 'team' in team_data and 'starting' in team_data['team']:
+        for player in team_data['team']['starting']:
+            fpl_player = {
+                "name": player.get('name'),
+                "position": player.get('position'),
+                "team": player.get('team'),
+                "price": player.get('price', 0.0),
+                "is_captain": player.get('name') == team_data.get('captain'),
+                "is_vice_captain": player.get('name') == team_data.get('vice_captain'),
+                "is_starting": True
+            }
+            fpl_team_data["squad"]["starting_11"].append(fpl_player)
+    
+    # Process substitutes
+    if 'team' in team_data and 'substitutes' in team_data['team']:
+        for player in team_data['team']['substitutes']:
+            fpl_player = {
+                "name": player.get('name'),
+                "position": player.get('position'),
+                "team": player.get('team'),
+                "price": player.get('price', 0.0),
+                "sub_order": player.get('sub_order'),
+                "is_starting": False
+            }
+            fpl_team_data["squad"]["substitutes"].append(fpl_player)
+    
+    # Add raw LLM response for reference
+    if 'raw_llm_response' in team_data:
+        fpl_team_data["raw_llm_response"] = team_data['raw_llm_response']
+    
+    # Save to file
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(fpl_team_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Team saved to: {file_path}")
+        return file_path
+        
+    except Exception as e:
+        logger.error(f"Failed to save team to {file_path}: {e}")
+        raise
 
+def load_team_from_json(file_path: str) -> Dict[str, Any]:
+    """
+    Load team data from a JSON file.
+    
+    Args:
+        file_path: Path to the JSON file
+        
+    Returns:
+        Team data dictionary
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            team_data = json.load(f)
+        
+        logger.info(f"Team loaded from: {file_path}")
+        return team_data
+        
+    except Exception as e:
+        logger.error(f"Failed to load team from {file_path}: {e}")
+        raise
 
 
 def load_team_from_file(file_path: str) -> FPLTeam:
-    """Load team from JSON file (placeholder implementation)"""
-    # This would load a real team from a JSON file
-    # For now, return a sample team
-    logger.warning(f"Team file loading not implemented. Using sample team instead.")
-    return create_sample_team()
+    """Load team from JSON file"""
+    try:
+        # Load the JSON data
+        team_data = load_team_from_json(file_path)
+        
+        # Convert to FPLTeam object
+        from .models import Player, Position
+        
+        players = []
+        
+        # Process starting 11
+        for player_data in team_data.get('squad', {}).get('starting_11', []):
+            player = Player(
+                id=len(players) + 1,  # Generate temporary ID
+                name=player_data['name'],
+                team_id=1,  # Will need to map team names to IDs
+                position=Position[player_data['position']],
+                price=player_data['price'],
+                team_name=player_data['team']
+            )
+            players.append(player)
+        
+        # Process substitutes
+        for player_data in team_data.get('squad', {}).get('substitutes', []):
+            player = Player(
+                id=len(players) + 1,  # Generate temporary ID
+                name=player_data['name'],
+                team_id=1,  # Will need to map team names to IDs
+                position=Position[player_data['position']],
+                price=player_data['price'],
+                team_name=player_data['team']
+            )
+            players.append(player)
+        
+        # Get captain and vice captain IDs
+        captain_id = None
+        vice_captain_id = None
+        for player in players:
+            if player.name == team_data.get('team_info', {}).get('captain'):
+                captain_id = player.id
+            elif player.name == team_data.get('team_info', {}).get('vice_captain'):
+                vice_captain_id = player.id
+        
+        return FPLTeam(
+            team_id=1,  # Default team ID
+            team_name="Loaded Team",
+            manager_name="Manager",
+            players=players,
+            captain_id=captain_id,
+            vice_captain_id=vice_captain_id,
+            total_value=team_data.get('team_info', {}).get('total_cost', 100.0),
+            bank=team_data.get('team_info', {}).get('bank', 0.0),
+            free_transfers=team_data.get('transfers', {}).get('free_transfers', 1)
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to load team from {file_path}: {e}")
+        logger.warning("Using sample team instead.")
+        return create_sample_team()
 
 
 def create_sample_team() -> FPLTeam:
@@ -680,6 +932,36 @@ def create_sample_team() -> FPLTeam:
         total_value=95.0,
         bank=5.0
     )
+
+def list_saved_teams() -> List[str]:
+    """
+    List all saved team files in the output directory.
+    
+    Returns:
+        List of team file paths
+    """
+    output_dir = "output/teams"
+    if not os.path.exists(output_dir):
+        return []
+    
+    team_files = []
+    for file in os.listdir(output_dir):
+        if file.endswith('.json'):
+            team_files.append(os.path.join(output_dir, file))
+    
+    # Sort by creation time (newest first)
+    team_files.sort(key=lambda x: os.path.getctime(x), reverse=True)
+    return team_files
+
+def get_latest_team_file() -> Optional[str]:
+    """
+    Get the most recently created team file.
+    
+    Returns:
+        Path to the latest team file, or None if no files exist
+    """
+    team_files = list_saved_teams()
+    return team_files[0] if team_files else None
 
 
 if __name__ == "__main__":

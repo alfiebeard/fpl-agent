@@ -226,3 +226,8 @@ pyrightconfig.json
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,visualstudiocode
+
+# FPL Optimizer specific
+output/
+# Ignore generated team files but allow config files
+output/teams/*.json

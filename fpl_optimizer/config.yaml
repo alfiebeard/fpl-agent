@@ -55,7 +55,7 @@ xpts:
 # LLM Configuration
 llm:
   model: "gemini-2.5-pro"  # Thinking and web search
-  max_output_tokens: 2048
+  max_output_tokens: 65536
   temperature: 0.3
   top_p: 0.8
   top_k: 25

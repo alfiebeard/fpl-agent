@@ -9,8 +9,6 @@ from typing import Dict, List, Any
 from google import genai
 from google.genai import types
 
-
-from ..models import Player, Position
 from ..config import Config
 
 logger = logging.getLogger(__name__)
@@ -49,19 +47,16 @@ class LLMEngine:
             # Configure generation settings
             generation_config = types.GenerateContentConfig(
                 tools=[grounding_tool],
-                generation_config=types.GenerationConfig(
-                    temperature=self.llm_config.get('temperature'),
-                    max_output_tokens=self.llm_config.get('max_output_tokens'),
-                    top_p=self.llm_config.get('top_p'),
-                    top_k=self.llm_config.get('top_k')
-                )
+                temperature=self.llm_config.get('temperature'),
+                max_output_tokens=self.llm_config.get('max_output_tokens'),
+                top_p=self.llm_config.get('top_p'),
+                top_k=self.llm_config.get('top_k')
             )
             
-            # Return the model
-            return client.GenerativeModel(
-                model_name=self.model_name,
-                generation_config=generation_config
-            )
+            # Store client and config for later use
+            self.client = client
+            self.generation_config = generation_config
+            return True
 
         except Exception as e:
             logger.error(f"Failed to initialize Gemini model: {e}")
@@ -71,7 +66,11 @@ class LLMEngine:
         """Query Gemini with web search enabled"""
         try:
             # Use Gemini's built-in web search (enabled at model level)
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=self.generation_config
+            )
             return response.text
         except Exception as e:
             logger.error(f"Failed to query Gemini: {e}")

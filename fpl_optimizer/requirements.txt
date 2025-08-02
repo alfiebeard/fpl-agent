@@ -11,14 +11,7 @@ pyyaml>=6.0
 python-dotenv>=1.0.0
 
 # LLM and AI
-openai>=1.0.0
-anthropic>=0.8.0
-google-generativeai>=0.3.0
-
-# Web scraping and search
-beautifulsoup4>=4.12.0
-selenium>=4.15.0
-duckduckgo-search>=3.9.0
+google-genai>=1.28.0
 
 # Utilities
 tqdm>=4.66.0
