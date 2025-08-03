@@ -6,11 +6,12 @@ import logging
 import json
 from typing import Dict, Optional, Any
 
-from ..config import Config
+from ..core.config import Config
 from ..ingestion.fetch_fpl import FPLDataFetcher
+from ..core.team_manager import TeamManager
 from .llm_engine import LLMEngine
 from ..utils.data_transformers import transform_fpl_data_to_teams
-from ..models import Position
+from ..core.models import Position
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,8 @@ class LLMStrategy:
     def __init__(self, config: Config):
         self.config = config
         self.fpl_fetcher = FPLDataFetcher(config)
+        self.team_manager = TeamManager()
         self.llm_engine = LLMEngine(config)
-        self.team_id = config.get('fpl.team_id')
-        
-        if not self.team_id:
-            logger.warning("No FPL team ID configured. Weekly updates will not work.")
     
     def _get_available_players_data(self) -> str:
         """
@@ -131,6 +129,9 @@ class LLMStrategy:
         
         logger.info(f"Team created successfully with {len(team_data['team']['starting'])} starting players")
         
+        # Save the team locally
+        self.team_manager.save_team(gameweek, team_data)
+        
         # Add the raw LLM response to the result for debugging
         team_data['raw_llm_response'] = response
         return team_data
@@ -145,34 +146,44 @@ class LLMStrategy:
         Returns:
             Dict containing the updated team in the specified JSON format
         """
-        if not self.team_id:
-            raise ValueError("FPL team ID not configured. Cannot update team.")
-        
         if gameweek is None:
             gameweek = self.fpl_fetcher.get_current_gameweek()
         
         logger.info(f"Updating team for Gameweek {gameweek}")
         
-        # Get current team data
-        current_team = self._get_current_team_data(gameweek)
+        # Check if previous team exists
+        previous_team = self.team_manager.get_previous_team(gameweek)
+        if not previous_team:
+            raise ValueError(f"No team data found for Gameweek {gameweek - 1}. Cannot update team for Gameweek {gameweek}.")
         
-        # Get available chips and transfers
-        chips_data = self._get_available_chips()
-        transfers_data = self._get_available_transfers()
-        
-        # Create the weekly update prompt
-        prompt = self._create_weekly_update_prompt(
-            current_team, gameweek, chips_data, transfers_data
-        )
-        
-        # Get LLM response
-        response = self.llm_engine._query_gemini_with_search(prompt)
-        
-        # Parse and validate the response
-        team_data = self._parse_team_response(response)
-        
-        logger.info(f"Team updated successfully for Gameweek {gameweek}")
-        return team_data
+        try:
+            # Get current team data from local storage
+            current_team = previous_team['team']
+            
+            # Get available chips and transfers (simplified for local management)
+            chips_data = self._get_available_chips_local(previous_team)
+            transfers_data = self._get_available_transfers_local(previous_team)
+            
+            # Create the weekly update prompt
+            prompt = self._create_weekly_update_prompt(
+                current_team, gameweek, chips_data, transfers_data
+            )
+            
+            # Get LLM response
+            response = self.llm_engine._query_gemini_with_search(prompt)
+            
+            # Parse and validate the response
+            team_data = self._parse_team_response(response)
+            
+            # Save the updated team
+            self.team_manager.save_team(gameweek, team_data)
+            
+            logger.info(f"Team updated successfully for Gameweek {gameweek}")
+            return team_data
+            
+        except Exception as e:
+            logger.error(f"Failed to update team for Gameweek {gameweek}: {e}")
+            raise
     
     def _create_team_creation_prompt(self, budget: float, gameweek: int) -> str:
         """Create the team creation prompt"""
@@ -462,37 +473,23 @@ Ensure the final team meets all FPL constraints before submitting:
     
 
     
-    def _get_current_team_data(self, gameweek: int) -> Dict[str, Any]:
-        """Get current team data for the specified gameweek"""
-        try:
-            return self.fpl_fetcher.get_user_team_picks(self.team_id, gameweek)
-        except Exception as e:
-            logger.error(f"Failed to get current team data: {e}")
-            return {}
+    def _get_available_chips_local(self, previous_team: Dict[str, Any]) -> Dict[str, Any]:
+        """Get available chips information from local team data"""
+        # For now, assume all chips are available
+        # In a more sophisticated implementation, you could track chip usage
+        return {
+            'used': [],
+            'available': ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
+        }
     
-    def _get_available_chips(self) -> Dict[str, Any]:
-        """Get available chips information"""
-        try:
-            chips = self.fpl_fetcher.get_user_chips(self.team_id)
-            return {
-                'used': chips,
-                'available': ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
-            }
-        except Exception as e:
-            logger.error(f"Failed to get chips data: {e}")
-            return {'used': [], 'available': []}
-    
-    def _get_available_transfers(self) -> Dict[str, Any]:
-        """Get available transfers information"""
-        try:
-            team_data = self.fpl_fetcher.get_team_data(self.team_id)
-            return {
-                'free_transfers': team_data.get('transfers', 1),
-                'bank': team_data.get('summary_event_points', 0)
-            }
-        except Exception as e:
-            logger.error(f"Failed to get transfers data: {e}")
-            return {'free_transfers': 1, 'bank': 0}
+    def _get_available_transfers_local(self, previous_team: Dict[str, Any]) -> Dict[str, Any]:
+        """Get available transfers information from local team data"""
+        # For now, assume 1 free transfer per week
+        # In a more sophisticated implementation, you could track transfer usage
+        return {
+            'free_transfers': 1,
+            'bank': previous_team['team'].get('bank', 0.0)
+        }
     
     def _parse_team_response(self, response: str) -> Dict[str, Any]:
         """Parse the LLM response into team data"""

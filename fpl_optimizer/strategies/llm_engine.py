@@ -9,7 +9,7 @@ from typing import Dict, List, Any
 from google import genai
 from google.genai import types
 
-from ..config import Config
+from ..core.config import Config
 
 logger = logging.getLogger(__name__)
 

@@ -5,15 +5,21 @@ FPL API data fetcher
 import requests
 import json
 import time
+import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import logging
 
-from ..models import Player, Team, Fixture, Gameweek, Position
-from ..config import Config
+from ..core.models import Player, Team, Fixture, Gameweek, Position
+from ..core.config import Config
 
 
 logger = logging.getLogger(__name__)
+
+
+class AuthenticationError(Exception):
+    """Raised when FPL authentication fails"""
+    pass
 
 
 class FPLDataFetcher:
@@ -24,9 +30,9 @@ class FPLDataFetcher:
         self.base_url = config.get('api.fpl_base_url', 'https://fantasy.premierleague.com/api')
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-        
+    
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Make a request to the FPL API"""
         url = f"{self.base_url}/{endpoint}"
@@ -53,48 +59,7 @@ class FPLDataFetcher:
         """Get data for a specific gameweek"""
         logger.info(f"Fetching FPL gameweek {gameweek} data...")
         return self._make_request(f"event/{gameweek}/live/")
-    
-    def get_team_data(self, team_id: int) -> Dict[str, Any]:
-        """Get data for a specific team"""
-        logger.info(f"Fetching FPL team {team_id} data...")
-        return self._make_request(f"entry/{team_id}/")
-    
-    def get_team_history(self, team_id: int) -> Dict[str, Any]:
-        """Get team history data"""
-        logger.info(f"Fetching FPL team {team_id} history...")
-        return self._make_request(f"entry/{team_id}/history/")
-    
-    def get_team_transfers(self, team_id: int) -> List[Dict[str, Any]]:
-        """Get team transfer history"""
-        logger.info(f"Fetching FPL team {team_id} transfers...")
-        return self._make_request(f"entry/{team_id}/transfers/")
-    
-    def get_user_team(self, team_id: int) -> Dict[str, Any]:
-        """Get current user team data"""
-        logger.info(f"Fetching FPL user team {team_id}...")
-        return self._make_request(f"entry/{team_id}/event/")
-    
-    def get_user_team_picks(self, team_id: int, gameweek: int) -> Dict[str, Any]:
-        """Get user team picks for a specific gameweek"""
-        logger.info(f"Fetching FPL team {team_id} picks for gameweek {gameweek}...")
-        return self._make_request(f"entry/{team_id}/event/{gameweek}/picks/")
-    
-    def get_user_chips(self, team_id: int) -> List[Dict[str, Any]]:
-        """Get user chips usage"""
-        logger.info(f"Fetching FPL team {team_id} chips...")
-        history = self.get_team_history(team_id)
-        return history.get('chips', [])
-    
-    def get_user_team_value(self, team_id: int) -> Dict[str, Any]:
-        """Get user team value information"""
-        logger.info(f"Fetching FPL team {team_id} value...")
-        team_data = self.get_team_data(team_id)
-        return {
-            'team_value': team_data.get('summary_overall_points', 0),
-            'bank': team_data.get('summary_event_points', 0),
-            'total_value': team_data.get('summary_overall_rank', 0)
-        }
-    
+     
     def parse_players(self, bootstrap_data: Dict[str, Any]) -> List[Player]:
         """Parse players from bootstrap data"""
         players = []

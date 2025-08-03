@@ -17,7 +17,7 @@ class Config:
         load_dotenv()  # Load environment variables from .env file
         
         if config_path is None:
-            config_path = Path(__file__).parent / "config.yaml"
+            config_path = Path(__file__).parent.parent / "config.yaml"
         
         self.config_path = Path(config_path)
         self._config = self._load_config()

@@ -57,9 +57,13 @@ OPENAI_API_KEY=your_openai_api_key_here
 # OR
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-# Optional FPL API credentials
+# FPL API credentials (required for private team data)
+FPL_EMAIL=your_fpl_email@example.com
+FPL_PASSWORD=your_fpl_password
 FPL_TEAM_ID=your_team_id
 ```
+
+**Note**: FPL credentials are required to access private team data (transfers, chips, team picks). Public data (players, fixtures, etc.) can be accessed without authentication.
 
 4. **Configuration**
 Edit `fpl_optimizer/config.yaml` to customize:
@@ -67,6 +71,14 @@ Edit `fpl_optimizer/config.yaml` to customize:
 - Web search parameters
 - Optimization constraints
 - Expert source preferences
+
+5. **Test Authentication**
+Test your FPL authentication setup:
+```bash
+python test_fpl_auth.py
+```
+
+This will verify that your credentials work and can access both public and private FPL data.
 
 ## 🎯 Usage
 

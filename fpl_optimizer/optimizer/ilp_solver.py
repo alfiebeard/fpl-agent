@@ -7,8 +7,8 @@ import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
 import logging
 
-from ..models import Player, FPLTeam, Position, OptimizationResult
-from ..config import Config
+from ..core.models import Player, FPLTeam, Position, OptimizationResult
+from ..core.config import Config
 
 
 logger = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ class ILPSolver:
                                        current_team: FPLTeam) -> OptimizationResult:
         """Extract solution with transfers from solved ILP problem"""
         
-        from ..models import Transfer
+        from ..core.models import Transfer
         
         # Get selected players
         selected_players = []

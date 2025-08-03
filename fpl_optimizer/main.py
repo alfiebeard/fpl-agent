@@ -13,19 +13,19 @@ import argparse
 # Handle imports for both direct execution and module execution
 try:
     # When run as module (python -m fpl_optimizer.main)
-    from .config import Config
+    from .core.config import Config
     from .ingestion import get_test_data
 
-    from .models import Player, Team, Position, FPLTeam
+    from .core.models import Player, Team, Position, FPLTeam
     from .strategies import ModelStrategy, LLMStrategy
 except ImportError:
     # When run directly (python fpl_optimizer/main.py)
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from fpl_optimizer.config import Config
+    from fpl_optimizer.core.config import Config
     from fpl_optimizer.ingestion import get_test_data
 
-    from fpl_optimizer.models import Player, Team, Position, FPLTeam
+    from fpl_optimizer.core.models import Player, Team, Position, FPLTeam
     from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
 
 
@@ -100,7 +100,7 @@ class FPLOptimizer:
             # Import here to avoid circular imports
             from .ingestion.fetch_fpl import FPLDataFetcher
             from .utils.data_transformers import transform_fpl_data_to_teams
-            from .models import Position
+            from .core.models import Position
             
             # Initialize FPL fetcher
             fpl_fetcher = FPLDataFetcher(self.config)

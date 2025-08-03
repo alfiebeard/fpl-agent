@@ -11,8 +11,8 @@ import random
 from .fetch_fpl import FPLDataFetcher
 from .fetch_understat import UnderstatDataFetcher
 from .fetch_fbref import FBRefDataFetcher
-from ..models import Player, Team, Position
-from ..config import Config
+from ..core.models import Player, Team, Position
+from ..core.config import Config
 
 logger = logging.getLogger(__name__)
 

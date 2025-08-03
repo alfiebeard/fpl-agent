@@ -6,7 +6,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
-from ..models import Player, Team, Position
+from ..core.models import Player, Team, Position
 
 logger = logging.getLogger(__name__)
 

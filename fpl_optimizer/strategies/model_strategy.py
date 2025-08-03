@@ -6,8 +6,8 @@ import logging
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 
-from ..models import Player, FPLTeam, Position, OptimizationResult, Transfer
-from ..config import Config
+from ..core.models import Player, FPLTeam, Position, OptimizationResult, Transfer
+from ..core.config import Config
 from ..optimizer import ILPSolver
 from ..ingestion import get_test_data
 
