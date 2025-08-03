@@ -39,12 +39,7 @@ class Config:
         """Override config values with environment variables"""
         env_mappings = {
             'GEMINI_API_KEY': ('llm', 'api_key'),
-            'OPENAI_API_KEY': ('llm', 'api_key'),
-            'ANTHROPIC_API_KEY': ('llm', 'api_key'),
-            'FPL_LEAGUE_ID': ('fpl', 'league_id'),
             'FPL_TEAM_ID': ('fpl', 'team_id'),
-            'FPL_EMAIL': ('fpl', 'email'),
-            'FPL_PASSWORD': ('fpl', 'password'),
         }
         
         for env_var, config_path in env_mappings.items():

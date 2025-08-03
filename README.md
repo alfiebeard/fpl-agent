@@ -58,10 +58,7 @@ OPENAI_API_KEY=your_openai_api_key_here
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
 # Optional FPL API credentials
-FPL_EMAIL=your_fpl_email
-FPL_PASSWORD=your_fpl_password
 FPL_TEAM_ID=your_team_id
-FPL_LEAGUE_ID=your_league_id
 ```
 
 4. **Configuration**

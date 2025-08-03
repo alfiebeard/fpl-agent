@@ -3,10 +3,7 @@
 # FPL API Configuration
 fpl:
   base_url: "https://fantasy.premierleague.com/api"
-  league_id: null  # Set via environment variable FPL_LEAGUE_ID
   team_id: null    # Set via environment variable FPL_TEAM_ID
-  email: null      # Set via environment variable FPL_EMAIL
-  password: null   # Set via environment variable FPL_PASSWORD
 
 # Data Sources
 data_sources:
