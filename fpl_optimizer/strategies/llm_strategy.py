@@ -164,10 +164,12 @@ class LLMStrategy:
             chips_data = self._get_available_chips_local(previous_team)
             transfers_data = self._get_available_transfers_local(previous_team)
             
-            # Create the weekly update prompt
+                        # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
                 current_team, gameweek, chips_data, transfers_data
             )
+            
+
             
             # Get LLM response
             response = self.llm_engine._query_gemini_with_search(prompt)
@@ -316,8 +318,14 @@ Evaluate your team using the latest information available. Consider:
 
 Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
 
-The list of teams, their available players, the players positions, their costs and their likelihood of playing are below. You must select the players from this list:
+The list of teams, their available players, the players positions, their costs and their likelihood of playing are below. You must select the players to transfer in from this list and replace the players in your current team with these players. You cannot transfer in players that are already in your starting 11 or substitutes.
 {players_data}
+
+The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player you must use the following formula to calculate the sale price:
+Transfer Out Price = Available Price + floor((Available Price - Current Price In Team) / 2). Rounded down to the nearest £0.1m.
+For example, if a player is currently £8.5m in your team and the available price is £9.0m, the sale price would be £8.7m.
+
+This would get added to the bank and is then offset against the cost of the incoming player.
 
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
@@ -325,6 +333,7 @@ Transfer rules:
 * You have {transfers_data.get('free_transfers', 1)} free transfers this week.
 * If unused, 1 transfer can be carried over (maximum 2).
 * Additional transfers cost -4 points each, and should only be used if they are likely to generate greater value.
+* To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).
 
 You also have access to the following chips and wildcards: {chips_str}
 
@@ -357,6 +366,8 @@ IMPORTANT: For each decision, provide clear, detailed reasoning explaining:
 - **Formation**: Why this formation is optimal for the current fixtures
 
 Base your reasoning on the latest expert tips, community insights, and statistical analysis you've researched.
+
+Remember your team must be built from the current team with only transfers on top, unless you are using a wildcard or chip.
 
 Return your updated squad in this JSON format:
 
@@ -438,19 +449,50 @@ Ensure the final team meets all FPL constraints before submitting:
             return "No current team data available"
         
         formatted = []
-        for pick in team_data.get('picks', []):
-            player_name = pick.get('element', 'Unknown')
-            position = pick.get('position', 'Unknown')
-            is_captain = pick.get('is_captain', False)
-            is_vice_captain = pick.get('is_vice_captain', False)
-            
-            captain_str = ""
-            if is_captain:
-                captain_str = " (C)"
-            elif is_vice_captain:
-                captain_str = " (VC)"
-            
-            formatted.append(f"{player_name} - {position}{captain_str}")
+        
+        # Handle the actual team data structure from saved teams
+        if 'team' in team_data:
+            team = team_data['team']
+            # Captain and vice-captain are at the top level of the team data
+            captain = team_data.get('captain', 'Unknown')
+            vice_captain = team_data.get('vice_captain', 'Unknown')
+        else:
+            team = team_data
+            captain = team.get('captain', 'Unknown')
+            vice_captain = team.get('vice_captain', 'Unknown')
+        
+        # Add starting players section
+        formatted.append("Starting 11")
+        if 'starting' in team:
+            for player in team['starting']:
+                player_name = player.get('name', 'Unknown')
+                position = player.get('position', 'Unknown')
+                price = player.get('price', 0.0)
+                
+                captain_str = ""
+                if player_name == captain:
+                    captain_str = ", Captain"
+                elif player_name == vice_captain:
+                    captain_str = ", Vice captain"
+                
+                formatted.append(f"{player_name}, {position}, £{price}{captain_str}")
+        
+        # Add substitutes section
+        formatted.append("")
+        formatted.append("Subs")
+        if 'substitutes' in team:
+            sub_count = 1
+            for player in team['substitutes']:
+                player_name = player.get('name', 'Unknown')
+                position = player.get('position', 'Unknown')
+                price = player.get('price', 0.0)
+                sub_order = player.get('sub_order')
+                
+                if position == 'GK':
+                    formatted.append(f"GK. {player_name}, {position}, £{price}")
+                else:
+                    formatted.append(f"{sub_count}. {player_name}, {position}, £{price}")
+                    sub_count += 1
         
         return "\n".join(formatted)
     
