@@ -207,17 +207,27 @@ class LLMStrategy:
         
         logger.info(f"Updating team for Gameweek {gameweek}")
         
-        # Check if previous team exists
-        previous_team = self.team_manager.get_previous_team(gameweek)
-        if not previous_team:
-            raise ValueError(f"No team data found for Gameweek {gameweek - 1}. Cannot update team for Gameweek {gameweek}.")
+        # Get current meta data to track state
+        current_meta = self.team_manager.get_meta()
         
-        try:
+        # Check if this is a free hit revert scenario and handle it first
+        if self._is_free_hit_revert_scenario(gameweek, current_meta):
+            logger.info(f"Free hit revert scenario detected for Gameweek {gameweek}")
+            # Handle the revert and get the reverted team
+            reverted_team_data = self._handle_free_hit_revert(gameweek, current_meta)
+            # Get updated meta after revert
+            current_meta = self.team_manager.get_meta()
+            # Use the reverted team for the prompt
+            current_team = reverted_team_data['team']
+        else:
+            # Check if previous team exists
+            previous_team = self.team_manager.get_previous_team(gameweek)
+            if not previous_team:
+                raise ValueError(f"No team data found for Gameweek {gameweek - 1}. Cannot update team for Gameweek {gameweek}.")
             # Get current team data from local storage
             current_team = previous_team['team']
-            
-            # Get current meta data to track state
-            current_meta = self.team_manager.get_meta()
+        
+        try:
             
             # Get available chips and transfers from meta data
             chips_data = self._get_available_chips_from_meta(current_meta)
@@ -233,6 +243,12 @@ class LLMStrategy:
             
             # Parse and validate the response
             team_data = self._parse_team_response(response)
+            
+            # Check if wildcard or free hit is being used
+            chip_used = team_data.get('wildcard_or_chip')
+            if chip_used in ['wildcard', 'free_hit']:
+                logger.info(f"{chip_used.title()} chip detected - creating new team from scratch")
+                return self._handle_chip_team_creation(gameweek, chip_used, team_data)
             
             # Validate the team data
             logger.info("Validating team data...")
@@ -387,6 +403,8 @@ Ensure the team meets all FPL rules and constraints before returning the output.
 {team_str}
 
 It is now Gameweek {gameweek}.
+
+IMPORTANT: If you used a Free Hit chip in the previous gameweek, your team will automatically revert to the team you had before using the Free Hit. The system will handle this revert automatically, so you should proceed with normal transfer planning for this gameweek.
 
 Evaluate your team using the latest information available. Consider:
 * Recent player performance and form
@@ -607,7 +625,12 @@ Ensure the final team meets all FPL constraints before submitting:
             if chips_used.get(chip, False):
                 used_chips.append({'name': chip})
             else:
-                available_chips.append(chip)
+                # Special case: Free hit cannot be used in consecutive gameweeks
+                if chip == 'free_hit' and chips_used.get('free_hit', False):
+                    # Free hit was used, so it's not available
+                    used_chips.append({'name': chip})
+                else:
+                    available_chips.append(chip)
         
         return {
             'used': used_chips,
@@ -627,6 +650,14 @@ Ensure the final team meets all FPL constraints before submitting:
         
         # Check if a chip was used
         chip_used = team_data.get('wildcard_or_chip')
+        
+        # Check for consecutive free hit usage (not allowed in FPL)
+        if chip_used == 'free_hit':
+            chips_used = current_meta.get('chips_used', {})
+            if chips_used.get('free_hit', False):
+                logger.warning("Free hit cannot be used in consecutive gameweeks")
+                # Don't mark free hit as used again
+                chip_used = None
         
         # Calculate new free transfers
         current_transfers = current_meta.get('free_transfers', 1)
@@ -765,5 +796,111 @@ Ensure the final team meets all FPL constraints before submitting:
             raise ValueError(f"Must have exactly 3 forwards, got {fwd_count}")
         
         logger.info("Team data validation passed")
+    
+    def _is_free_hit_revert_scenario(self, gameweek: int, current_meta: Dict[str, Any]) -> bool:
+        """
+        Check if this is a free hit revert scenario (next gameweek after free hit was used)
+        
+        Args:
+            gameweek: Current gameweek
+            current_meta: Current meta data
+            
+        Returns:
+            True if this is a free hit revert scenario
+        """
+        # Check if free hit was used in the previous gameweek
+        chips_used = current_meta.get('chips_used', {})
+        if chips_used.get('free_hit', False):
+            # Check if we have a team from before the free hit
+            pre_free_hit_gw = gameweek - 2  # The gameweek before the free hit
+            if pre_free_hit_gw >= 1:
+                pre_free_hit_team = self.team_manager.load_team(pre_free_hit_gw)
+                if pre_free_hit_team:
+                    return True
+        return False
+    
+    def _handle_free_hit_revert(self, gameweek: int, current_meta: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle free hit revert scenario - revert to team before free hit was used
+        
+        Args:
+            gameweek: Current gameweek
+            current_meta: Current meta data
+            
+        Returns:
+            Reverted team data
+        """
+        # Find the team from before the free hit
+        pre_free_hit_gw = gameweek - 2
+        pre_free_hit_team_data = self.team_manager.load_team(pre_free_hit_gw)
+        
+        if not pre_free_hit_team_data:
+            raise ValueError(f"No team found from Gameweek {pre_free_hit_gw} to revert to after free hit")
+        
+        # Get the team data from before free hit
+        pre_free_hit_team = pre_free_hit_team_data['team']
+        
+        # Create a new team entry for current gameweek with the reverted team
+        reverted_team = {
+            'captain': pre_free_hit_team.get('captain'),
+            'vice_captain': pre_free_hit_team.get('vice_captain'),
+            'total_cost': pre_free_hit_team.get('total_cost'),
+            'bank': pre_free_hit_team.get('bank'),
+            'expected_points': pre_free_hit_team.get('expected_points'),
+            'wildcard_or_chip': None,
+            'transfers': [],
+            'team': pre_free_hit_team['team']
+        }
+        
+        # Save the reverted team
+        self.team_manager.save_team(gameweek, reverted_team)
+        
+        # Update meta.json to reflect the revert
+        # Bank should revert to pre-free-hit bank
+        # Free transfers should be 1 (normal weekly allocation)
+        # Free hit should remain marked as used
+        self.team_manager.update_meta(
+            gameweek=gameweek,
+            team_data=reverted_team,
+            free_transfers=1  # Normal weekly allocation after revert
+        )
+        
+        logger.info(f"Team reverted to pre-free-hit state for Gameweek {gameweek}")
+        return reverted_team
+    
+    def _handle_chip_team_creation(self, gameweek: int, chip_type: str, team_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle wildcard or free hit team creation from scratch
+        
+        Args:
+            gameweek: Current gameweek
+            chip_type: 'wildcard' or 'free_hit'
+            team_data: Initial team data from LLM response
+            
+        Returns:
+            Created team data
+        """
+        logger.info(f"Creating new team from scratch using {chip_type}")
+        
+        # TODO: Calculate actual budget based on current player values and money in bank
+        # For wildcard: Should use current team's total value + bank balance
+        # For free hit: Should use the team from before free hit's total value + bank balance
+        # This ensures budget reflects price changes (could be more or less than 100.0)
+        # Create a new team from scratch using the LLM
+        new_team_data = self.create_team(budget=100.0, gameweek=gameweek)
+        
+        # Override with chip information
+        new_team_data['wildcard_or_chip'] = chip_type
+        new_team_data['chip_reason'] = team_data.get('chip_reason', f'{chip_type.title()} chip used')
+        
+        # Save the new team
+        self.team_manager.save_team(gameweek, new_team_data)
+        
+        # Update meta.json
+        current_meta = self.team_manager.get_meta()
+        self._update_meta_from_response(gameweek, new_team_data, current_meta)
+        
+        logger.info(f"New team created successfully using {chip_type} for Gameweek {gameweek}")
+        return new_team_data
     
  
