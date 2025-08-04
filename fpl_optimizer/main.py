@@ -9,6 +9,7 @@ import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import argparse
+from pathlib import Path
 
 # Handle imports for both direct execution and module execution
 try:
@@ -333,7 +334,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
-        'update-team', 'load-team', 'list-teams'
+        'update-team', 'load-team', 'list-teams', 'validate-team'
     ], help='Command to run')
     
     # Common arguments
@@ -493,6 +494,167 @@ def main():
                 for file_path in team_files:
                     print(f"- {os.path.basename(file_path)}")
                 print("="*80)
+        
+        elif args.command == 'validate-team':
+            # Validate existing team data
+            try:
+                from .utils.validator import FPLValidator
+                from .core.team_manager import TeamManager
+                
+                print("\n" + "="*80)
+                print("FPL TEAM VALIDATION")
+                print("="*80)
+                
+                # Create validator and team manager
+                validator = FPLValidator("team_data")
+                team_manager = TeamManager("team_data")
+                
+                # Determine which gameweek to validate
+                gameweek = args.gameweek
+                if not gameweek:
+                    # Try to find the latest gameweek
+                    latest_gw = team_manager.get_latest_gameweek()
+                    if latest_gw:
+                        gameweek = latest_gw
+                        print(f"Validating latest team (Gameweek {gameweek})")
+                    else:
+                        print("❌ No team files found in team_data directory")
+                        sys.exit(1)
+                else:
+                    print(f"Validating team for Gameweek {gameweek}")
+                
+                # Check if team file exists
+                team_file = Path(f"team_data/gw{gameweek:02d}.json")
+                if not team_file.exists():
+                    print(f"❌ Team file gw{gameweek:02d}.json not found")
+                    sys.exit(1)
+                
+                # Load and validate team data
+                print(f"\n1. Loading and validating gw{gameweek:02d}.json...")
+                
+                with open(team_file, 'r') as f:
+                    team_data = json.load(f)
+                
+                print(f"✓ Loaded team data for Gameweek {team_data.get('gameweek', 'Unknown')}")
+                
+                # Validate team data
+                validation_errors = validator.validate_team_data(team_data['team'], gameweek)
+                
+                if validation_errors:
+                    print("❌ Team validation failed:")
+                    for error in validation_errors:
+                        print(f"  - {error}")
+                    sys.exit(1)
+                else:
+                    print("✓ Team validation passed")
+                
+                # Display team summary
+                print(f"\n2. Team Summary:")
+                team = team_data['team']
+                print(f"   Captain: {team.get('captain', 'Unknown')}")
+                print(f"   Vice Captain: {team.get('vice_captain', 'Unknown')}")
+                print(f"   Total Cost: £{team.get('total_cost', 0)}m")
+                print(f"   Bank: £{team.get('bank', 0)}m")
+                print(f"   Expected Points: {team.get('expected_points', 0)}")
+                
+                # Count players by position
+                all_players = team.get('team', {}).get('starting', []) + team.get('team', {}).get('substitutes', [])
+                position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
+                team_counts = {}
+                
+                for player in all_players:
+                    position = player.get('position')
+                    if position in position_counts:
+                        position_counts[position] += 1
+                    
+                    team_name = player.get('team')
+                    if team_name:
+                        team_counts[team_name] = team_counts.get(team_name, 0) + 1
+                
+                print(f"   Squad: {position_counts['GK']} GK, {position_counts['DEF']} DEF, {position_counts['MID']} MID, {position_counts['FWD']} FWD")
+                print(f"   Teams: {len(team_counts)} different teams")
+                
+                # Show formation
+                starting = team.get('team', {}).get('starting', [])
+                starting_positions = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
+                for player in starting:
+                    position = player.get('position')
+                    if position in starting_positions:
+                        starting_positions[position] += 1
+                
+                formation = f"{starting_positions['DEF']}-{starting_positions['MID']}-{starting_positions['FWD']}"
+                print(f"   Formation: {formation}")
+                
+                # Check meta.json
+                print(f"\n3. Checking meta.json...")
+                meta_file = Path("team_data/meta.json")
+                if meta_file.exists():
+                    with open(meta_file, 'r') as f:
+                        meta_data = json.load(f)
+                    
+                    print("✓ meta.json found")
+                    meta_current_gw = meta_data.get('current_gw', 'Unknown')
+                    print(f"   Current GW: {meta_current_gw}")
+                    print(f"   Last Team File: {meta_data.get('last_team_file', 'Unknown')}")
+                    print(f"   Bank: £{meta_data.get('bank', 0)}m")
+                    print(f"   Free Transfers: {meta_data.get('free_transfers', 0)}")
+                    
+                    # Check if meta.json is for a different gameweek
+                    if meta_current_gw != 'Unknown' and meta_current_gw != gameweek:
+                        print(f"\n⚠️  WARNING: meta.json is for Gameweek {meta_current_gw}, but you're validating Gameweek {gameweek}")
+                        print(f"   This means you're validating a historical team, not the current team.")
+                        print(f"   The meta.json reflects the current state after Gameweek {meta_current_gw}.")
+                        
+                        # Ask if they want to continue
+                        print(f"\n   Do you want to continue validating the historical team? (y/N): ", end="")
+                        try:
+                            response = input().strip().lower()
+                            if response not in ['y', 'yes']:
+                                print("Validation cancelled.")
+                                sys.exit(0)
+                        except KeyboardInterrupt:
+                            print("\nValidation cancelled.")
+                            sys.exit(0)
+                    
+                    # Validate file consistency (only if meta.json matches the gameweek being validated)
+                    if meta_current_gw == gameweek:
+                        print(f"\n4. Validating file consistency...")
+                        consistency_errors = validator.validate_files_consistency(gameweek)
+                        
+                        if consistency_errors:
+                            print("❌ File consistency validation failed:")
+                            for error in consistency_errors:
+                                print(f"  - {error}")
+                            sys.exit(1)
+                        else:
+                            print("✓ File consistency validation passed")
+                    else:
+                        print(f"\n4. Skipping file consistency validation (meta.json is for GW{meta_current_gw}, validating GW{gameweek})")
+                        
+                else:
+                    print("⚠️  meta.json not found - creating it now...")
+                    team_manager.initialize_meta(gameweek, team_data['team'])
+                    print("✓ meta.json created successfully")
+                    
+                    # Now validate consistency since we just created meta.json
+                    print(f"\n4. Validating file consistency...")
+                    consistency_errors = validator.validate_files_consistency(gameweek)
+                    
+                    if consistency_errors:
+                        print("❌ File consistency validation failed:")
+                        for error in consistency_errors:
+                            print(f"  - {error}")
+                        sys.exit(1)
+                    else:
+                        print("✓ File consistency validation passed")
+                
+                print(f"\n🎉 All validations passed! Team data is ready for use.")
+                print("="*80)
+                
+            except Exception as e:
+                logger.error(f"Team validation failed: {e}")
+                print(f"❌ Validation failed: {e}")
+                sys.exit(1)
             
 
             

@@ -11,6 +11,7 @@ from ..ingestion.fetch_fpl import FPLDataFetcher
 from ..core.team_manager import TeamManager
 from .llm_engine import LLMEngine
 from ..utils.data_transformers import transform_fpl_data_to_teams
+from ..utils.validator import FPLValidator, validate_llm_response
 from ..core.models import Position
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,48 @@ class LLMStrategy:
             logger.error(f"Failed to get available players data: {e}")
             return "Error: Could not fetch player data"
     
+    def _get_available_players_dict(self, bootstrap_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """
+        Get available players data as a dictionary for validation.
+        
+        Args:
+            bootstrap_data: Raw FPL bootstrap data
+            
+        Returns:
+            Dictionary of players with their data
+        """
+        try:
+            # Apply filters for available players only
+            filters = {
+                'exclude_injured': True,
+                'exclude_unavailable': True,
+                'min_chance_of_playing': 25,
+                'min_minutes': 0,
+                'max_price': float('inf'),
+                'min_form': float('-inf'),
+                'positions': [Position.GK, Position.DEF, Position.MID, Position.FWD]
+            }
+            
+            # Transform data
+            teams = transform_fpl_data_to_teams(bootstrap_data, filters)
+            
+            # Convert to dictionary format
+            players_dict = {}
+            for team_name, team_summary in teams.items():
+                for player in team_summary.players:
+                    players_dict[player.name] = {
+                        'name': player.name,
+                        'position': player.position.value,
+                        'price': player.price,
+                        'team': team_name
+                    }
+            
+            return players_dict
+            
+        except Exception as e:
+            logger.error(f"Failed to get available players dict: {e}")
+            return {}
+    
     def create_team(self, budget: float = 100.0, gameweek: int = 1) -> Dict[str, Any]:
         """
         Create a new FPL team for Gameweek 1 using LLM analysis.
@@ -126,6 +169,16 @@ class LLMStrategy:
             logger.error(f"Failed to parse LLM response: {e}")
             logger.error(f"Full LLM response: {response}")
             raise ValueError(f"LLM failed to generate a valid team. Response: {response}")
+        
+        # Validate the team data
+        logger.info("Validating team data...")
+        validator = FPLValidator()
+        validation_errors = validator.validate_team_data(team_data, gameweek)
+        
+        if validation_errors:
+            error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         logger.info(f"Team created successfully with {len(team_data['team']['starting'])} starting players")
         
@@ -180,6 +233,27 @@ class LLMStrategy:
             
             # Parse and validate the response
             team_data = self._parse_team_response(response)
+            
+            # Validate the team data
+            logger.info("Validating team data...")
+            validator = FPLValidator()
+            validation_errors = validator.validate_team_data(team_data, gameweek)
+            
+            # Validate bank calculation if transfers were made
+            if team_data.get('transfers'):
+                # Get available players data for bank validation
+                bootstrap_data = self.fpl_fetcher.get_bootstrap_data()
+                available_players = self._get_available_players_dict(bootstrap_data)
+                
+                bank_errors = validator.validate_bank_calculation(
+                    team_data, gameweek, team_data.get('transfers', []), available_players
+                )
+                validation_errors.extend(bank_errors)
+            
+            if validation_errors:
+                error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             
             # Save the updated team
             self.team_manager.save_team(gameweek, team_data)

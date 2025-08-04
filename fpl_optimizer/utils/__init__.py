@@ -10,6 +10,7 @@ from .data_transformers import (
     get_top_players,
     TeamSummary
 )
+from .validator import FPLValidator, validate_llm_response
 
 __all__ = [
     "transform_fpl_data_to_teams",
@@ -17,5 +18,7 @@ __all__ = [
     "get_team_by_name",
     "get_players_by_position",
     "get_top_players",
-    "TeamSummary"
+    "TeamSummary",
+    "FPLValidator",
+    "validate_llm_response"
 ] 
