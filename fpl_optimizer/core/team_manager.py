@@ -19,10 +19,78 @@ class TeamManager:
     def __init__(self, data_dir: str = "team_data"):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
+        self.meta_file = self.data_dir / "meta.json"
     
     def _get_team_file(self, gameweek: int) -> Path:
         """Get the file path for a specific gameweek's team data"""
-        return self.data_dir / f"team_gw{gameweek}.json"
+        return self.data_dir / f"gw{gameweek:02d}.json"
+    
+    def _load_meta(self) -> Dict[str, Any]:
+        """Load the meta.json file"""
+        if not self.meta_file.exists():
+            return {}
+        
+        try:
+            with open(self.meta_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"Failed to load meta.json: {e}")
+            return {}
+    
+    def _save_meta(self, meta_data: Dict[str, Any]) -> None:
+        """Save the meta.json file"""
+        try:
+            with open(self.meta_file, 'w') as f:
+                json.dump(meta_data, f, indent=2)
+            logger.info("Meta data saved successfully")
+        except IOError as e:
+            logger.error(f"Failed to save meta.json: {e}")
+    
+    def initialize_meta(self, gameweek: int, team_data: Dict[str, Any]) -> None:
+        """Initialize the meta.json file with default values for a new team"""
+        meta_data = {
+            "current_gw": gameweek,
+            "last_team_file": f"gw{gameweek:02d}.json",
+            "bank": team_data.get('bank', 0.0),
+            "free_transfers": 1,
+            "chips_used": {
+                "wildcard": False,
+                "bench_boost": False,
+                "free_hit": False,
+                "triple_captain": False
+            }
+        }
+        
+        self._save_meta(meta_data)
+        logger.info(f"Meta data initialized for Gameweek {gameweek}")
+    
+    def update_meta(self, gameweek: int, team_data: Dict[str, Any], 
+                   chips_used: Optional[Dict[str, bool]] = None,
+                   free_transfers: Optional[int] = None) -> None:
+        """Update the meta.json file with new team status"""
+        meta_data = self._load_meta()
+        
+        # Update basic info
+        meta_data["current_gw"] = gameweek
+        meta_data["last_team_file"] = f"gw{gameweek:02d}.json"
+        meta_data["bank"] = team_data.get('bank', meta_data.get('bank', 0.0))
+        
+        # Update free transfers if provided
+        if free_transfers is not None:
+            meta_data["free_transfers"] = free_transfers
+        
+        # Update chips used if provided
+        if chips_used is not None:
+            if "chips_used" not in meta_data:
+                meta_data["chips_used"] = {}
+            meta_data["chips_used"].update(chips_used)
+        
+        self._save_meta(meta_data)
+        logger.info(f"Meta data updated for Gameweek {gameweek}")
+    
+    def get_meta(self) -> Dict[str, Any]:
+        """Get the current meta data"""
+        return self._load_meta()
     
     def save_team(self, gameweek: int, team_data: Dict[str, Any]) -> None:
         """Save team data for a specific gameweek"""
@@ -62,41 +130,41 @@ class TeamManager:
     
     def get_latest_team(self) -> Optional[Dict[str, Any]]:
         """Get the most recent team data"""
-        team_files = list(self.data_dir.glob("team_gw*.json"))
+        team_files = list(self.data_dir.glob("gw*.json"))
         
         if not team_files:
             return None
         
         # Sort by gameweek number
-        team_files.sort(key=lambda x: int(x.stem.split('gw')[1]))
+        team_files.sort(key=lambda x: int(x.stem[2:]))  # Remove 'gw' prefix
         
         # Load the latest one
         latest_file = team_files[-1]
-        gameweek = int(latest_file.stem.split('gw')[1])
+        gameweek = int(latest_file.stem[2:])
         return self.load_team(gameweek)
     
     def get_latest_gameweek(self) -> Optional[int]:
         """Get the latest gameweek number"""
-        team_files = list(self.data_dir.glob("team_gw*.json"))
+        team_files = list(self.data_dir.glob("gw*.json"))
         
         if not team_files:
             return None
         
         # Sort by gameweek number
-        team_files.sort(key=lambda x: int(x.stem.split('gw')[1]))
+        team_files.sort(key=lambda x: int(x.stem[2:]))  # Remove 'gw' prefix
         
         # Get the latest gameweek number
         latest_file = team_files[-1]
-        return int(latest_file.stem.split('gw')[1])
+        return int(latest_file.stem[2:])
     
     def list_teams(self) -> List[int]:
         """List all available gameweeks"""
-        team_files = list(self.data_dir.glob("team_gw*.json"))
+        team_files = list(self.data_dir.glob("gw*.json"))
         gameweeks = []
         
         for file in team_files:
             try:
-                gameweek = int(file.stem.split('gw')[1])
+                gameweek = int(file.stem[2:])  # Remove 'gw' prefix
                 gameweeks.append(gameweek)
             except (ValueError, IndexError):
                 continue

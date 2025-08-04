@@ -132,6 +132,9 @@ class LLMStrategy:
         # Save the team locally
         self.team_manager.save_team(gameweek, team_data)
         
+        # Initialize meta.json with team status
+        self.team_manager.initialize_meta(gameweek, team_data)
+        
         # Add the raw LLM response to the result for debugging
         team_data['raw_llm_response'] = response
         return team_data
@@ -160,16 +163,17 @@ class LLMStrategy:
             # Get current team data from local storage
             current_team = previous_team['team']
             
-            # Get available chips and transfers (simplified for local management)
-            chips_data = self._get_available_chips_local(previous_team)
-            transfers_data = self._get_available_transfers_local(previous_team)
+            # Get current meta data to track state
+            current_meta = self.team_manager.get_meta()
             
-                        # Create the weekly update prompt
+            # Get available chips and transfers from meta data
+            chips_data = self._get_available_chips_from_meta(current_meta)
+            transfers_data = self._get_available_transfers_from_meta(current_meta)
+            
+            # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
                 current_team, gameweek, chips_data, transfers_data
             )
-            
-
             
             # Get LLM response
             response = self.llm_engine._query_gemini_with_search(prompt)
@@ -179,6 +183,9 @@ class LLMStrategy:
             
             # Save the updated team
             self.team_manager.save_team(gameweek, team_data)
+            
+            # Automatically update meta.json based on the response
+            self._update_meta_from_response(gameweek, team_data, current_meta)
             
             logger.info(f"Team updated successfully for Gameweek {gameweek}")
             return team_data
@@ -514,6 +521,82 @@ Ensure the final team meets all FPL constraints before submitting:
         return f"{free_transfers} free transfer{'s' if free_transfers != 1 else ''}"
     
 
+    
+    def _get_available_chips_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Get available chips information from meta data"""
+        chips_used = meta_data.get('chips_used', {})
+        available_chips = []
+        used_chips = []
+        
+        all_chips = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
+        for chip in all_chips:
+            if chips_used.get(chip, False):
+                used_chips.append({'name': chip})
+            else:
+                available_chips.append(chip)
+        
+        return {
+            'used': used_chips,
+            'available': available_chips
+        }
+    
+    def _get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Get available transfers information from meta data"""
+        return {
+            'free_transfers': meta_data.get('free_transfers', 1),
+            'bank': meta_data.get('bank', 0.0)
+        }
+    
+    def _update_meta_from_response(self, gameweek: int, team_data: Dict[str, Any], 
+                                 current_meta: Dict[str, Any]) -> None:
+        """Update meta.json based on the LLM response"""
+        
+        # Check if a chip was used
+        chip_used = team_data.get('wildcard_or_chip')
+        
+        # Calculate new free transfers
+        current_transfers = current_meta.get('free_transfers', 1)
+        transfers_made = len(team_data.get('transfers', []))
+        
+        if chip_used == 'wildcard':
+            # Wildcard doesn't affect transfers - they remain unchanged
+            new_transfers = current_transfers
+        elif chip_used == 'free_hit':
+            # Free hit doesn't affect transfers
+            new_transfers = current_transfers
+        else:
+            # Normal transfers
+            if transfers_made == 0:
+                # No transfers made, carry over 1 (max 2)
+                new_transfers = min(current_transfers + 1, 2)
+            else:
+                # Transfers made, calculate remaining
+                new_transfers = max(0, current_transfers - transfers_made)
+        
+        # Handle chip usage and reset on Gameweek 20
+        chips_used = None
+        if chip_used and chip_used != 'null':
+            chips_used = {chip_used: True}
+        
+        # Reset all chips on Gameweek 20 (second half of season)
+        if gameweek == 20:
+            chips_used = {
+                "wildcard": False,
+                "bench_boost": False,
+                "free_hit": False,
+                "triple_captain": False
+            }
+            logger.info("Gameweek 20: All chips reset for second half of season")
+        
+        # Update meta.json
+        self.team_manager.update_meta(
+            gameweek=gameweek,
+            team_data=team_data,
+            chips_used=chips_used,
+            free_transfers=new_transfers
+        )
+        
+        logger.info(f"Meta updated: transfers={new_transfers}, chip_used={chip_used}")
     
     def _get_available_chips_local(self, previous_team: Dict[str, Any]) -> Dict[str, Any]:
         """Get available chips information from local team data"""
