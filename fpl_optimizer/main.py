@@ -19,6 +19,7 @@ try:
 
     from .core.models import Player, Team, Position, FPLTeam
     from .strategies import ModelStrategy, LLMStrategy
+    from fpl_optimizer.strategies.lightweight_llm_engine import LightweightLLMEngine
 except ImportError:
     # When run directly (python fpl_optimizer/main.py)
     # Add the parent directory to the path
@@ -28,6 +29,7 @@ except ImportError:
 
     from fpl_optimizer.core.models import Player, Team, Position, FPLTeam
     from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
+    from fpl_optimizer.strategies.lightweight_llm_engine import LightweightLLMEngine
 
 
 # Configure logging
@@ -315,16 +317,140 @@ class FPLOptimizer:
     
     def _get_player_name_by_id(self, team: FPLTeam, player_id: Optional[int]) -> str:
         """Get player name by ID from team"""
-        if not player_id:
+        if player_id is None:
             return "Unknown"
         
         for player in team.players:
             if player.id == player_id:
                 return player.name
         
-        return "Unknown"
+        return f"Player {player_id}"
     
-
+    def get_team_injury_news(self, team_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get injury news and playing likelihood for players in a specific team or all teams.
+        
+        Args:
+            team_name: Name of the team (None for all teams)
+            
+        Returns:
+            Dictionary containing injury news for the team(s)
+        """
+        try:
+            logger.info("Starting team injury news analysis...")
+            
+            # Initialize lightweight LLM engine
+            lightweight_llm = LightweightLLMEngine(self.config)
+            
+            # Fetch FPL data with additional stats
+            from fpl_optimizer.ingestion.fetch_fpl import FPLDataFetcher
+            fetcher = FPLDataFetcher(self.config)
+            all_data = fetcher.get_all_data_with_additional_stats()
+            players = all_data['players']
+            
+            if team_name:
+                # Get specific team
+                team_players = [p for p in players if p.team_name == team_name]
+                if not team_players:
+                    raise ValueError(f"No players found for team: {team_name}")
+                
+                logger.info(f"Getting injury news for {team_name} ({len(team_players)} players)")
+                injury_news = lightweight_llm.get_team_injury_news(team_name, team_players)
+                
+                return {
+                    'team_name': team_name,
+                    'injury_news': injury_news,
+                    'player_count': len(team_players)
+                }
+            else:
+                # Get all teams
+                teams = {}
+                for player in players:
+                    if player.team_name not in teams:
+                        teams[player.team_name] = []
+                    teams[player.team_name].append(player)
+                
+                results = {}
+                for team_name, team_players in teams.items():
+                    logger.info(f"Getting injury news for {team_name} ({len(team_players)} players)")
+                    injury_news = lightweight_llm.get_team_injury_news(team_name, team_players)
+                    results[team_name] = {
+                        'injury_news': injury_news,
+                        'player_count': len(team_players)
+                    }
+                
+                return {
+                    'all_teams': True,
+                    'teams': results,
+                    'total_teams': len(results)
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to get team injury news: {e}")
+            raise
+    
+    def get_team_hints_tips(self, team_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get hints, tips, and recommendations for players in a specific team or all teams.
+        
+        Args:
+            team_name: Name of the team (None for all teams)
+            
+        Returns:
+            Dictionary containing hints and tips for the team(s)
+        """
+        try:
+            logger.info("Starting team hints and tips analysis...")
+            
+            # Initialize lightweight LLM engine
+            lightweight_llm = LightweightLLMEngine(self.config)
+            
+            # Fetch FPL data with additional stats
+            from fpl_optimizer.ingestion.fetch_fpl import FPLDataFetcher
+            fetcher = FPLDataFetcher(self.config)
+            all_data = fetcher.get_all_data_with_additional_stats()
+            players = all_data['players']
+            
+            if team_name:
+                # Get specific team
+                team_players = [p for p in players if p.team_name == team_name]
+                if not team_players:
+                    raise ValueError(f"No players found for team: {team_name}")
+                
+                logger.info(f"Getting hints and tips for {team_name} ({len(team_players)} players)")
+                hints_tips = lightweight_llm.get_team_hints_tips(team_name, team_players)
+                
+                return {
+                    'team_name': team_name,
+                    'hints_tips': hints_tips,
+                    'player_count': len(team_players)
+                }
+            else:
+                # Get all teams
+                teams = {}
+                for player in players:
+                    if player.team_name not in teams:
+                        teams[player.team_name] = []
+                    teams[player.team_name].append(player)
+                
+                results = {}
+                for team_name, team_players in teams.items():
+                    logger.info(f"Getting hints and tips for {team_name} ({len(team_players)} players)")
+                    hints_tips = lightweight_llm.get_team_hints_tips(team_name, team_players)
+                    results[team_name] = {
+                        'hints_tips': hints_tips,
+                        'player_count': len(team_players)
+                    }
+                
+                return {
+                    'all_teams': True,
+                    'teams': results,
+                    'total_teams': len(results)
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to get team hints and tips: {e}")
+            raise
 
 
 def main():
@@ -334,7 +460,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
-        'update-team', 'load-team', 'list-teams', 'validate-team'
+        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints'
     ], help='Command to run')
     
     # Common arguments
@@ -353,6 +479,10 @@ def main():
                        help='Path to JSON file containing current team data')
     parser.add_argument('--latest-team', action='store_true',
                        help='Use the most recently created team file')
+    
+    # Team analysis arguments
+    parser.add_argument('--team-name', type=str,
+                       help='Specific team name for analysis (e.g., "Chelsea", "Arsenal")')
     
     # Save options
     parser.add_argument('--save-team', action='store_true',
@@ -656,6 +786,16 @@ def main():
                 print(f"❌ Validation failed: {e}")
                 sys.exit(1)
             
+        elif args.command == 'team-injuries':
+            # Get team injury news
+            result = optimizer.get_team_injury_news(args.team_name)
+            display_team_injury_news(result)
+            
+        elif args.command == 'team-hints':
+            # Get team hints and tips
+            result = optimizer.get_team_hints_tips(args.team_name)
+            display_team_hints_tips(result)
+            
 
             
 
@@ -894,53 +1034,95 @@ def display_team_creation_result(result):
 def display_weekly_recommendations(result):
     """Display weekly recommendations"""
     print("\n" + "="*80)
-    print(f"WEEKLY FPL RECOMMENDATIONS - {result['method']}")
+    print("FPL WEEKLY RECOMMENDATIONS")
     print("="*80)
     
-    # Display transfers
-    transfers = result['transfers']['recommended_transfers']
+    # Display basic info
+    print(f"Method: {result.get('method', 'Unknown')}")
+    print(f"Gameweek: {result.get('gameweek', 'Unknown')}")
+    print(f"Free Transfers: {result.get('free_transfers', 'Unknown')}")
+    
+    # Display transfers if any
+    transfers = result.get('transfers', [])
     if transfers:
-        print(f"\n" + "="*80)
-        print("RECOMMENDED TRANSFERS")
-        print("="*80)
+        print(f"\nTransfers ({len(transfers)}):")
         for i, transfer in enumerate(transfers, 1):
-            if hasattr(transfer, 'player_out') and hasattr(transfer, 'player_in'):
-                print(f"{i}. {transfer.player_out.name} → {transfer.player_in.name}")
-                if hasattr(transfer, 'reason'):
-                    print(f"   Reason: {transfer.reason}")
-        print(f"\nTransfer Confidence: {result['transfers']['confidence']:.2f}")
+            print(f"  {i}. {transfer.get('out', 'Unknown')} → {transfer.get('in', 'Unknown')}")
+            if 'reason' in transfer:
+                print(f"     Reason: {transfer['reason']}")
     else:
-        print("\nNo transfers recommended this week.")
+        print("\nNo transfers recommended")
     
-    # Display captaincy
-    print(f"\n" + "="*80)
-    print("CAPTAINCY RECOMMENDATIONS")
+    # Display team changes
+    team_changes = result.get('team_changes', {})
+    if team_changes:
+        print(f"\nTeam Changes:")
+        for change_type, details in team_changes.items():
+            print(f"  {change_type}: {details}")
+    
+    # Display reasoning
+    reasoning = result.get('reasoning', '')
+    if reasoning:
+        print(f"\nReasoning:")
+        print(reasoning)
+    
     print("="*80)
-    print(f"Captain: {result['captaincy']['captain_name']}")
-    print(f"Vice Captain: {result['captaincy']['vice_captain_name']}")
-    
-    # Display wildcard analysis
-    wildcard = result['wildcard']
-    print(f"\n" + "="*80)
-    print("WILDCARD ANALYSIS")
+
+
+def display_team_injury_news(result):
+    """Display team injury news results"""
+    print("\n" + "="*80)
+    print("FPL TEAM INJURY NEWS")
     print("="*80)
-    print(f"Use Wildcard: {'YES' if wildcard['should_use_wildcard'] else 'NO'}")
-    print(f"Confidence: {wildcard['confidence']:.2f}")
-    print(f"Reasoning: {wildcard['reasoning']}")
     
-    # Display insights summary if available
-    if 'insights_summary' in result:
-        insights = result['insights_summary']
-        print(f"\n" + "="*80)
-        print("EXPERT INSIGHTS SUMMARY")
-        print("="*80)
-        print(f"Total Insights: {insights['total_insights']}")
-        print(f"Sources: {', '.join(insights['sources'])}")
-        if insights['key_topics']:
-            print(f"Key Topics: {', '.join(insights['key_topics'])}")
+    if result.get('all_teams', False):
+        # Display all teams
+        print(f"Analyzed {result['total_teams']} teams")
+        print()
+        
+        for team_name, team_data in result['teams'].items():
+            print(f"{'='*60}")
+            print(f"TEAM: {team_name.upper()}")
+            print(f"Players: {team_data['player_count']}")
+            print(f"{'='*60}")
+            print(team_data['injury_news'])
+            print()
+    else:
+        # Display single team
+        print(f"Team: {result['team_name']}")
+        print(f"Players: {result['player_count']}")
+        print()
+        print(result['injury_news'])
     
-    print(f"\nOverall Confidence: {result['overall_confidence']:.2f}")
-    print(f"Generated at: {result['generated_at']}")
+    print("="*80)
+
+
+def display_team_hints_tips(result):
+    """Display team hints and tips results"""
+    print("\n" + "="*80)
+    print("FPL TEAM HINTS & TIPS")
+    print("="*80)
+    
+    if result.get('all_teams', False):
+        # Display all teams
+        print(f"Analyzed {result['total_teams']} teams")
+        print()
+        
+        for team_name, team_data in result['teams'].items():
+            print(f"{'='*60}")
+            print(f"TEAM: {team_name.upper()}")
+            print(f"Players: {team_data['player_count']}")
+            print(f"{'='*60}")
+            print(team_data['hints_tips'])
+            print()
+    else:
+        # Display single team
+        print(f"Team: {result['team_name']}")
+        print(f"Players: {result['player_count']}")
+        print()
+        print(result['hints_tips'])
+    
+    print("="*80)
 
 
 def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None) -> str:

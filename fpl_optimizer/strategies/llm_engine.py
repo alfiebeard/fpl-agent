@@ -26,7 +26,7 @@ class LLMEngine:
     
     def __init__(self, config: Config):
         self.config = config
-        self.llm_config = config.get_llm_config()
+        self.llm_config = config.get_main_llm_config()
         self.model_name = self.llm_config.get('model', 'gemini-2.5-pro')
 
         # Initialize Gemini client and search config

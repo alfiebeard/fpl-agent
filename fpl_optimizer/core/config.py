@@ -96,6 +96,16 @@ class Config:
         """Get LLM configuration"""
         return self._config.get('llm', {})
     
+    def get_main_llm_config(self) -> Dict[str, Any]:
+        """Get main LLM configuration for complex team optimization"""
+        llm_config = self._config.get('llm', {})
+        return llm_config.get('main', {})
+    
+    def get_lightweight_llm_config(self) -> Dict[str, Any]:
+        """Get lightweight LLM configuration for team-specific analysis"""
+        llm_config = self._config.get('llm', {})
+        return llm_config.get('lightweight', {})
+    
     def get_logging_config(self) -> Dict[str, Any]:
         """Get logging configuration"""
         return self._config.get('logging', {})

@@ -51,11 +51,21 @@ xpts:
 
 # LLM Configuration
 llm:
-  model: "gemini-2.5-pro"  # Thinking and web search
-  max_output_tokens: 65536
-  temperature: 0.3
-  top_p: 0.8
-  top_k: 25
+  # Main LLM for complex team optimization
+  main:
+    model: "gemini-2.5-pro"  # Thinking and web search
+    max_output_tokens: 65536
+    temperature: 0.3
+    top_p: 0.8
+    top_k: 25
+  
+  # Lightweight LLM for team-specific analysis
+  lightweight:
+    model: "gemini-2.5-flash-lite"  # Cost-effective for team analysis
+    max_output_tokens: 8192
+    temperature: 0.2
+    top_p: 0.8
+    top_k: 25
 
 # Logging Configuration
 logging:
