@@ -232,8 +232,129 @@ class FPLDataFetcher:
             return None
     
     def get_all_data(self) -> Dict[str, Any]:
-        """Get all FPL data in one call"""
+        """Get all FPL data (bootstrap, fixtures, etc.)"""
         logger.info("Fetching all FPL data...")
+        
+        bootstrap_data = self.get_bootstrap_data()
+        fixtures_data = self.get_fixtures()
+        
+        return {
+            'bootstrap': bootstrap_data,
+            'fixtures': fixtures_data
+        }
+    
+    def calculate_player_additional_stats(self, player: Player, fixtures: List[Fixture], 
+                                        current_gameweek: int) -> Dict[str, Any]:
+        """
+        Calculate additional statistics for a player including upcoming fixture difficulty.
+        
+        Args:
+            player: Player object
+            fixtures: List of all fixtures
+            current_gameweek: Current gameweek number
+            
+        Returns:
+            Dictionary with additional player statistics
+        """
+        # Get basic stats that are already available
+        stats = {
+            "ppg": player.points_per_game,
+            "form": player.form,
+            "minutes_played": player.minutes_played,
+            "ownership_percent": player.selected_by_pct
+        }
+        
+        # Calculate upcoming fixture difficulty
+        upcoming_fixture_difficulty = self._calculate_upcoming_fixture_difficulty(
+            player, fixtures, current_gameweek
+        )
+        stats["upcoming_fixture_difficulty"] = upcoming_fixture_difficulty
+        
+        return stats
+    
+    def _calculate_upcoming_fixture_difficulty(self, player: Player, fixtures: List[Fixture], 
+                                             current_gameweek: int) -> float:
+        """
+        Calculate weighted upcoming fixture difficulty for the next 5 gameweeks.
+        
+        Args:
+            player: Player object
+            fixtures: List of all fixtures
+            current_gameweek: Current gameweek number
+            
+        Returns:
+            Weighted average fixture difficulty (1-5 scale, lower is easier)
+        """
+        # Get upcoming fixtures for the player's team (next 5 gameweeks)
+        upcoming_fixtures = []
+        
+        for fixture in fixtures:
+            # Check if fixture is in the next 5 gameweeks and involves player's team
+            if (fixture.gameweek > current_gameweek and 
+                fixture.gameweek <= current_gameweek + 5 and
+                (fixture.home_team_id == player.team_id or fixture.away_team_id == player.team_id)):
+                
+                upcoming_fixtures.append(fixture)
+        
+        if not upcoming_fixtures:
+            # If no upcoming fixtures found, return neutral difficulty
+            return 3.0
+        
+        # Sort fixtures by gameweek
+        upcoming_fixtures.sort(key=lambda f: f.gameweek)
+        
+        # Calculate weighted difficulty
+        # Weights: [0.4, 0.25, 0.2, 0.1, 0.05] for next 5 gameweeks
+        weights = [0.4, 0.25, 0.2, 0.1, 0.05]
+        total_weighted_difficulty = 0.0
+        total_weight = 0.0
+        
+        for i, fixture in enumerate(upcoming_fixtures[:5]):  # Limit to 5 fixtures
+            if i < len(weights):
+                # Determine if player's team is home or away
+                if fixture.home_team_id == player.team_id:
+                    difficulty = fixture.home_difficulty
+                else:
+                    difficulty = fixture.away_difficulty
+                
+                weight = weights[i]
+                total_weighted_difficulty += difficulty * weight
+                total_weight += weight
+        
+        if total_weight == 0:
+            return 3.0
+        
+        return round(total_weighted_difficulty / total_weight, 1)
+    
+    def get_players_with_additional_stats(self, bootstrap_data: Dict[str, Any], 
+                                        fixtures_data: List[Dict[str, Any]]) -> List[Player]:
+        """
+        Get all players with additional statistics calculated.
+        
+        Args:
+            bootstrap_data: Bootstrap data from FPL API
+            fixtures_data: Fixtures data from FPL API
+            
+        Returns:
+            List of Player objects with additional stats in custom_data
+        """
+        # Parse basic player data
+        players = self.parse_players(bootstrap_data)
+        fixtures = self.parse_fixtures(fixtures_data, self.parse_teams(bootstrap_data))
+        current_gameweek = self.get_current_gameweek() or 1
+        
+        # Calculate additional stats for each player
+        for player in players:
+            additional_stats = self.calculate_player_additional_stats(
+                player, fixtures, current_gameweek
+            )
+            player.custom_data.update(additional_stats)
+        
+        return players
+    
+    def get_all_data_with_additional_stats(self) -> Dict[str, Any]:
+        """Get all FPL data with additional player statistics calculated"""
+        logger.info("Fetching all FPL data with additional player statistics...")
         
         try:
             bootstrap_data = self.get_bootstrap_data()
@@ -242,8 +363,11 @@ class FPLDataFetcher:
             # Parse teams first so we can use them for fixture parsing
             teams = self.parse_teams(bootstrap_data)
             
+            # Get players with additional stats
+            players = self.get_players_with_additional_stats(bootstrap_data, fixtures_data)
+            
             return {
-                'players': self.parse_players(bootstrap_data),
+                'players': players,
                 'teams': teams,
                 'fixtures': self.parse_fixtures(fixtures_data, teams),
                 'gameweeks': self.parse_gameweeks(bootstrap_data),
@@ -253,5 +377,5 @@ class FPLDataFetcher:
                 'raw_fixtures': fixtures_data
             }
         except Exception as e:
-            logger.error(f"Failed to fetch all FPL data: {e}")
+            logger.error(f"Failed to fetch all FPL data with additional stats: {e}")
             raise

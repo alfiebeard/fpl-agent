@@ -44,8 +44,9 @@ class LLMStrategy:
         logger.info("Fetching and formatting available players data...")
         
         try:
-            # Fetch FPL data
-            bootstrap_data = self.fpl_fetcher.get_bootstrap_data()
+            # Fetch FPL data with additional stats
+            all_data = self.fpl_fetcher.get_all_data_with_additional_stats()
+            players = all_data['players']
             
             # Apply filters for available players only
             filters = {
@@ -58,19 +59,35 @@ class LLMStrategy:
                 'positions': [Position.GK, Position.DEF, Position.MID, Position.FWD]  # All positions
             }
             
-            # Transform data
-            teams = transform_fpl_data_to_teams(bootstrap_data, filters)
+            # Filter players based on criteria
+            available_players = []
+            for player in players:
+                # Check if player meets filter criteria
+                if (not player.is_injured and 
+                    player.custom_data.get('chance_of_playing', 100) >= filters['min_chance_of_playing'] and
+                    player.position in filters['positions'] and
+                    player.price <= filters['max_price'] and
+                    player.form >= filters['min_form']):
+                    available_players.append(player)
+            
+            # Group players by team
+            teams = {}
+            for player in available_players:
+                team_name = player.team_name
+                if team_name not in teams:
+                    teams[team_name] = []
+                teams[team_name].append(player)
             
             # Format the data
             formatted_data = []
             
-            for team_name, team_summary in sorted(teams.items()):
+            for team_name, team_players in sorted(teams.items()):
                 formatted_data.append(team_name.upper())
                 
                 # Sort players by position (GK, DEF, MID, FWD) then by total points
                 position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
                 sorted_players = sorted(
-                    team_summary.players, 
+                    team_players, 
                     key=lambda p: (position_order.get(p.position.value, 4), -p.total_points)
                 )
                 
@@ -82,8 +99,17 @@ class LLMStrategy:
                     else:
                         chance_str = f"{chance_of_playing}%"
                     
+                    # Get additional stats
+                    ppg = player.custom_data.get('ppg', player.points_per_game)
+                    form = player.custom_data.get('form', player.form)
+                    minutes = player.custom_data.get('minutes_played', player.minutes_played)
+                    fixture_difficulty = player.custom_data.get('upcoming_fixture_difficulty', 3.0)
+                    ownership = player.custom_data.get('ownership_percent', player.selected_by_pct)
+                    
                     formatted_data.append(
-                        f"{player.name}, {player.position.value}, £{player.price}, {chance_str}"
+                        f"{player.name}, {player.position.value}, £{player.price}, {chance_str}, "
+                        f"PPG: {ppg:.1f}, Form: {form:.1f}, Mins: {minutes}, "
+                        f"Fixture Diff: {fixture_difficulty}, Ownership: {ownership:.1f}%"
                     )
                 
                 formatted_data.append("")  # Empty line between teams
