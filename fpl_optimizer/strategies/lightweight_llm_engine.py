@@ -175,7 +175,29 @@ Keep each player's information brief but informative."""
                 contents=prompt,
                 config=self.generation_config
             )
-            return response.text
+            
+            # Clean up the response to extract only the JSON part
+            response_text = response.text.strip()
+            
+            # Try to extract JSON from the response
+            import json
+            import re
+            
+            # Look for JSON object in the response
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    # Validate that it's proper JSON
+                    json_str = json_match.group(0)
+                    json.loads(json_str)  # Test if it's valid JSON
+                    return json_str
+                except json.JSONDecodeError:
+                    # If JSON extraction fails, return the full response
+                    return response_text
+            else:
+                # If no JSON found, return the full response
+                return response_text
+                
         except Exception as e:
             logger.error(f"Failed to get injury news for {team_name}: {e}")
             return f"Error: Could not fetch injury news for {team_name}"
@@ -253,26 +275,39 @@ Keep each player's information brief but informative."""
         # Format player list for the prompt
         player_list = self._format_players_for_prompt(players)
         
-        prompt = f"""You are a Fantasy Premier League expert. Research the latest hints, tips, and recommendations for {team_name} players.
+        prompt = f"""You're job is to collate the latest fantasy premier league hints, tips and recommendations news on players in the {team_name} squad. The aim is to present the findings for use in an assessment of whether the players are great picks for the upcoming gameweek and will score big points. Research the latest hints, tips and recommendation for {team_name} players.
 
 This is gameweek {current_gameweek} and {team_name} are facing {opponent_str}.
 
 Current {team_name} squad:
 {player_list}
 
-For each player, provide:
-1. Recent form and performance insights
-2. Expected role and playing time
-3. Set-piece responsibilities (if any)
-4. Upcoming fixture analysis (including the current gameweek fixture)
-5. Transfer recommendations (buy/hold/sell)
-6. Any tactical insights or team news that could affect FPL performance
+For each player, provide a short sentence summarising the hints, tips and recommendations.
 
-Search for the most recent expert opinions, community insights, and statistical analysis from trusted FPL sources, blogs, and tipster websites.
+The short sentence should be of the format: INSERT_PLAYER_TIP_STATUS - a short summary of the reason for the decision INSERT_PLAYER_TIP_STATUS based on your research on the players hints, tips and recommendations for the gameweek.
+For INSERT_PLAYER_TIP_STATUS either Must-have, Recommended, Avoid, Rotation risk.
 
-Format your response as actionable FPL advice for each player, focusing on transfer decisions and captaincy considerations.
+To make your decision, you should consider the following:
+1. Recent form and performance insights.
+2. Expected role and playing time.
+3. Set-piece responsibilities (if any).
+4. Upcoming fixture analysis (including the current gameweek fixture).
+5. Transfer recommendations (buy/hold/sell).
+6. Any tactical insights or team news that could affect the player's FPL performance.
 
-Keep each player's advice concise but comprehensive."""
+Search for the most recent and reliable information from official sources, team announcements, and trusted football news outlets.
+
+Use hints, tips and recommendations you discover first and foremost, but if you think the stats help support the decision, then use them.
+
+Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure:
+
+{{
+    "Player Name 1": "INSERT_PLAYER_TIP_STATUS - a short summary of the reason for the decision INSERT_PLAYER_TIP_STATUS based on your research on the players hints, tips and recommendations for the gameweek.",
+    "Player Name 2": "INSERT_PLAYER_TIP_STATUS - a short summary of the reason for the decision INSERT_PLAYER_TIP_STATUS based on your research on the players hints, tips and recommendations for the gameweek.",
+    ...
+}}
+
+Keep each player's information brief but informative."""
 
         try:
             response = self.client.models.generate_content(
@@ -280,7 +315,29 @@ Keep each player's advice concise but comprehensive."""
                 contents=prompt,
                 config=self.generation_config
             )
-            return response.text
+            
+            # Clean up the response to extract only the JSON part
+            response_text = response.text.strip()
+            
+            # Try to extract JSON from the response
+            import json
+            import re
+            
+            # Look for JSON object in the response
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    # Validate that it's proper JSON
+                    json_str = json_match.group(0)
+                    json.loads(json_str)  # Test if it's valid JSON
+                    return json_str
+                except json.JSONDecodeError:
+                    # If JSON extraction fails, return the full response
+                    return response_text
+            else:
+                # If no JSON found, return the full response
+                return response_text
+                
         except Exception as e:
             logger.error(f"Failed to get hints/tips for {team_name}: {e}")
             return f"Error: Could not fetch hints/tips for {team_name}"
