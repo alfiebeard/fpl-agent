@@ -209,7 +209,7 @@ class LightweightLLMStrategy:
         
         return f"""You're job is to collate the latest injury news on players in the {team_name} squad. The aim is to present the findings for use in an assessment of whether the players will be fit for the upcoming gameweek and will play in the matchday squad. Research the latest injury news and playing likelihood for {team_name} players.
 
-This is gameweek {current_gameweek} and {team_name} are {opponent_str}.
+This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are {opponent_str}.
 
 Current {team_name} squad:
 {player_list}
@@ -248,7 +248,7 @@ Keep each player's information brief but informative."""
         
         return f"""You're job is to collate the latest fantasy premier league hints, tips and recommendations news on players in the {team_name} squad. The aim is to present the findings for use in an assessment of whether the players are great picks for the upcoming gameweek and will score big points. Research the latest hints, tips and recommendation for {team_name} players.
 
-This is gameweek {current_gameweek} and {team_name} are facing {opponent_str}.
+This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are facing {opponent_str}.
 
 Current {team_name} squad:
 {player_list}
