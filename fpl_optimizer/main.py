@@ -18,8 +18,8 @@ try:
     from .ingestion import get_test_data
 
     from .core.models import Player, Team, Position, FPLTeam
-    from .strategies import ModelStrategy, LLMStrategy
-    from fpl_optimizer.strategies.lightweight_llm_engine import LightweightLLMEngine
+    from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
+    from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
 except ImportError:
     # When run directly (python fpl_optimizer/main.py)
     # Add the parent directory to the path
@@ -29,7 +29,7 @@ except ImportError:
 
     from fpl_optimizer.core.models import Player, Team, Position, FPLTeam
     from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
-    from fpl_optimizer.strategies.lightweight_llm_engine import LightweightLLMEngine
+    from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
 
 
 # Configure logging
@@ -340,7 +340,7 @@ class FPLOptimizer:
             logger.info("Starting team injury news analysis...")
             
             # Initialize lightweight LLM engine
-            lightweight_llm = LightweightLLMEngine(self.config)
+            lightweight_llm = LightweightLLMStrategy(self.config)
             
             # Fetch FPL data with additional stats
             from fpl_optimizer.ingestion.fetch_fpl import FPLDataFetcher
@@ -403,7 +403,7 @@ class FPLOptimizer:
             logger.info("Starting team hints and tips analysis...")
             
             # Initialize lightweight LLM engine
-            lightweight_llm = LightweightLLMEngine(self.config)
+            lightweight_llm = LightweightLLMStrategy(self.config)
             
             # Fetch FPL data with additional stats
             from fpl_optimizer.ingestion.fetch_fpl import FPLDataFetcher
