@@ -85,15 +85,28 @@ class LightweightLLMEngine:
             import json
             import re
             
-            # Look for JSON object in the response
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            # Look for JSON object in the response (more robust pattern)
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
             if json_match:
                 try:
                     # Validate that it's proper JSON
                     json_str = json_match.group(0)
+                    # Clean up common issues
+                    json_str = json_str.replace('\n', ' ').replace('\r', ' ')
                     json.loads(json_str)  # Test if it's valid JSON
                     return json_str
                 except json.JSONDecodeError:
+                    # Try a simpler extraction
+                    try:
+                        # Look for the first { and last }
+                        start = response_text.find('{')
+                        end = response_text.rfind('}')
+                        if start != -1 and end != -1 and end > start:
+                            json_str = response_text[start:end+1]
+                            json.loads(json_str)  # Test if it's valid JSON
+                            return json_str
+                    except json.JSONDecodeError:
+                        pass
                     # If JSON extraction fails, return the full response
                     return response_text
             else:

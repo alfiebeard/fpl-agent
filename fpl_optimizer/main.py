@@ -94,8 +94,13 @@ class FPLOptimizer:
             self._llm_strategy = LLMStrategy(self.config)
         return self._llm_strategy
     
-    def fetch_fpl_players(self, limit: Optional[int] = None) -> Dict[str, Any]:
-        """Fetch real FPL player data from the API"""
+    def fetch_fpl_players(self, limit: Optional[int] = None, enrich_with_llm: bool = False, force_refresh: bool = False) -> Dict[str, Any]:
+        """Fetch real FPL player data from the API
+        
+        Args:
+            limit: Optional limit on number of players to fetch
+            enrich_with_llm: If True, fetch injury news and FPL hints for all players and cache them
+        """
         
         try:
             logger.info("Starting FPL API data fetch...")
@@ -169,6 +174,33 @@ class FPLOptimizer:
             }
             
             logger.info("FPL data fetch completed successfully!")
+            
+            # Enrich with LLM data if requested
+            if enrich_with_llm:
+                print("\n" + "="*80)
+                print("ENRICHING PLAYER DATA WITH LLM ANALYSIS")
+                print("="*80)
+                print("This will fetch injury news and FPL hints for all teams...")
+                print("This process may take 15-20 minutes.")
+                print("="*80)
+                
+                try:
+                    # Get enriched player data (respect force_refresh flag)
+                    enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+                    
+                    if enriched_data:
+                        print(f"✅ Successfully enriched and cached data for {len(enriched_data)} players")
+                        summary['enriched_with_llm'] = True
+                        summary['enriched_players_count'] = len(enriched_data)
+                    else:
+                        print("❌ Failed to enrich player data")
+                        summary['enriched_with_llm'] = False
+                        
+                except Exception as e:
+                    logger.error(f"Failed to enrich player data: {e}")
+                    print(f"❌ Error enriching player data: {e}")
+                    summary['enriched_with_llm'] = False
+            
             return {
                 'players': players,
                 'teams': [team_summary.team for team_summary in teams.values()],
@@ -204,19 +236,21 @@ class FPLOptimizer:
             logger.error(f"Model-based team creation failed: {e}")
             raise
     
-    def create_team_llm(self, budget: float = 100.0, gameweek: Optional[int] = None) -> Dict[str, Any]:
+    def create_team_llm(self, budget: float = 100.0, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
         """Create team using comprehensive LLM-based approach with FPL integration"""
         
         try:
             logger.info("Creating team using comprehensive LLM-based approach...")
             
             # Use LLM strategy
-            result = self.llm_strategy.create_team(budget, gameweek or 1)
+            result = self.llm_strategy.create_team(budget, gameweek or 1, use_semantic_filtering, force_refresh, use_embeddings)
             
             logger.info("Comprehensive LLM-based team creation completed successfully!")
             return {
                 'method': 'Comprehensive LLM-based Team Creation',
-                'team_data': result
+                'team_data': result,
+                'semantic_filtering': use_semantic_filtering,
+                'force_refresh': force_refresh
             }
             
         except Exception as e:
@@ -302,11 +336,11 @@ class FPLOptimizer:
     
 
     
-    def update_team_weekly_comprehensive(self, gameweek: Optional[int] = None) -> Dict[str, Any]:
+    def update_team_weekly_comprehensive(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
         """Update the current FPL team weekly using the comprehensive LLM team manager"""
         try:
             logger.info(f"Updating team weekly for gameweek {gameweek or 'current'}...")
-            result = self.llm_strategy.update_team_weekly(gameweek)
+            result = self.llm_strategy.update_team_weekly(gameweek, use_semantic_filtering, force_refresh, use_embeddings)
             logger.info("Weekly team update completed successfully!")
             return result
         except Exception as e:
@@ -451,6 +485,65 @@ class FPLOptimizer:
         except Exception as e:
             logger.error(f"Failed to get team hints and tips: {e}")
             raise
+    
+    def run_embedding_filtering(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Run embedding filtering on cached player data
+        
+        Args:
+            force_refresh: If True, recompute embeddings even if cached
+            
+        Returns:
+            Dict containing filtered players organized by position
+        """
+        try:
+            logger.info("Running embedding filtering on cached player data...")
+            
+            # Import embedding filter
+            from fpl_optimizer.strategies.embedding_filter import EmbeddingFilter
+            
+            # Initialize embedding filter
+            embedding_filter = EmbeddingFilter(self.config)
+            
+            # Get enriched player data from cache
+            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=False)
+            
+            if not enriched_data:
+                raise ValueError("No enriched player data found in cache. Please run 'fetch-fpl-players' first.")
+            
+            logger.info(f"Loaded {len(enriched_data)} players from cache")
+            
+            # Apply embedding filtering
+            filtered_data = embedding_filter.filter_players_by_position(enriched_data, force_refresh=force_refresh)
+            
+            # Group by position
+            positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
+            
+            for player_name, enriched_string in filtered_data.items():
+                # Extract position from the enriched string
+                if '(GK,' in enriched_string:
+                    positions['GK'].append((player_name, enriched_string))
+                elif '(DEF,' in enriched_string:
+                    positions['DEF'].append((player_name, enriched_string))
+                elif '(MID,' in enriched_string:
+                    positions['MID'].append((player_name, enriched_string))
+                elif '(FWD,' in enriched_string:
+                    positions['FWD'].append((player_name, enriched_string))
+            
+            # Create result structure
+            result = {
+                'total_players_loaded': len(enriched_data),
+                'total_players_filtered': len(filtered_data),
+                'reduction_percentage': ((len(enriched_data) - len(filtered_data)) / len(enriched_data) * 100),
+                'positions': positions,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Embedding filtering complete: {len(filtered_data)} players selected from {len(enriched_data)} total")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to run embedding filtering: {e}")
+            raise
 
 
 def main():
@@ -460,7 +553,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
-        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints'
+        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter'
     ], help='Command to run')
     
     # Common arguments
@@ -484,6 +577,8 @@ def main():
     parser.add_argument('--team-name', type=str,
                        help='Specific team name for analysis (e.g., "Chelsea", "Arsenal")')
     
+
+    
     # Save options
     parser.add_argument('--save-team', action='store_true',
                        help='Save the created team to a JSON file')
@@ -493,6 +588,22 @@ def main():
     # Debug options
     parser.add_argument('--show-prompt', action='store_true',
                        help='Show the LLM prompt without executing (for debugging)')
+    
+    # Semantic filtering option
+    parser.add_argument('--semantic-filtering', action='store_true',
+                       help='Use enriched player data with injury news and FPL suggestions for semantic filtering')
+    
+    # Embedding filtering option
+    parser.add_argument('--use-embeddings', action='store_true',
+                       help='Use embedding-based filtering to select top players per position (requires --semantic-filtering)')
+    
+    # Force refresh option
+    parser.add_argument('--force-refresh', action='store_true',
+                       help='Force refresh of cached data (player data, embeddings, etc.)')
+    
+    # Enrichment option
+    parser.add_argument('--enrich', action='store_true',
+                       help='Enrich player data with injury news and FPL hints (requires LLM calls, takes 15-20 minutes)')
     
     args = parser.parse_args()
     
@@ -506,7 +617,7 @@ def main():
             
         elif args.command == 'fetch-fpl-players':
             # Fetch real FPL data from API
-            result = optimizer.fetch_fpl_players(args.sample_size)
+            result = optimizer.fetch_fpl_players(args.sample_size, args.enrich, args.force_refresh)
             display_player_data(result)
             
         elif args.command == 'create-model':
@@ -518,7 +629,7 @@ def main():
             # Create team using comprehensive LLM approach
             if args.show_prompt:
                 # Show the prompt without executing
-                prompt = optimizer.llm_strategy._create_team_creation_prompt(args.budget, args.gameweek or 1)
+                prompt = optimizer.llm_strategy._create_team_creation_prompt(args.budget, args.gameweek or 1, args.semantic_filtering, args.force_refresh, args.use_embeddings)
                 print("\n" + "="*80)
                 print("LLM TEAM CREATION PROMPT (DEBUG MODE)")
                 print("="*80)
@@ -526,7 +637,7 @@ def main():
                 print("="*80)
             else:
                 # Execute normally
-                result = optimizer.create_team_llm(args.budget, args.gameweek)
+                result = optimizer.create_team_llm(args.budget, args.gameweek, args.semantic_filtering, args.force_refresh, args.use_embeddings)
                 display_comprehensive_team_result(result)
                 
                 # Save team if requested
@@ -545,7 +656,7 @@ def main():
             
         elif args.command == 'update-team':
             # Update team weekly using comprehensive LLM team manager
-            result = optimizer.update_team_weekly_comprehensive(args.gameweek)
+            result = optimizer.update_team_weekly_comprehensive(args.gameweek, args.semantic_filtering, args.force_refresh, args.use_embeddings)
             display_comprehensive_team_result(result)
             
         elif args.command == 'weekly-model':
@@ -796,6 +907,11 @@ def main():
             result = optimizer.get_team_hints_tips(args.team_name)
             display_team_hints_tips(result)
             
+        elif args.command == 'embedding-filter':
+            # Run embedding filtering on cached player data
+            result = optimizer.run_embedding_filtering(args.force_refresh)
+            display_embedding_filtering_result(result)
+            
 
             
 
@@ -822,6 +938,11 @@ def display_player_data(result):
         print(f"  Data Source: {summary['data_source']}")
     if 'fetched_at' in summary:
         print(f"  Fetched At: {summary['fetched_at']}")
+    if 'enriched_with_llm' in summary:
+        if summary['enriched_with_llm']:
+            print(f"  ✅ Enriched with LLM data: {summary.get('enriched_players_count', 0)} players")
+        else:
+            print(f"  ❌ LLM enrichment failed or not requested")
     
     print(f"\nPosition Distribution:")
     for pos, count in summary['position_distribution'].items():
@@ -1121,6 +1242,41 @@ def display_team_hints_tips(result):
         print(f"Players: {result['player_count']}")
         print()
         print(result['hints_tips'])
+    
+    print("="*80)
+
+
+def display_embedding_filtering_result(result):
+    """Display embedding filtering results"""
+    print("\n" + "="*80)
+    print("EMBEDDING FILTERING RESULTS")
+    print("="*80)
+    
+    # Summary
+    print(f"Total players loaded: {result['total_players_loaded']}")
+    print(f"Total players filtered: {result['total_players_filtered']}")
+    print(f"Reduction: {result['reduction_percentage']:.1f}%")
+    print(f"Timestamp: {result['timestamp']}")
+    
+    # Display by position
+    positions = result['positions']
+    
+    for position, players in positions.items():
+        print(f"\n{position} ({len(players)} players):")
+        print("-" * 60)
+        
+        for i, (player_name, enriched_string) in enumerate(players, 1):
+            # Extract key info
+            lines = enriched_string.split('\n')
+            stats_line = lines[1] if len(lines) > 1 else ""
+            injury_line = lines[2] if len(lines) > 2 else ""
+            hints_line = lines[3] if len(lines) > 3 else ""
+            
+            print(f"{i:2d}. {player_name}")
+            print(f"    {stats_line}")
+            print(f"    {injury_line}")
+            print(f"    {hints_line}")
+            print()
     
     print("="*80)
 
