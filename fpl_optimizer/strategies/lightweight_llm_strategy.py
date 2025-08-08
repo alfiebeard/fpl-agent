@@ -26,6 +26,29 @@ class LightweightLLMStrategy:
     def __init__(self, config: Config):
         self.config = config
         self.llm_engine = LightweightLLMEngine(config)
+        
+        # Cache for FPL data to avoid repeated API calls
+        self._cached_bootstrap_data = None
+        self._cached_fixtures_data = None
+        self._cached_current_gameweek = None
+    
+    def initialize_fpl_data(self):
+        """Initialize FPL data cache to avoid repeated API calls during team processing"""
+        if self._cached_bootstrap_data is None:
+            logger.info("Initializing FPL data cache for lightweight LLM strategy...")
+            from ..ingestion.fetch_fpl import FPLDataFetcher
+            fetcher = FPLDataFetcher(self.config)
+            
+            self._cached_bootstrap_data = fetcher.get_bootstrap_data()
+            self._cached_fixtures_data = fetcher.get_fixtures()
+            self._cached_current_gameweek = fetcher.get_current_gameweek()
+            
+            if self._cached_current_gameweek is None:
+                self._cached_current_gameweek = 1  # Fallback to GW1
+                
+            logger.info(f"FPL data cache initialized: GW{self._cached_current_gameweek}, "
+                       f"{len(self._cached_fixtures_data)} fixtures, "
+                       f"{len(self._cached_bootstrap_data.get('teams', []))} teams")
     
     def _get_fixture_info(self, team_name: str, current_gameweek: int) -> dict:
         """
@@ -38,15 +61,32 @@ class LightweightLLMStrategy:
         Returns:
             Dictionary containing fixture string, double gameweek status, and fixture difficulty
         """
-        from ..ingestion.fetch_fpl import FPLDataFetcher
-        fetcher = FPLDataFetcher(self.config)
+        # Ensure FPL data is cached
+        self.initialize_fpl_data()
         
-        # Get fixtures to find opponents for this gameweek
-        fixtures_data = fetcher.get_fixtures()
-        teams_data = fetcher.get_bootstrap_data().get('teams', [])
+        # Use cached data instead of making API calls
+        fixtures_data = self._cached_fixtures_data
+        teams_data = self._cached_bootstrap_data.get('teams', [])
         
-        # Create team name to ID mapping
-        team_id_map = {team['name']: team['id'] for team in teams_data}
+        # Create team name to ID mapping with error handling
+        team_id_map = {}
+        try:
+            logger.debug(f"Processing teams data for {team_name}: found {len(teams_data)} teams")
+            for team in teams_data:
+                if isinstance(team, dict) and 'name' in team and 'id' in team:
+                    team_id_map[team['name']] = team['id']
+                else:
+                    logger.debug(f"Skipping invalid team data: {team}")
+            logger.debug(f"Created team ID mapping with {len(team_id_map)} teams")
+        except Exception as e:
+            logger.error(f"Failed to create team ID mapping: {e}")
+            logger.error(f"Teams data structure: {teams_data[:2] if teams_data else 'Empty'}")
+            return {
+                'fixture_str': "no fixture scheduled",
+                'is_double_gameweek': False,
+                'fixture_difficulty': 3.0
+            }
+        
         team_id = team_id_map.get(team_name)
         
         if not team_id:
@@ -82,13 +122,13 @@ class LightweightLLMStrategy:
                 
                 if home_team_id == team_id:
                     # Team is playing home
-                    away_team_name = next((team['name'] for team in teams_data if team['id'] == away_team_id), 'Unknown')
+                    away_team_name = next((team['name'] for team in teams_data if isinstance(team, dict) and team.get('id') == away_team_id), 'Unknown')
                     opponents.append(f"home to {away_team_name} on {formatted_date}")
                     # Get home difficulty (for the home team)
                     fixture_difficulties.append(fixture_data.get('team_h_difficulty', 3))
                 elif away_team_id == team_id:
                     # Team is playing away
-                    home_team_name = next((team['name'] for team in teams_data if team['id'] == home_team_id), 'Unknown')
+                    home_team_name = next((team['name'] for team in teams_data if isinstance(team, dict) and team.get('id') == home_team_id), 'Unknown')
                     opponents.append(f"away to {home_team_name} on {formatted_date}")
                     # Get away difficulty (for the away team)
                     fixture_difficulties.append(fixture_data.get('team_a_difficulty', 3))
@@ -128,14 +168,11 @@ class LightweightLLMStrategy:
         Returns:
             String containing injury news for each player
         """
-        # Get current gameweek
-        from ..ingestion.fetch_fpl import FPLDataFetcher
-        fetcher = FPLDataFetcher(self.config)
+        # Ensure FPL data is cached
+        self.initialize_fpl_data()
         
-        # Get current gameweek
-        current_gameweek = fetcher.get_current_gameweek()
-        if current_gameweek is None:
-            current_gameweek = 1  # Fallback to GW1 if not available
+        # Use cached current gameweek
+        current_gameweek = self._cached_current_gameweek
         
         # Get fixture information
         fixture_info = self._get_fixture_info(team_name, current_gameweek)
@@ -157,14 +194,11 @@ class LightweightLLMStrategy:
         Returns:
             String containing hints, tips, and recommendations for each player
         """
-        # Get current gameweek
-        from ..ingestion.fetch_fpl import FPLDataFetcher
-        fetcher = FPLDataFetcher(self.config)
+        # Ensure FPL data is cached
+        self.initialize_fpl_data()
         
-        # Get current gameweek
-        current_gameweek = fetcher.get_current_gameweek()
-        if current_gameweek is None:
-            current_gameweek = 1  # Fallback to GW1 if not available
+        # Use cached current gameweek
+        current_gameweek = self._cached_current_gameweek
         
         # Get fixture information
         fixture_info = self._get_fixture_info(team_name, current_gameweek)
@@ -304,10 +338,26 @@ Keep each player's information brief but informative."""
             form = player.custom_data.get('form', player.form)
             ownership = player.custom_data.get('ownership_percent', player.selected_by_percent)
             
+            # Convert to float for formatting, handling string values
+            try:
+                ppg_float = float(ppg) if ppg is not None else 0.0
+            except (ValueError, TypeError):
+                ppg_float = 0.0
+            
+            try:
+                form_float = float(form) if form is not None else 0.0
+            except (ValueError, TypeError):
+                form_float = 0.0
+            
+            try:
+                ownership_float = float(ownership) if ownership is not None else 0.0
+            except (ValueError, TypeError):
+                ownership_float = 0.0
+            
             formatted_players.append(
                 f"- {player.name} ({player.position.value}, £{player.price}m, "
-                f"PPG: {ppg:.1f}, Form: {form:.1f}, "
-                f"Ownership: {ownership:.1f}%)"
+                f"PPG: {ppg_float:.1f}, Form: {form_float:.1f}, "
+                f"Ownership: {ownership_float:.1f}%)"
             )
         
         return "\n".join(formatted_players) 

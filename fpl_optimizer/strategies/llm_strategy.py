@@ -1136,6 +1136,9 @@ Ensure the final team meets all FPL constraints before submitting:
             # Initialize lightweight LLM strategy for team analysis
             lightweight_llm = LightweightLLMStrategy(self.config)
             
+            # Initialize FPL data cache once to avoid repeated API calls
+            lightweight_llm.initialize_fpl_data()
+            
             # Group players by team
             players_by_team = {}
             for player in players:
@@ -1351,6 +1354,9 @@ Ensure the final team meets all FPL constraints before submitting:
             # Initialize lightweight LLM strategy for team analysis
             lightweight_llm = LightweightLLMStrategy(self.config)
             
+            # Initialize FPL data cache once to avoid repeated API calls
+            lightweight_llm.initialize_fpl_data()
+            
             # Pre-fetch FPL data once to avoid multiple API calls
             logger.info("Pre-fetching FPL data for all teams...")
             from ..ingestion.fetch_fpl import FPLDataFetcher
@@ -1381,63 +1387,63 @@ Ensure the final team meets all FPL constraints before submitting:
                         class SimplePlayer:
                             def __init__(self, data):
                                 # Basic info
-                                self.id = data["data"]["id"]
-                                self.first_name = data["data"]["first_name"]
-                                self.second_name = data["data"]["second_name"]
-                                self.name = data["data"]["name"]
-                                self.team_id = data["data"]["team_id"]
-                                self.team_name = data["data"]["team"]
-                                self.team_short_name = data["data"]["team_short_name"]
-                                self.element_type = data["data"]["element_type"]
-                                self.position = type('Position', (), {'value': data["data"]["position"]})()
+                                self.id = data["data"].get("id", 0)
+                                self.first_name = data["data"].get("first_name", "")
+                                self.second_name = data["data"].get("second_name", "")
+                                self.name = data["data"].get("name", "")
+                                self.team_id = data["data"].get("team_id", 0)
+                                self.team_name = data["data"].get("team", "")
+                                self.team_short_name = data["data"].get("team_short_name", "")
+                                self.element_type = data["data"].get("element_type", 0)
+                                self.position = type('Position', (), {'value': data["data"].get("position", "")})()
                                 
                                 # Price info
-                                self.now_cost = data["data"]["now_cost"]
-                                self.price = data["data"]["price"]
-                                self.cost_change_start = data["data"]["cost_change_start"]
-                                self.cost_change_event = data["data"]["cost_change_event"]
-                                self.price_change = data["data"]["price_change"]
+                                self.now_cost = data["data"].get("now_cost", 0)
+                                self.price = data["data"].get("price", 0.0)
+                                self.cost_change_start = data["data"].get("cost_change_start", 0)
+                                self.cost_change_event = data["data"].get("cost_change_event", 0)
+                                self.price_change = data["data"].get("price_change", 0.0)
                                 
                                 # Stats
-                                self.total_points = data["data"]["total_points"]
-                                self.points_per_game = data["data"]["points_per_game"]
-                                self.form = data["data"]["form"]
-                                self.minutes = data["data"]["minutes"]
-                                self.selected_by_percent = data["data"]["selected_by_percent"]
+                                self.total_points = data["data"].get("total_points", 0)
+                                self.points_per_game = data["data"].get("points_per_game", 0.0)
+                                self.form = data["data"].get("form", 0.0)
+                                self.minutes = data["data"].get("minutes", 0)
+                                self.selected_by_percent = data["data"].get("selected_by_percent", 0.0)
                                 
                                 # Expected stats
-                                self.xG = data["data"]["xG"]
-                                self.xA = data["data"]["xA"]
-                                self.xGC = data["data"]["xGC"]
-                                self.xMins_pct = data["data"]["xMins_pct"]
+                                self.xG = data["data"].get("xG", 0.0)
+                                self.xA = data["data"].get("xA", 0.0)
+                                self.xGC = data["data"].get("xGC", 0.0)
+                                self.xMins_pct = data["data"].get("xMins_pct", 0.0)
                                 
                                 # Injury status
-                                self.status = data["data"]["status"]
-                                self.news = data["data"]["news"]
-                                self.news_added = data["data"]["news_added"]
-                                self.chance_of_playing_next_round = data["data"]["chance_of_playing_next_round"]
-                                self.chance_of_playing_this_round = data["data"]["chance_of_playing_this_round"]
-                                self.is_injured = data["data"]["is_injured"]
+                                self.status = data["data"].get("status", "")
+                                self.news = data["data"].get("news", "")
+                                self.news_added = data["data"].get("news_added", "")
+                                self.chance_of_playing_next_round = data["data"].get("chance_of_playing_next_round", None)
+                                self.chance_of_playing_this_round = data["data"].get("chance_of_playing_this_round", None)
+                                self.is_injured = data["data"].get("is_injured", False)
                                 
                                 # Calculated fields
-                                self.ppg = data["data"]["ppg"]
-                                self.form_float = data["data"]["form_float"]
-                                self.minutes_played = data["data"]["minutes_played"]
-                                self.fixture_difficulty = data["data"]["fixture_difficulty"]
-                                self.ownership_percent = data["data"]["ownership_percent"]
+                                self.ppg = data["data"].get("ppg", 0.0)
+                                self.form_float = data["data"].get("form_float", 0.0)
+                                self.minutes_played = data["data"].get("minutes_played", 0)
+                                self.fixture_difficulty = data["data"].get("fixture_difficulty", 3.0)
+                                self.ownership_percent = data["data"].get("ownership_percent", 0.0)
                                 
                                 # Legacy compatibility
-                                self.selected_by_pct = data["data"]["selected_by_percent"]
-                                self.injury_type = data["data"]["news"]
+                                self.selected_by_pct = data["data"].get("selected_by_percent", 0.0)
+                                self.injury_type = data["data"].get("news", "")
                                 
                                 # Add custom_data attribute with the additional stats
                                 self.custom_data = {
-                                    'chance_of_playing': data["data"]["chance_of_playing_this_round"],
-                                    'ppg': data["data"]["ppg"],
-                                    'form': data["data"]["form_float"],
-                                    'minutes_played': data["data"]["minutes_played"],
-                                    'upcoming_fixture_difficulty': data["data"]["fixture_difficulty"],
-                                    'ownership_percent': data["data"]["ownership_percent"]
+                                    'chance_of_playing': data["data"].get("chance_of_playing_this_round", None),
+                                    'ppg': data["data"].get("ppg", 0.0),
+                                    'form': data["data"].get("form_float", 0.0),
+                                    'minutes_played': data["data"].get("minutes_played", 0),
+                                    'upcoming_fixture_difficulty': data["data"].get("fixture_difficulty", 3.0),
+                                    'ownership_percent': data["data"].get("ownership_percent", 0.0)
                                 }
                         
                         player_objects.append(SimplePlayer(player_data))
