@@ -27,7 +27,7 @@ class LightweightLLMStrategy:
         self.config = config
         self.llm_engine = LightweightLLMEngine(config)
     
-    def _get_fixture_info(self, team_name: str, current_gameweek: int) -> str:
+    def _get_fixture_info(self, team_name: str, current_gameweek: int) -> dict:
         """
         Get fixture information for a team in a specific gameweek.
         
@@ -36,7 +36,7 @@ class LightweightLLMStrategy:
             current_gameweek: Current gameweek number
             
         Returns:
-            String describing the fixture(s) for the team
+            Dictionary containing fixture string, double gameweek status, and fixture difficulty
         """
         from ..ingestion.fetch_fpl import FPLDataFetcher
         fetcher = FPLDataFetcher(self.config)
@@ -50,10 +50,16 @@ class LightweightLLMStrategy:
         team_id = team_id_map.get(team_name)
         
         if not team_id:
-            return "no fixture scheduled"
+            return {
+                'fixture_str': "no fixture scheduled",
+                'is_double_gameweek': False,
+                'fixture_difficulty': 3.0
+            }
         
         # Find opponents for this gameweek
         opponents = []
+        fixture_difficulties = []
+        
         for fixture_data in fixtures_data:
             if fixture_data.get('event') == current_gameweek:
                 home_team_id = fixture_data.get('team_h')
@@ -75,23 +81,41 @@ class LightweightLLMStrategy:
                     formatted_date = "TBD"
                 
                 if home_team_id == team_id:
-                    # Team is playing away
-                    away_team_name = next((team['name'] for team in teams_data if team['id'] == away_team_id), 'Unknown')
-                    opponents.append(f"away to {away_team_name} on {formatted_date}")
-                elif away_team_id == team_id:
                     # Team is playing home
+                    away_team_name = next((team['name'] for team in teams_data if team['id'] == away_team_id), 'Unknown')
+                    opponents.append(f"home to {away_team_name} on {formatted_date}")
+                    # Get home difficulty (for the home team)
+                    fixture_difficulties.append(fixture_data.get('team_h_difficulty', 3))
+                elif away_team_id == team_id:
+                    # Team is playing away
                     home_team_name = next((team['name'] for team in teams_data if team['id'] == home_team_id), 'Unknown')
-                    opponents.append(f"home to {home_team_name} on {formatted_date}")
+                    opponents.append(f"away to {home_team_name} on {formatted_date}")
+                    # Get away difficulty (for the away team)
+                    fixture_difficulties.append(fixture_data.get('team_a_difficulty', 3))
+        
+        # Calculate average fixture difficulty
+        if fixture_difficulties:
+            avg_difficulty = sum(fixture_difficulties) / len(fixture_difficulties)
+        else:
+            avg_difficulty = 3.0
         
         # Format opponent string
+        is_double_gameweek = len(opponents) > 1
+        
         if opponents:
             if len(opponents) == 1:
-                return opponents[0]
+                fixture_str = opponents[0]
             else:
                 # Double gameweek
-                return f"double gameweek: {' and '.join(opponents)}"
+                fixture_str = f"double gameweek: {' and '.join(opponents)}"
         else:
-            return "no fixture scheduled"
+            fixture_str = "no fixture scheduled"
+        
+        return {
+            'fixture_str': fixture_str,
+            'is_double_gameweek': is_double_gameweek,
+            'fixture_difficulty': round(avg_difficulty, 1)
+        }
     
     def get_team_injury_news(self, team_name: str, players: List[Player]) -> str:
         """
@@ -104,7 +128,7 @@ class LightweightLLMStrategy:
         Returns:
             String containing injury news for each player
         """
-        # Get current gameweek and opponent information
+        # Get current gameweek
         from ..ingestion.fetch_fpl import FPLDataFetcher
         fetcher = FPLDataFetcher(self.config)
         
@@ -113,57 +137,11 @@ class LightweightLLMStrategy:
         if current_gameweek is None:
             current_gameweek = 1  # Fallback to GW1 if not available
         
-        # Get fixtures to find opponents for this gameweek
-        fixtures_data = fetcher.get_fixtures()
-        teams_data = fetcher.get_bootstrap_data().get('teams', [])
-        
-        # Create team name to ID mapping
-        team_id_map = {team['name']: team['id'] for team in teams_data}
-        team_id = team_id_map.get(team_name)
-        
-        # Find opponents for this gameweek
-        opponents = []
-        for fixture_data in fixtures_data:
-            if fixture_data.get('event') == current_gameweek:
-                home_team_id = fixture_data.get('team_h')
-                away_team_id = fixture_data.get('team_a')
-                
-                # Get fixture date
-                kickoff_time = fixture_data.get('kickoff_time')
-                if kickoff_time:
-                    try:
-                        # Parse the ISO format date from FPL API
-                        fixture_date = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
-                        # Format as "22nd May 2025"
-                        day = fixture_date.day
-                        suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
-                        formatted_date = f"{day}{suffix} {fixture_date.strftime('%B %Y')}"
-                    except:
-                        formatted_date = "TBD"
-                else:
-                    formatted_date = "TBD"
-                
-                if home_team_id == team_id:
-                    # Team is playing away
-                    away_team_name = next((team['name'] for team in teams_data if team['id'] == away_team_id), 'Unknown')
-                    opponents.append(f"away to {away_team_name} on {formatted_date}")
-                elif away_team_id == team_id:
-                    # Team is playing home
-                    home_team_name = next((team['name'] for team in teams_data if team['id'] == home_team_id), 'Unknown')
-                    opponents.append(f"home to {home_team_name} on {formatted_date}")
-        
-        # Format opponent string
-        if opponents:
-            if len(opponents) == 1:
-                opponent_str = opponents[0]
-            else:
-                # Double gameweek
-                opponent_str = f"double gameweek: {' and '.join(opponents)}"
-        else:
-            opponent_str = "no fixture scheduled"
+        # Get fixture information
+        fixture_info = self._get_fixture_info(team_name, current_gameweek)
         
         # Create the prompt
-        prompt = self._create_injury_news_prompt(team_name, players, current_gameweek, opponent_str)
+        prompt = self._create_injury_news_prompt(team_name, players, current_gameweek, fixture_info)
         
         # Get LLM response
         return self.llm_engine.query_llm(prompt)
@@ -179,7 +157,7 @@ class LightweightLLMStrategy:
         Returns:
             String containing hints, tips, and recommendations for each player
         """
-        # Get current gameweek and opponent information
+        # Get current gameweek
         from ..ingestion.fetch_fpl import FPLDataFetcher
         fetcher = FPLDataFetcher(self.config)
         
@@ -188,57 +166,11 @@ class LightweightLLMStrategy:
         if current_gameweek is None:
             current_gameweek = 1  # Fallback to GW1 if not available
         
-        # Get fixtures to find opponents for this gameweek
-        fixtures_data = fetcher.get_fixtures()
-        teams_data = fetcher.get_bootstrap_data().get('teams', [])
-        
-        # Create team name to ID mapping
-        team_id_map = {team['name']: team['id'] for team in teams_data}
-        team_id = team_id_map.get(team_name)
-        
-        # Find opponents for this gameweek
-        opponents = []
-        for fixture_data in fixtures_data:
-            if fixture_data.get('event') == current_gameweek:
-                home_team_id = fixture_data.get('team_h')
-                away_team_id = fixture_data.get('team_a')
-                
-                # Get fixture date
-                kickoff_time = fixture_data.get('kickoff_time')
-                if kickoff_time:
-                    try:
-                        # Parse the ISO format date from FPL API
-                        fixture_date = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
-                        # Format as "22nd May 2025"
-                        day = fixture_date.day
-                        suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
-                        formatted_date = f"{day}{suffix} {fixture_date.strftime('%B %Y')}"
-                    except:
-                        formatted_date = "TBD"
-                else:
-                    formatted_date = "TBD"
-                
-                if home_team_id == team_id:
-                    # Team is playing away
-                    away_team_name = next((team['name'] for team in teams_data if team['id'] == away_team_id), 'Unknown')
-                    opponents.append(f"away to {away_team_name} on {formatted_date}")
-                elif away_team_id == team_id:
-                    # Team is playing home
-                    home_team_name = next((team['name'] for team in teams_data if team['id'] == home_team_id), 'Unknown')
-                    opponents.append(f"home to {home_team_name} on {formatted_date}")
-        
-        # Format opponent string
-        if opponents:
-            if len(opponents) == 1:
-                opponent_str = opponents[0]
-            else:
-                # Double gameweek
-                opponent_str = f"double gameweek: {' and '.join(opponents)}"
-        else:
-            opponent_str = "no fixture scheduled"
+        # Get fixture information
+        fixture_info = self._get_fixture_info(team_name, current_gameweek)
         
         # Create the prompt
-        prompt = self._create_hints_tips_prompt(team_name, players, current_gameweek, opponent_str)
+        prompt = self._create_hints_tips_prompt(team_name, players, current_gameweek, fixture_info)
         
         # Get LLM response
         return self.llm_engine.query_llm(prompt)
@@ -268,14 +200,22 @@ class LightweightLLMStrategy:
         }
     
     def _create_injury_news_prompt(self, team_name: str, players: List[Player], 
-                                 current_gameweek: int, opponent_str: str) -> str:
+                                 current_gameweek: int, fixture_info: dict) -> str:
         """Create the injury news prompt"""
         # Format player list for the prompt
         player_list = self._format_players_for_prompt(players)
         
+        # Get fixture information
+        fixture_str = fixture_info['fixture_str']
+        is_double_gameweek = fixture_info['is_double_gameweek']
+        fixture_difficulty = fixture_info['fixture_difficulty']
+        
+        # Create double gameweek text
+        double_gameweek_text = "This is a double gameweek." if is_double_gameweek else ""
+        
         return f"""You're job is to collate the latest injury news on players in the {team_name} squad. The aim is to present the findings for use in an assessment of whether the players will be fit for the upcoming gameweek and will play in the matchday squad. Research the latest injury news and playing likelihood for {team_name} players.
 
-This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are {opponent_str}.
+This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are {fixture_str}. {double_gameweek_text} The fixture difficulty for {team_name} is {fixture_difficulty}. 
 
 Current {team_name} squad:
 {player_list}
@@ -307,14 +247,22 @@ Format your response as a concise sentence for every player in the squad above, 
 Keep each player's information brief but informative."""
     
     def _create_hints_tips_prompt(self, team_name: str, players: List[Player], 
-                                current_gameweek: int, opponent_str: str) -> str:
+                                current_gameweek: int, fixture_info: dict) -> str:
         """Create the hints and tips prompt"""
         # Format player list for the prompt
         player_list = self._format_players_for_prompt(players)
         
+        # Get fixture information
+        fixture_str = fixture_info['fixture_str']
+        is_double_gameweek = fixture_info['is_double_gameweek']
+        fixture_difficulty = fixture_info['fixture_difficulty']
+        
+        # Create double gameweek text
+        double_gameweek_text = "This is a double gameweek." if is_double_gameweek else ""
+        
         return f"""You're job is to collate the latest fantasy premier league hints, tips and recommendations news on players in the {team_name} squad. The aim is to present the findings for use in an assessment of whether the players are great picks for the upcoming gameweek and will score big points. Research the latest hints, tips and recommendation for {team_name} players.
 
-This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are facing {opponent_str}.
+This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are facing {fixture_str}. {double_gameweek_text} The fixture difficulty for {team_name} is {fixture_difficulty}.
 
 Current {team_name} squad:
 {player_list}
