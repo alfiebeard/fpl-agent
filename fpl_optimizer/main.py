@@ -175,6 +175,49 @@ class FPLOptimizer:
             
             logger.info("FPL data fetch completed successfully!")
             
+            # Save basic player data to structured format
+            try:
+                # Create structured player data
+                structured_data = {}
+                for player in players:
+                    # Get additional stats if available
+                    additional_stats = player.custom_data if hasattr(player, 'custom_data') else {}
+                    
+                    player_data = {
+                        "data": {
+                            "name": player.name,
+                            "team": player.team_name,
+                            "position": player.position.value,
+                            "price": player.price,
+                            "chance_of_playing": additional_stats.get('chance_of_playing', 100),
+                            "ppg": additional_stats.get('ppg', player.points_per_game),
+                            "form": additional_stats.get('form', player.form),
+                            "minutes_played": additional_stats.get('minutes_played', player.minutes_played),
+                            "fixture_difficulty": additional_stats.get('upcoming_fixture_difficulty', 3.0),
+                            "ownership_percent": additional_stats.get('ownership_percent', player.selected_by_pct),
+                            "total_points": player.total_points,
+                            "points_per_game": player.points_per_game,
+                            "selected_by_pct": player.selected_by_pct,
+                            "is_injured": player.is_injured,
+                            "injury_type": player.injury_type or "",
+                            "price_change": player.price_change,
+                            "team_id": player.team_id,
+                            "team_short_name": player.team_short_name,
+                            "xG": player.xG,
+                            "xA": player.xA,
+                            "xGC": player.xGC,
+                            "xMins_pct": player.xMins_pct
+                        }
+                    }
+                    structured_data[player.name] = player_data
+                
+                # Save to cache
+                self.llm_strategy._save_player_data_cache(structured_data)
+                logger.info(f"Saved basic player data for {len(structured_data)} players")
+                
+            except Exception as e:
+                logger.error(f"Failed to save basic player data: {e}")
+            
             # Enrich with LLM data if requested
             if enrich_with_llm:
                 print("\n" + "="*80)
@@ -504,8 +547,14 @@ class FPLOptimizer:
             # Initialize embedding filter
             embedding_filter = EmbeddingFilter(self.config)
             
-            # Get pre-filtered viable players
-            viable_result = self.filter_viable_players(force_refresh=force_refresh)
+            # Get structured enriched player data for filtering
+            structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            
+            if not structured_data:
+                raise ValueError("No enriched player data found. Please run 'fetch-fpl-players --enrich' first.")
+            
+            # Apply unified filtering to structured data
+            viable_result = self.llm_strategy._get_viable_players_from_enriched(structured_data, for_embeddings=True)
             viable_players = {}
             
             # Convert the positions structure back to a flat dictionary
@@ -518,19 +567,28 @@ class FPLOptimizer:
             # Apply embedding filtering on viable players only
             filtered_data = embedding_filter.filter_players_by_position(viable_players, force_refresh=force_refresh)
             
-            # Group by position
+            # Group by position using structured data
             positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
             
+            # Get the structured data to access positions directly
+            structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            
             for player_name, enriched_string in filtered_data.items():
-                # Extract position from the enriched string
-                if '(GK,' in enriched_string:
-                    positions['GK'].append((player_name, enriched_string))
-                elif '(DEF,' in enriched_string:
-                    positions['DEF'].append((player_name, enriched_string))
-                elif '(MID,' in enriched_string:
-                    positions['MID'].append((player_name, enriched_string))
-                elif '(FWD,' in enriched_string:
-                    positions['FWD'].append((player_name, enriched_string))
+                # Get position from structured data
+                if player_name in structured_data and isinstance(structured_data[player_name], dict) and "data" in structured_data[player_name]:
+                    position = structured_data[player_name]["data"]["position"]
+                    if position in positions:
+                        positions[position].append((player_name, enriched_string))
+                else:
+                    # Fallback to string parsing if structured data not available
+                    if ', GK,' in enriched_string:
+                        positions['GK'].append((player_name, enriched_string))
+                    elif ', DEF,' in enriched_string:
+                        positions['DEF'].append((player_name, enriched_string))
+                    elif ', MID,' in enriched_string:
+                        positions['MID'].append((player_name, enriched_string))
+                    elif ', FWD,' in enriched_string:
+                        positions['FWD'].append((player_name, enriched_string))
             
             # Create result structure
             result = {
@@ -550,6 +608,83 @@ class FPLOptimizer:
             logger.error(f"Failed to run embedding filtering: {e}")
             raise
     
+    def enrich_players(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """
+        Enrich existing player data with LLM insights.
+        
+        Args:
+            force_refresh: If True, ignore cache and fetch fresh enrichment data
+            
+        Returns:
+            Dict containing enrichment results
+        """
+        logger.info("Starting player data enrichment...")
+        
+        try:
+            # Get enriched player data (this will load existing data and add enrichments)
+            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            
+            if not enriched_data:
+                return {
+                    'error': 'No player data available to enrich',
+                    'total_players': 0,
+                    'enriched_players': 0
+                }
+            
+            # Format the results for display
+            formatted_players = []
+            position_distribution = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
+            price_range_distribution = {'£0-5m': 0, '£5-7.5m': 0, '£7.5-10m': 0, '£10m+': 0}
+            
+            for player_name, player_data in enriched_data.items():
+                if isinstance(player_data, dict) and "data" in player_data:
+                    # Structured data format
+                    prompt_text = self.llm_strategy._generate_prompt_text(player_data)
+                    formatted_players.append(prompt_text)
+                    
+                    # Count positions
+                    position = player_data["data"]["position"]
+                    if position in position_distribution:
+                        position_distribution[position] += 1
+                    
+                    # Count price ranges
+                    price = player_data["data"]["price"]
+                    if price <= 5.0:
+                        price_range_distribution['£0-5m'] += 1
+                    elif price <= 7.5:
+                        price_range_distribution['£5-7.5m'] += 1
+                    elif price <= 10.0:
+                        price_range_distribution['£7.5-10m'] += 1
+                    else:
+                        price_range_distribution['£10m+'] += 1
+                else:
+                    # Legacy text format
+                    formatted_players.append(player_data)
+            
+            return {
+                'players': [],  # Empty list for compatibility with display function
+                'teams': [],    # Empty list for compatibility with display function
+                'summary': {
+                    'total_players': len(enriched_data),
+                    'total_teams': 20,  # Fixed number for FPL
+                    'enriched_players': len(enriched_data),
+                    'position_distribution': position_distribution,
+                    'price_range_distribution': price_range_distribution,
+                    'data_source': 'FPL API (enriched with LLM)',
+                    'fetched_at': datetime.now().isoformat()
+                },
+                'formatted_players': formatted_players,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to enrich players: {e}")
+            return {
+                'error': f'Failed to enrich players: {e}',
+                'total_players': 0,
+                'enriched_players': 0
+            }
+
     def filter_viable_players(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Filter player data to only include viable FPL players
         
@@ -578,43 +713,72 @@ class FPLOptimizer:
             viable_players = {}
             filtered_out_count = 0
             
+            # Get structured data for filtering
+            structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            
             for player_name, enriched_string in enriched_data.items():
-                # Parse the enriched string to extract injury news and FPL suggestions
-                lines = enriched_string.split('\n')
-                
-                # Find injury news line (starts with "Injury News:")
-                injury_line = None
-                hints_line = None
-                
-                for line in lines:
-                    if line.startswith("Injury News:"):
-                        injury_line = line
-                    elif line.startswith("FPL Suggestions:"):
-                        hints_line = line
-                
-                # Check if player should be filtered out
-                should_exclude = False
-                exclusion_reason = ""
-                
-                # Check injury status
-                if injury_line:
-                    injury_text = injury_line.replace("Injury News:", "").strip()
-                    if injury_text.startswith("Out"):
+                # Use structured data for filtering if available
+                if player_name in structured_data and isinstance(structured_data[player_name], dict) and "data" in structured_data[player_name]:
+                    player_data = structured_data[player_name]
+                    injury_news = player_data.get('injury_news', '')
+                    hints_tips = player_data.get('hints_tips_news', '')
+                    
+                    # Check if player should be filtered out
+                    should_exclude = False
+                    exclusion_reason = ""
+                    
+                    # Check injury status
+                    if injury_news.startswith("Out"):
                         should_exclude = True
                         exclusion_reason = "Injured (Out)"
-                
-                # Check FPL recommendations
-                if hints_line and not should_exclude:
-                    hints_text = hints_line.replace("FPL Suggestions:", "").strip()
-                    if hints_text.startswith("Avoid"):
+                    
+                    # Check FPL recommendations
+                    if hints_tips.startswith("Avoid"):
                         should_exclude = True
                         exclusion_reason = "FPL Avoid"
-                
-                # Include player if they pass both filters
-                if not should_exclude:
-                    viable_players[player_name] = enriched_string
+                    
+                    # Include player if they pass both filters
+                    if not should_exclude:
+                        viable_players[player_name] = enriched_string
+                    else:
+                        filtered_out_count += 1
                 else:
-                    filtered_out_count += 1
+                    # Fallback to string parsing for legacy data
+                    lines = enriched_string.split('\n')
+                    
+                    # Find injury news line (starts with "Injury News:")
+                    injury_line = None
+                    hints_line = None
+                    
+                    for line in lines:
+                        if line.startswith("Injury News:"):
+                            injury_line = line
+                        elif line.startswith("FPL Suggestions:"):
+                            hints_line = line
+                    
+                    # Check if player should be filtered out
+                    should_exclude = False
+                    exclusion_reason = ""
+                    
+                    # Check injury status
+                    if injury_line:
+                        injury_text = injury_line.replace("Injury News:", "").strip()
+                        if injury_text.startswith("Out"):
+                            should_exclude = True
+                            exclusion_reason = "Injured (Out)"
+                    
+                    # Check FPL recommendations
+                    if hints_line and not should_exclude:
+                        hints_text = hints_line.replace("FPL Suggestions:", "").strip()
+                        if hints_text.startswith("Avoid"):
+                            should_exclude = True
+                            exclusion_reason = "FPL Avoid"
+                    
+                    # Include player if they pass both filters
+                    if not should_exclude:
+                        viable_players[player_name] = enriched_string
+                    else:
+                        filtered_out_count += 1
             
             # Group by position
             positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
@@ -654,7 +818,7 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
+        'fetch', 'fetch-fpl-players', 'enrich-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
         'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable'
     ], help='Command to run')
     
@@ -720,6 +884,11 @@ def main():
         elif args.command == 'fetch-fpl-players':
             # Fetch real FPL data from API
             result = optimizer.fetch_fpl_players(args.sample_size, args.enrich, args.force_refresh)
+            display_player_data(result)
+            
+        elif args.command == 'enrich-players':
+            # Enrich existing player data with LLM insights
+            result = optimizer.enrich_players(args.force_refresh)
             display_player_data(result)
             
         elif args.command == 'create-model':
@@ -1353,6 +1522,27 @@ def display_team_hints_tips(result):
     print("="*80)
 
 
+def _get_structured_player_data(player_name: str) -> Optional[Dict[str, Any]]:
+    """Helper function to get structured player data from cache"""
+    # Cache the structured data to avoid repeated lookups
+    if not hasattr(_get_structured_player_data, '_cached_data'):
+        try:
+            from fpl_optimizer.strategies.llm_strategy import LLMStrategy
+            from fpl_optimizer.core.config import Config
+            
+            # Create a minimal config and strategy to access cached data
+            config = Config()
+            strategy = LLMStrategy(config)
+            _get_structured_player_data._cached_data = strategy.get_enriched_player_data(force_refresh=False)
+        except Exception:
+            _get_structured_player_data._cached_data = {}
+    
+    cached_data = getattr(_get_structured_player_data, '_cached_data', {})
+    
+    if player_name in cached_data and isinstance(cached_data[player_name], dict) and "data" in cached_data[player_name]:
+        return cached_data[player_name]
+    return None
+
 def display_embedding_filtering_result(result):
     """Display embedding filtering results"""
     print("\n" + "="*80)
@@ -1376,11 +1566,22 @@ def display_embedding_filtering_result(result):
         print("-" * 60)
         
         for i, (player_name, enriched_string) in enumerate(players, 1):
-            # Extract key info
-            lines = enriched_string.split('\n')
-            stats_line = lines[1] if len(lines) > 1 else ""
-            injury_line = lines[2] if len(lines) > 2 else ""
-            hints_line = lines[3] if len(lines) > 3 else ""
+            # Try to get structured data for display
+            player_data = _get_structured_player_data(player_name)
+            
+            if player_data:
+                # Use structured data for display
+                data = player_data["data"]
+                
+                stats_line = f"Stats: Chance of Playing - {data.get('chance_of_playing', 'N/A')}%, PPG - {data.get('ppg', 0):.1f}, Form - {data.get('form', 0):.1f}, Minutes - {data.get('minutes_played', 0)}, Fixture Difficulty - {data.get('fixture_difficulty', 'N/A')}, Ownership - {data.get('ownership_percent', 0):.1f}%."
+                injury_line = f"Injury News: {player_data.get('injury_news', 'N/A')}"
+                hints_line = f"FPL Suggestions: {player_data.get('hints_tips_news', 'N/A')}"
+            else:
+                # Fallback to string parsing for legacy data
+                lines = enriched_string.split('\n')
+                stats_line = lines[1] if len(lines) > 1 else ""
+                injury_line = lines[2] if len(lines) > 2 else ""
+                hints_line = lines[3] if len(lines) > 3 else ""
             
             print(f"{i:2d}. {player_name}")
             print(f"    {stats_line}")
@@ -1412,11 +1613,22 @@ def display_viable_players_result(result):
         print("-" * 60)
         
         for i, (player_name, enriched_string) in enumerate(players, 1):
-            # Extract key info
-            lines = enriched_string.split('\n')
-            stats_line = lines[1] if len(lines) > 1 else ""
-            injury_line = lines[2] if len(lines) > 2 else ""
-            hints_line = lines[3] if len(lines) > 3 else ""
+            # Try to get structured data for display
+            player_data = _get_structured_player_data(player_name)
+            
+            if player_data:
+                # Use structured data for display
+                data = player_data["data"]
+                
+                stats_line = f"Stats: Chance of Playing - {data.get('chance_of_playing', 'N/A')}%, PPG - {data.get('ppg', 0):.1f}, Form - {data.get('form', 0):.1f}, Minutes - {data.get('minutes_played', 0)}, Fixture Difficulty - {data.get('fixture_difficulty', 'N/A')}, Ownership - {data.get('ownership_percent', 0):.1f}%."
+                injury_line = f"Injury News: {player_data.get('injury_news', 'N/A')}"
+                hints_line = f"FPL Suggestions: {player_data.get('hints_tips_news', 'N/A')}"
+            else:
+                # Fallback to string parsing for legacy data
+                lines = enriched_string.split('\n')
+                stats_line = lines[1] if len(lines) > 1 else ""
+                injury_line = lines[2] if len(lines) > 2 else ""
+                hints_line = lines[3] if len(lines) > 3 else ""
             
             print(f"{i:2d}. {player_name}")
             print(f"    {stats_line}")
