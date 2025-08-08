@@ -72,11 +72,21 @@ class LightweightLLMEngine:
             String containing the LLM response (cleaned JSON if available)
         """
         try:
+            # Initialize the model if not already done
+            if not hasattr(self, 'client'):
+                self._initialize_gemini_model()
+                
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=self.generation_config
             )
+            
+            # Check if response has text content
+            if not hasattr(response, 'text') or response.text is None:
+                logger.warning(f"LLM response has no text content. Response type: {type(response)}")
+                logger.warning(f"Response attributes: {dir(response) if response else 'None'}")
+                return "Error: Empty response from LLM"
             
             # Clean up the response to extract only the JSON part
             response_text = response.text.strip()
