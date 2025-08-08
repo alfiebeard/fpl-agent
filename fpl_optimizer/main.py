@@ -717,68 +717,29 @@ class FPLOptimizer:
             structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
             
             for player_name, enriched_string in enriched_data.items():
-                # Use structured data for filtering if available
-                if player_name in structured_data and isinstance(structured_data[player_name], dict) and "data" in structured_data[player_name]:
-                    player_data = structured_data[player_name]
-                    injury_news = player_data.get('injury_news', '')
-                    hints_tips = player_data.get('hints_tips_news', '')
-                    
-                    # Check if player should be filtered out
-                    should_exclude = False
-                    exclusion_reason = ""
-                    
-                    # Check injury status
-                    if injury_news.startswith("Out"):
-                        should_exclude = True
-                        exclusion_reason = "Injured (Out)"
-                    
-                    # Check FPL recommendations
-                    if hints_tips.startswith("Avoid"):
-                        should_exclude = True
-                        exclusion_reason = "FPL Avoid"
-                    
-                    # Include player if they pass both filters
-                    if not should_exclude:
-                        viable_players[player_name] = enriched_string
-                    else:
-                        filtered_out_count += 1
+                player_data = structured_data[player_name]
+                injury_news = player_data.get('injury_news', '')
+                hints_tips = player_data.get('hints_tips_news', '')
+                
+                # Check if player should be filtered out
+                should_exclude = False
+                exclusion_reason = ""
+                
+                # Check injury status
+                if injury_news.startswith("Out"):
+                    should_exclude = True
+                    exclusion_reason = "Injured (Out)"
+                
+                # Check FPL recommendations
+                if hints_tips.startswith("Avoid"):
+                    should_exclude = True
+                    exclusion_reason = "FPL Avoid"
+                
+                # Include player if they pass both filters
+                if not should_exclude:
+                    viable_players[player_name] = enriched_string
                 else:
-                    # Fallback to string parsing for legacy data
-                    lines = enriched_string.split('\n')
-                    
-                    # Find injury news line (starts with "Injury News:")
-                    injury_line = None
-                    hints_line = None
-                    
-                    for line in lines:
-                        if line.startswith("Injury News:"):
-                            injury_line = line
-                        elif line.startswith("FPL Suggestions:"):
-                            hints_line = line
-                    
-                    # Check if player should be filtered out
-                    should_exclude = False
-                    exclusion_reason = ""
-                    
-                    # Check injury status
-                    if injury_line:
-                        injury_text = injury_line.replace("Injury News:", "").strip()
-                        if injury_text.startswith("Out"):
-                            should_exclude = True
-                            exclusion_reason = "Injured (Out)"
-                    
-                    # Check FPL recommendations
-                    if hints_line and not should_exclude:
-                        hints_text = hints_line.replace("FPL Suggestions:", "").strip()
-                        if hints_text.startswith("Avoid"):
-                            should_exclude = True
-                            exclusion_reason = "FPL Avoid"
-                    
-                    # Include player if they pass both filters
-                    if not should_exclude:
-                        viable_players[player_name] = enriched_string
-                    else:
-                        filtered_out_count += 1
+                    filtered_out_count += 1
             
             # Group by position
             positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
@@ -1522,26 +1483,20 @@ def display_team_hints_tips(result):
     print("="*80)
 
 
-def _get_structured_player_data(player_name: str) -> Optional[Dict[str, Any]]:
+def _get_structured_player_data(player_name: str) -> Dict[str, Any]:
     """Helper function to get structured player data from cache"""
     # Cache the structured data to avoid repeated lookups
     if not hasattr(_get_structured_player_data, '_cached_data'):
-        try:
-            from fpl_optimizer.strategies.llm_strategy import LLMStrategy
-            from fpl_optimizer.core.config import Config
-            
-            # Create a minimal config and strategy to access cached data
-            config = Config()
-            strategy = LLMStrategy(config)
-            _get_structured_player_data._cached_data = strategy.get_enriched_player_data(force_refresh=False)
-        except Exception:
-            _get_structured_player_data._cached_data = {}
+        from fpl_optimizer.strategies.llm_strategy import LLMStrategy
+        from fpl_optimizer.core.config import Config
+        
+        # Create a minimal config and strategy to access cached data
+        config = Config()
+        strategy = LLMStrategy(config)
+        _get_structured_player_data._cached_data = strategy.get_enriched_player_data(force_refresh=False)
     
-    cached_data = getattr(_get_structured_player_data, '_cached_data', {})
-    
-    if player_name in cached_data and isinstance(cached_data[player_name], dict) and "data" in cached_data[player_name]:
-        return cached_data[player_name]
-    return None
+    cached_data = _get_structured_player_data._cached_data
+    return cached_data[player_name]
 
 def display_embedding_filtering_result(result):
     """Display embedding filtering results"""

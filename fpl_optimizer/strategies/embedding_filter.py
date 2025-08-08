@@ -167,55 +167,19 @@ class EmbeddingFilter:
         """Extract player positions from enriched data"""
         player_positions = {}
         
-        # Try to get structured data for position extraction
-        try:
-            from .llm_strategy import LLMStrategy
-            from ..core.config import Config
-            
-            # Create a minimal config and strategy to access cached data
-            config = Config()
-            strategy = LLMStrategy(config)
-            structured_data = strategy.get_enriched_player_data(force_refresh=False)
-            
-            # Use structured data for position extraction when available
-            for player_name in enriched_data.keys():
-                if player_name in structured_data and isinstance(structured_data[player_name], dict) and "data" in structured_data[player_name]:
-                    position = structured_data[player_name]["data"]["position"]
-                    player_positions[player_name] = position
-                else:
-                    # Fallback to string parsing for legacy data
-                    enriched_text = enriched_data[player_name]
-                    try:
-                        # Use regex to extract position (second group after opening parenthesis)
-                        import re
-                        match = re.search(r'\(([^,]+),\s*([^,]+),', enriched_text)
-                        if match:
-                            position = match.group(2).strip()
-                            player_positions[player_name] = position
-                        else:
-                            logger.warning(f"Could not extract position for {player_name}")
-                            player_positions[player_name] = 'MID'  # Default fallback
-                    except Exception as e:
-                        logger.warning(f"Failed to extract position for {player_name}: {e}")
-                        player_positions[player_name] = 'MID'  # Default fallback
-            
-        except Exception as e:
-            logger.warning(f"Failed to access structured data for position extraction: {e}")
-            # Fallback to original string parsing method
-            for player_name, enriched_text in enriched_data.items():
-                try:
-                    # Use regex to extract position (second group after opening parenthesis)
-                    import re
-                    match = re.search(r'\(([^,]+),\s*([^,]+),', enriched_text)
-                    if match:
-                        position = match.group(2).strip()
-                        player_positions[player_name] = position
-                    else:
-                        logger.warning(f"Could not extract position for {player_name}")
-                        player_positions[player_name] = 'MID'  # Default fallback
-                except Exception as e:
-                    logger.warning(f"Failed to extract position for {player_name}: {e}")
-                    player_positions[player_name] = 'MID'  # Default fallback
+        # Get structured data for position extraction
+        from .llm_strategy import LLMStrategy
+        from ..core.config import Config
+        
+        # Create a minimal config and strategy to access cached data
+        config = Config()
+        strategy = LLMStrategy(config)
+        structured_data = strategy.get_enriched_player_data(force_refresh=False)
+        
+        # Use structured data for position extraction
+        for player_name in enriched_data.keys():
+            position = structured_data[player_name]["data"]["position"]
+            player_positions[player_name] = position
         
         return player_positions
     
