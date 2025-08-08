@@ -1255,36 +1255,15 @@ Ensure the final team meets all FPL constraints before submitting:
             if not enriched_data:
                 return "Error: Could not fetch enriched player data"
             
-            # Apply basic filters for available players only
-            all_data = self.fpl_fetcher.get_all_data_with_additional_stats()
-            players = all_data['players']
+            # Use the unified filtering method
+            viable_result = self._get_viable_players_from_enriched(enriched_data)
             
-            filters = {
-                'exclude_injured': True,
-                'exclude_unavailable': True,
-                'min_chance_of_playing': 25,
-                'min_minutes': 0,
-                'max_price': float('inf'),
-                'min_form': float('-inf'),
-                'positions': [Position.GK, Position.DEF, Position.MID, Position.FWD]
-            }
-            
-            # Filter players based on criteria
-            available_players = []
-            for player in players:
-                if (not player.is_injured and 
-                    player.custom_data.get('chance_of_playing', 100) >= filters['min_chance_of_playing'] and
-                    player.position in filters['positions'] and
-                    player.price <= filters['max_price'] and
-                    player.form >= filters['min_form']):
-                    available_players.append(player)
-            
-            # Format the enriched data for available players only
+            # Format the viable players data
             formatted_data = []
             
-            for player in available_players:
-                if player.name in enriched_data:
-                    formatted_data.append(enriched_data[player.name])
+            for position_players in viable_result['positions'].values():
+                for player_name, enriched_string in position_players:
+                    formatted_data.append(enriched_string)
                     formatted_data.append("")  # Empty line between players
             
             return "\n".join(formatted_data)
@@ -1293,6 +1272,109 @@ Ensure the final team meets all FPL constraints before submitting:
             logger.error(f"Failed to get enriched available players data: {e}")
             return "Error: Could not fetch enriched player data"
     
+    def _get_viable_players_from_enriched(self, enriched_data: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Get viable players from enriched data using unified filtering.
+        
+        This method combines:
+        1. Basic availability filters (chance of playing, injured, etc.)
+        2. Rule-based filters (Out/Avoid players)
+        
+        Args:
+            enriched_data: Dictionary mapping player names to enriched data strings
+            
+        Returns:
+            Dict containing filtered players organized by position
+        """
+        logger.info("Applying unified filtering to enriched player data...")
+        
+        try:
+            # Get FPL data for basic filtering
+            all_data = self.fpl_fetcher.get_all_data_with_additional_stats()
+            players = all_data['players']
+            
+            # Create player lookup by name
+            player_lookup = {player.name: player for player in players}
+            
+            # Apply unified filtering
+            viable_players = {}
+            filtered_out_count = 0
+            
+            for player_name, enriched_string in enriched_data.items():
+                # Get player object for basic filtering
+                player = player_lookup.get(player_name)
+                if not player:
+                    continue
+                
+                # Basic availability filters
+                chance_of_playing = player.custom_data.get('chance_of_playing', 100)
+                if chance_of_playing < 25:  # Manual filter: chance of playing
+                    filtered_out_count += 1
+                    continue
+                
+                if player.is_injured:  # Manual filter: injured players
+                    filtered_out_count += 1
+                    continue
+                
+                if player.position not in [Position.GK, Position.DEF, Position.MID, Position.FWD]:  # Manual filter: valid positions
+                    filtered_out_count += 1
+                    continue
+                
+                # Rule-based filters (Out/Avoid)
+                lines = enriched_string.split('\n')
+                injury_line = None
+                hints_line = None
+                
+                for line in lines:
+                    if line.startswith("Injury News:"):
+                        injury_line = line
+                    elif line.startswith("FPL Suggestions:"):
+                        hints_line = line
+                
+                # Check injury status
+                if injury_line:
+                    injury_text = injury_line.replace("Injury News:", "").strip()
+                    if injury_text.startswith("Out"):
+                        filtered_out_count += 1
+                        continue
+                
+                # Check FPL recommendations
+                if hints_line:
+                    hints_text = hints_line.replace("FPL Suggestions:", "").strip()
+                    if hints_text.startswith("Avoid"):
+                        filtered_out_count += 1
+                        continue
+                
+                # Player passes all filters
+                viable_players[player_name] = enriched_string
+            
+            # Group by position
+            positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
+            
+            for player_name, enriched_string in viable_players.items():
+                player = player_lookup.get(player_name)
+                if player:
+                    position_key = player.position.value
+                    if position_key in positions:
+                        positions[position_key].append((player_name, enriched_string))
+            
+            # Create result structure
+            result = {
+                'total_players_loaded': len(enriched_data),
+                'total_players_filtered': len(viable_players),
+                'filtered_out_count': filtered_out_count,
+                'reduction_percentage': ((len(enriched_data) - len(viable_players)) / len(enriched_data) * 100),
+                'positions': positions,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Unified filtering complete: {len(viable_players)} players selected from {len(enriched_data)} total (filtered out {filtered_out_count})")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to apply unified filtering: {e}")
+            raise
+
     def _get_available_players_data_enriched_filtered(self, force_refresh: bool = False) -> str:
         """
         Get enriched available players data with embedding-based filtering.
@@ -1312,6 +1394,15 @@ Ensure the final team meets all FPL constraints before submitting:
             if not enriched_data:
                 return "Error: Could not fetch enriched player data"
             
+            # Use the unified filtering method first
+            viable_result = self._get_viable_players_from_enriched(enriched_data)
+            viable_players = {}
+            
+            # Convert the positions structure back to a flat dictionary
+            for position_players in viable_result['positions'].values():
+                for player_name, enriched_string in position_players:
+                    viable_players[player_name] = enriched_string
+            
             # Initialize embedding filter if needed
             if self.embedding_filter is None:
                 try:
@@ -1321,9 +1412,9 @@ Ensure the final team meets all FPL constraints before submitting:
                     logger.info("Falling back to unfiltered enriched data")
                     return self._get_available_players_data_enriched(force_refresh)
             
-            # Apply embedding filtering
+            # Apply embedding filtering on viable players only
             try:
-                filtered_data = self.embedding_filter.filter_players_by_position(enriched_data, force_refresh)
+                filtered_data = self.embedding_filter.filter_players_by_position(viable_players, force_refresh)
                 
                 if not filtered_data:
                     logger.warning("Embedding filtering returned no players, falling back to unfiltered data")

@@ -487,7 +487,7 @@ class FPLOptimizer:
             raise
     
     def run_embedding_filtering(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """Run embedding filtering on cached player data
+        """Run embedding filtering on cached player data with pre-filtering for viable players
         
         Args:
             force_refresh: If True, recompute embeddings even if cached
@@ -496,7 +496,7 @@ class FPLOptimizer:
             Dict containing filtered players organized by position
         """
         try:
-            logger.info("Running embedding filtering on cached player data...")
+            logger.info("Running embedding filtering on viable players only...")
             
             # Import embedding filter
             from fpl_optimizer.strategies.embedding_filter import EmbeddingFilter
@@ -504,16 +504,19 @@ class FPLOptimizer:
             # Initialize embedding filter
             embedding_filter = EmbeddingFilter(self.config)
             
-            # Get enriched player data from cache
-            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=False)
+            # Get pre-filtered viable players
+            viable_result = self.filter_viable_players(force_refresh=force_refresh)
+            viable_players = {}
             
-            if not enriched_data:
-                raise ValueError("No enriched player data found in cache. Please run 'fetch-fpl-players' first.")
+            # Convert the positions structure back to a flat dictionary
+            for position_players in viable_result['positions'].values():
+                for player_name, enriched_string in position_players:
+                    viable_players[player_name] = enriched_string
             
-            logger.info(f"Loaded {len(enriched_data)} players from cache")
+            logger.info(f"Using {len(viable_players)} viable players for embedding filtering")
             
-            # Apply embedding filtering
-            filtered_data = embedding_filter.filter_players_by_position(enriched_data, force_refresh=force_refresh)
+            # Apply embedding filtering on viable players only
+            filtered_data = embedding_filter.filter_players_by_position(viable_players, force_refresh=force_refresh)
             
             # Group by position
             positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
@@ -531,18 +534,117 @@ class FPLOptimizer:
             
             # Create result structure
             result = {
-                'total_players_loaded': len(enriched_data),
+                'total_players_loaded': viable_result['total_players_loaded'],
+                'viable_players': viable_result['total_players_filtered'],
+                'pre_filtered_out': viable_result['filtered_out_count'],
                 'total_players_filtered': len(filtered_data),
-                'reduction_percentage': ((len(enriched_data) - len(filtered_data)) / len(enriched_data) * 100),
+                'reduction_percentage': ((viable_result['total_players_loaded'] - len(filtered_data)) / viable_result['total_players_loaded'] * 100),
                 'positions': positions,
                 'timestamp': datetime.now().isoformat()
             }
             
-            logger.info(f"Embedding filtering complete: {len(filtered_data)} players selected from {len(enriched_data)} total")
+            logger.info(f"Embedding filtering complete: {len(filtered_data)} players selected from {len(viable_players)} viable players")
             return result
             
         except Exception as e:
             logger.error(f"Failed to run embedding filtering: {e}")
+            raise
+    
+    def filter_viable_players(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Filter player data to only include viable FPL players
+        
+        Filters out players who are:
+        - "Out" according to injury news
+        - "Avoid" according to FPL suggestions
+        
+        Args:
+            force_refresh: If True, ignore cache and fetch fresh data
+            
+        Returns:
+            Dict containing filtered players organized by position
+        """
+        try:
+            logger.info("Filtering player data for viable FPL players...")
+            
+            # Get enriched player data from cache
+            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            
+            if not enriched_data:
+                raise ValueError("No enriched player data found in cache. Please run 'fetch-fpl-players' first.")
+            
+            logger.info(f"Loaded {len(enriched_data)} players from cache")
+            
+            # Filter players based on injury status and FPL recommendations
+            viable_players = {}
+            filtered_out_count = 0
+            
+            for player_name, enriched_string in enriched_data.items():
+                # Parse the enriched string to extract injury news and FPL suggestions
+                lines = enriched_string.split('\n')
+                
+                # Find injury news line (starts with "Injury News:")
+                injury_line = None
+                hints_line = None
+                
+                for line in lines:
+                    if line.startswith("Injury News:"):
+                        injury_line = line
+                    elif line.startswith("FPL Suggestions:"):
+                        hints_line = line
+                
+                # Check if player should be filtered out
+                should_exclude = False
+                exclusion_reason = ""
+                
+                # Check injury status
+                if injury_line:
+                    injury_text = injury_line.replace("Injury News:", "").strip()
+                    if injury_text.startswith("Out"):
+                        should_exclude = True
+                        exclusion_reason = "Injured (Out)"
+                
+                # Check FPL recommendations
+                if hints_line and not should_exclude:
+                    hints_text = hints_line.replace("FPL Suggestions:", "").strip()
+                    if hints_text.startswith("Avoid"):
+                        should_exclude = True
+                        exclusion_reason = "FPL Avoid"
+                
+                # Include player if they pass both filters
+                if not should_exclude:
+                    viable_players[player_name] = enriched_string
+                else:
+                    filtered_out_count += 1
+            
+            # Group by position
+            positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
+            
+            for player_name, enriched_string in viable_players.items():
+                # Extract position from the enriched string
+                if '(GK,' in enriched_string:
+                    positions['GK'].append((player_name, enriched_string))
+                elif '(DEF,' in enriched_string:
+                    positions['DEF'].append((player_name, enriched_string))
+                elif '(MID,' in enriched_string:
+                    positions['MID'].append((player_name, enriched_string))
+                elif '(FWD,' in enriched_string:
+                    positions['FWD'].append((player_name, enriched_string))
+            
+            # Create result structure
+            result = {
+                'total_players_loaded': len(enriched_data),
+                'total_players_filtered': len(viable_players),
+                'filtered_out_count': filtered_out_count,
+                'reduction_percentage': ((len(enriched_data) - len(viable_players)) / len(enriched_data) * 100),
+                'positions': positions,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Viable player filtering complete: {len(viable_players)} players selected from {len(enriched_data)} total (filtered out {filtered_out_count})")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to filter viable players: {e}")
             raise
 
 
@@ -553,7 +655,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch', 'fetch-fpl-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
-        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter'
+        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable'
     ], help='Command to run')
     
     # Common arguments
@@ -912,6 +1014,11 @@ def main():
             result = optimizer.run_embedding_filtering(args.force_refresh)
             display_embedding_filtering_result(result)
             
+        elif args.command == 'filter-viable':
+            # Filter player data for viable FPL players only
+            result = optimizer.filter_viable_players(args.force_refresh)
+            display_viable_players_result(result)
+            
 
             
 
@@ -1254,7 +1361,46 @@ def display_embedding_filtering_result(result):
     
     # Summary
     print(f"Total players loaded: {result['total_players_loaded']}")
-    print(f"Total players filtered: {result['total_players_filtered']}")
+    if 'viable_players' in result:
+        print(f"Viable players (after pre-filtering): {result['viable_players']}")
+        print(f"Pre-filtered out: {result['pre_filtered_out']} (Injured 'Out' or FPL 'Avoid')")
+    print(f"Final filtered players: {result['total_players_filtered']}")
+    print(f"Total reduction: {result['reduction_percentage']:.1f}%")
+    print(f"Timestamp: {result['timestamp']}")
+    
+    # Display by position
+    positions = result['positions']
+    
+    for position, players in positions.items():
+        print(f"\n{position} ({len(players)} players):")
+        print("-" * 60)
+        
+        for i, (player_name, enriched_string) in enumerate(players, 1):
+            # Extract key info
+            lines = enriched_string.split('\n')
+            stats_line = lines[1] if len(lines) > 1 else ""
+            injury_line = lines[2] if len(lines) > 2 else ""
+            hints_line = lines[3] if len(lines) > 3 else ""
+            
+            print(f"{i:2d}. {player_name}")
+            print(f"    {stats_line}")
+            print(f"    {injury_line}")
+            print(f"    {hints_line}")
+            print()
+    
+    print("="*80)
+
+
+def display_viable_players_result(result):
+    """Display viable players filtering results"""
+    print("\n" + "="*80)
+    print("VIABLE PLAYERS FILTERING RESULTS")
+    print("="*80)
+    
+    # Summary
+    print(f"Total players loaded: {result['total_players_loaded']}")
+    print(f"Viable players: {result['total_players_filtered']}")
+    print(f"Filtered out: {result['filtered_out_count']} (Injured 'Out' or FPL 'Avoid')")
     print(f"Reduction: {result['reduction_percentage']:.1f}%")
     print(f"Timestamp: {result['timestamp']}")
     
