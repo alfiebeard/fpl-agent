@@ -145,26 +145,32 @@ def transform_fpl_data_to_teams(
             ):
                 continue
             
-            # Create player using the existing Player model
+            # Create player using the updated Player model with FPL API field names
             player = Player(
                 id=player_id,
-                name=name,
+                first_name=first_name,
+                second_name=second_name,
                 team_id=team_id,
-                position=position,
-                price=price,
+                element_type=element_type,
+                now_cost=player_data['now_cost'],
                 total_points=total_points,
-                form=form,
-                points_per_game=float(player_data.get('points_per_game', 0)),
-                xG=expected_goals,
-                xA=expected_assists,
-                xGC=expected_goals_conceded,
-                minutes_played=minutes,
-                is_injured=is_injured,
-                injury_type=player_data.get('news', ''),
+                form=player_data.get('form', '0.0'),
+                points_per_game=player_data.get('points_per_game', '0.0'),
+                minutes=minutes,
+                selected_by_percent=player_data.get('selected_by_percent', '0.0'),
+                xG=player_data.get('xG', '0.00'),
+                xA=player_data.get('xA', '0.00'),
+                xGC=player_data.get('xGC', '0.00'),
+                xMins_pct=player_data.get('xMins_pct', 1.0),
+                status=status,
+                news=player_data.get('news', ''),
+                news_added=player_data.get('news_added'),
+                chance_of_playing_next_round=player_data.get('chance_of_playing_next_round'),
+                chance_of_playing_this_round=player_data.get('chance_of_playing_this_round'),
+                cost_change_start=player_data.get('cost_change_start', 0),
+                cost_change_event=player_data.get('cost_change_event', 0),
                 team_name=team.name,
-                team_short_name=team.short_name,
-                price_change=(player_data.get('cost_change_start', 0) / 10.0),
-                selected_by_pct=selected_by_percent
+                team_short_name=team.short_name
             )
             
             # Add additional data to custom_data

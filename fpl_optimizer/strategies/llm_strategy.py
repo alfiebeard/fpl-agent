@@ -1205,39 +1205,60 @@ Ensure the final team meets all FPL constraints before submitting:
                     player_injury = injury_dict.get(player.name, "Fit - No recent injury news suggests he is available for selection.")
                     player_hints = hints_dict.get(player.name, "Recommended - Player shows good potential for the upcoming gameweek.")
                     
-                    # Get additional stats
-                    chance_of_playing = player.custom_data.get('chance_of_playing', 100)
-                    ppg = player.custom_data.get('ppg', player.points_per_game)
-                    form = player.custom_data.get('form', player.form)
-                    minutes = player.custom_data.get('minutes_played', player.minutes_played)
+                    # Get additional stats from custom_data (calculated fields)
+                    ppg = player.custom_data.get('ppg', float(player.points_per_game))
+                    form = player.custom_data.get('form', float(player.form))
                     fixture_difficulty = player.custom_data.get('upcoming_fixture_difficulty', 3.0)
-                    ownership = player.custom_data.get('ownership_percent', player.selected_by_pct)
+                    ownership = player.custom_data.get('ownership_percent', float(player.selected_by_percent))
                     
-                    # Create structured player data
+                    # Create structured player data using exact FPL API field names
                     player_data = {
                         "data": {
+                            # Basic info
+                            "id": player.id,
+                            "first_name": player.first_name,
+                            "second_name": player.second_name,
                             "name": player.name,
+                            "team_id": player.team_id,
                             "team": player.team_name,
+                            "team_short_name": player.team_short_name,
+                            "element_type": player.element_type,
                             "position": player.position.value,
+                            
+                            # Price info
+                            "now_cost": player.now_cost,
                             "price": player.price,
-                            "chance_of_playing": chance_of_playing,
-                            "ppg": ppg,
-                            "form": form,
-                            "minutes_played": minutes,
-                            "fixture_difficulty": fixture_difficulty,
-                            "ownership_percent": ownership,
+                            "cost_change_start": player.cost_change_start,
+                            "cost_change_event": player.cost_change_event,
+                            "price_change": player.price_change,
+                            
+                            # Stats
                             "total_points": player.total_points,
                             "points_per_game": player.points_per_game,
-                            "selected_by_pct": player.selected_by_pct,
-                            "is_injured": player.is_injured,
-                            "injury_type": player.injury_type or "",
-                            "price_change": player.price_change,
-                            "team_id": player.team_id,
-                            "team_short_name": player.team_short_name,
+                            "form": player.form,
+                            "minutes": player.minutes,
+                            "selected_by_percent": player.selected_by_percent,
+                            
+                            # Expected stats
                             "xG": player.xG,
                             "xA": player.xA,
                             "xGC": player.xGC,
-                            "xMins_pct": player.xMins_pct
+                            "xMins_pct": player.xMins_pct,
+                            
+                            # Injury status
+                            "status": player.status,
+                            "news": player.news,
+                            "news_added": player.news_added,
+                            "chance_of_playing_next_round": player.chance_of_playing_next_round,
+                            "chance_of_playing_this_round": player.chance_of_playing_this_round,
+                            "is_injured": player.is_injured,
+                            
+                            # Calculated fields (for display)
+                            "ppg": ppg,
+                            "form_float": form,
+                            "minutes_played": player.minutes,
+                            "fixture_difficulty": fixture_difficulty,
+                            "ownership_percent": ownership
                         },
                         "injury_news": player_injury,
                         "hints_tips_news": player_hints
@@ -1250,28 +1271,51 @@ Ensure the final team meets all FPL constraints before submitting:
                     # Create fallback enriched data
                     enriched_data[player.name] = {
                         "data": {
+                            # Basic info
+                            "id": player.id,
+                            "first_name": player.first_name,
+                            "second_name": player.second_name,
                             "name": player.name,
+                            "team_id": player.team_id,
                             "team": player.team_name,
+                            "team_short_name": player.team_short_name,
+                            "element_type": player.element_type,
                             "position": player.position.value,
+                            
+                            # Price info
+                            "now_cost": player.now_cost,
                             "price": player.price,
-                            "chance_of_playing": 100,
-                            "ppg": player.points_per_game,
-                            "form": player.form,
-                            "minutes_played": player.minutes_played,
-                            "fixture_difficulty": 3.0,
-                            "ownership_percent": player.selected_by_pct,
+                            "cost_change_start": player.cost_change_start,
+                            "cost_change_event": player.cost_change_event,
+                            "price_change": player.price_change,
+                            
+                            # Stats
                             "total_points": player.total_points,
                             "points_per_game": player.points_per_game,
-                            "selected_by_pct": player.selected_by_pct,
-                            "is_injured": player.is_injured,
-                            "injury_type": player.injury_type or "",
-                            "price_change": player.price_change,
-                            "team_id": player.team_id,
-                            "team_short_name": player.team_short_name,
+                            "form": player.form,
+                            "minutes": player.minutes,
+                            "selected_by_percent": player.selected_by_percent,
+                            
+                            # Expected stats
                             "xG": player.xG,
                             "xA": player.xA,
                             "xGC": player.xGC,
-                            "xMins_pct": player.xMins_pct
+                            "xMins_pct": player.xMins_pct,
+                            
+                            # Injury status
+                            "status": player.status,
+                            "news": player.news,
+                            "news_added": player.news_added,
+                            "chance_of_playing_next_round": player.chance_of_playing_next_round,
+                            "chance_of_playing_this_round": player.chance_of_playing_this_round,
+                            "is_injured": player.is_injured,
+                            
+                            # Calculated fields (for display)
+                            "ppg": float(player.points_per_game),
+                            "form_float": float(player.form),
+                            "minutes_played": player.minutes,
+                            "fixture_difficulty": 3.0,
+                            "ownership_percent": float(player.selected_by_percent)
                         },
                         "injury_news": "Fit - No recent injury news suggests he is available for selection.",
                         "hints_tips_news": "Recommended - Player shows good potential for the upcoming gameweek."
@@ -1330,30 +1374,61 @@ Ensure the final team meets all FPL constraints before submitting:
                         # Create a simple player object with required attributes
                         class SimplePlayer:
                             def __init__(self, data):
+                                # Basic info
+                                self.id = data["data"]["id"]
+                                self.first_name = data["data"]["first_name"]
+                                self.second_name = data["data"]["second_name"]
                                 self.name = data["data"]["name"]
+                                self.team_id = data["data"]["team_id"]
                                 self.team_name = data["data"]["team"]
+                                self.team_short_name = data["data"]["team_short_name"]
+                                self.element_type = data["data"]["element_type"]
                                 self.position = type('Position', (), {'value': data["data"]["position"]})()
-                                # Add all the attributes that the lightweight LLM strategy expects
+                                
+                                # Price info
+                                self.now_cost = data["data"]["now_cost"]
+                                self.price = data["data"]["price"]
+                                self.cost_change_start = data["data"]["cost_change_start"]
+                                self.cost_change_event = data["data"]["cost_change_event"]
+                                self.price_change = data["data"]["price_change"]
+                                
+                                # Stats
+                                self.total_points = data["data"]["total_points"]
                                 self.points_per_game = data["data"]["points_per_game"]
                                 self.form = data["data"]["form"]
-                                self.minutes_played = data["data"]["minutes_played"]
-                                self.total_points = data["data"]["total_points"]
-                                self.selected_by_pct = data["data"]["selected_by_pct"]
-                                self.price = data["data"]["price"]
-                                self.is_injured = data["data"]["is_injured"]
-                                self.injury_type = data["data"]["injury_type"]
-                                self.price_change = data["data"]["price_change"]
-                                self.team_id = data["data"]["team_id"]
-                                self.team_short_name = data["data"]["team_short_name"]
+                                self.minutes = data["data"]["minutes"]
+                                self.selected_by_percent = data["data"]["selected_by_percent"]
+                                
+                                # Expected stats
                                 self.xG = data["data"]["xG"]
                                 self.xA = data["data"]["xA"]
                                 self.xGC = data["data"]["xGC"]
                                 self.xMins_pct = data["data"]["xMins_pct"]
+                                
+                                # Injury status
+                                self.status = data["data"]["status"]
+                                self.news = data["data"]["news"]
+                                self.news_added = data["data"]["news_added"]
+                                self.chance_of_playing_next_round = data["data"]["chance_of_playing_next_round"]
+                                self.chance_of_playing_this_round = data["data"]["chance_of_playing_this_round"]
+                                self.is_injured = data["data"]["is_injured"]
+                                
+                                # Calculated fields
+                                self.ppg = data["data"]["ppg"]
+                                self.form_float = data["data"]["form_float"]
+                                self.minutes_played = data["data"]["minutes_played"]
+                                self.fixture_difficulty = data["data"]["fixture_difficulty"]
+                                self.ownership_percent = data["data"]["ownership_percent"]
+                                
+                                # Legacy compatibility
+                                self.selected_by_pct = data["data"]["selected_by_percent"]
+                                self.injury_type = data["data"]["news"]
+                                
                                 # Add custom_data attribute with the additional stats
                                 self.custom_data = {
-                                    'chance_of_playing': data["data"]["chance_of_playing"],
+                                    'chance_of_playing': data["data"]["chance_of_playing_this_round"],
                                     'ppg': data["data"]["ppg"],
-                                    'form': data["data"]["form"],
+                                    'form': data["data"]["form_float"],
                                     'minutes_played': data["data"]["minutes_played"],
                                     'upcoming_fixture_difficulty': data["data"]["fixture_difficulty"],
                                     'ownership_percent': data["data"]["ownership_percent"]
@@ -1591,7 +1666,7 @@ Ensure the final team meets all FPL constraints before submitting:
                 data = player_data["data"]
                 
                 # Basic availability filters using structured data
-                chance_of_playing = data.get('chance_of_playing', 100)
+                chance_of_playing = data.get('chance_of_playing_this_round', 100)
                 if chance_of_playing is None:
                     chance_of_playing = 100  # Default to 100 if None
                 if chance_of_playing < 25:  # Manual filter: chance of playing

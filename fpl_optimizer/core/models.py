@@ -26,73 +26,94 @@ class ChipType(Enum):
 
 @dataclass
 class Player:
-    """Player model with all relevant FPL data"""
+    """Player model with all relevant FPL data - aligned with FPL API structure"""
     
-    # Basic info
+    # Basic info (FPL API fields)
     id: int
-    name: str
+    first_name: str
+    second_name: str
     team_id: int
-    position: Position
-    price: float  # Current price in millions
+    element_type: int  # 1=GK, 2=DEF, 3=MID, 4=FWD
+    now_cost: int  # Price in tenths (e.g., 55 = £5.5m)
     
-    # Stats
+    # Stats (FPL API fields)
     total_points: int = 0
-    form: float = 0.0  # Form over last 5 gameweeks
-    points_per_game: float = 0.0
+    form: str = "0.0"  # Form over last 5 gameweeks
+    points_per_game: str = "0.0"
+    minutes: int = 0
+    selected_by_percent: str = "0.0"
     
-    # Expected stats
-    xG: float = 0.0
-    xA: float = 0.0
-    xGC: float = 0.0  # Expected goals conceded (for defenders/GKs)
-    
-    # Playing time
-    minutes_played: int = 0
+    # Expected stats (FPL API fields)
+    xG: str = "0.00"
+    xA: str = "0.00"
+    xGC: str = "0.00"  # Expected goals conceded (for defenders/GKs)
     xMins_pct: float = 1.0  # Expected playing time percentage
     
-    # Injury status
-    is_injured: bool = False
-    injury_expected_return: Optional[datetime] = None
-    injury_type: Optional[str] = None
+    # Injury status (FPL API fields)
+    status: str = "a"  # a=available, i=injured, s=suspended, u=unavailable
+    news: str = ""  # Injury/news information
+    news_added: Optional[str] = None  # When news was last updated
+    chance_of_playing_next_round: Optional[int] = None  # Chance of playing next gameweek (%)
+    chance_of_playing_this_round: Optional[int] = None  # Chance of playing this gameweek (%)
     
-    # Team info
+    # Price changes (FPL API fields)
+    cost_change_start: int = 0  # Price change since start of season (in tenths)
+    cost_change_event: int = 0  # Price change this gameweek (in tenths)
+    
+    # Team info (derived from team_id)
     team_name: str = ""
     team_short_name: str = ""
     
-    # Price changes
-    price_change: float = 0.0
-    selected_by_pct: float = 0.0
+    # Position enum (derived from element_type)
+    position: Optional[Position] = None
     
-    # Custom fields
+    # Custom fields for additional data
     custom_data: Dict[str, Any] = field(default_factory=dict)
     
-    def __post_init__(self):
-        """Convert position string to enum if needed"""
-        if isinstance(self.position, str):
-            self.position = Position(self.position)
+    # Computed properties
+    @property
+    def name(self) -> str:
+        """Full player name"""
+        return f"{self.first_name} {self.second_name}"
+    
+    @property
+    def price(self) -> float:
+        """Current price in millions"""
+        return self.now_cost / 10.0
+    
+    @property
+    def price_change(self) -> float:
+        """Price change since start of season in millions"""
+        return self.cost_change_start / 10.0
+    
+    @property
+    def is_injured(self) -> bool:
+        """Check if player is injured"""
+        return self.status == 'i'
     
     @property
     def is_available(self) -> bool:
         """Check if player is available to play"""
-        if not self.is_injured:
-            return True
-        
-        if self.injury_expected_return is None:
-            return False
-        
-        return datetime.now() >= self.injury_expected_return
+        return self.status == 'a'
     
     @property
     def value_for_money(self) -> float:
         """Calculate value for money (points per million)"""
         if self.price <= 0:
             return 0.0
-        return self.points_per_game / self.price
+        return float(self.points_per_game) / self.price
     
     def get_expected_points(self, gameweek: int, config: 'Config') -> float:
         """Calculate expected points for a specific gameweek"""
         # This will be implemented in the xPts module
         # For now, return a placeholder
-        return self.points_per_game
+        return float(self.points_per_game)
+    
+    def __post_init__(self):
+        """Set derived fields after initialization"""
+        # Set position enum from element_type
+        position_map = {1: Position.GK, 2: Position.DEF, 3: Position.MID, 4: Position.FWD}
+        self.position = position_map.get(self.element_type, Position.MID)
 
 
 @dataclass

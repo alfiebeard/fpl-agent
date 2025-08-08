@@ -87,18 +87,27 @@ class FPLDataFetcher:
                 
                 player = Player(
                     id=player_data['id'],
-                    name=player_data['first_name'] + ' ' + player_data['second_name'],
+                    first_name=player_data['first_name'],
+                    second_name=player_data['second_name'],
                     team_id=team_id,
-                    position=position,
-                    price=player_data['now_cost'] / 10.0,  # Convert from tenths
+                    element_type=player_data['element_type'],
+                    now_cost=player_data['now_cost'],
                     total_points=player_data['total_points'],
-                    form=float(player_data.get('form', 0)),
-                    points_per_game=float(player_data.get('points_per_game', 0)),
-                    minutes_played=player_data.get('minutes', 0),
-                    selected_by_pct=float(player_data.get('selected_by_percent', 0)),
-                    price_change=(player_data.get('cost_change_start', 0) / 10.0),
-                    is_injured=player_data.get('status') == 'i',
-                    injury_type=player_data.get('news', ''),
+                    form=player_data.get('form', '0.0'),
+                    points_per_game=player_data.get('points_per_game', '0.0'),
+                    minutes=player_data.get('minutes', 0),
+                    selected_by_percent=player_data.get('selected_by_percent', '0.0'),
+                    xG=player_data.get('xG', '0.00'),
+                    xA=player_data.get('xA', '0.00'),
+                    xGC=player_data.get('xGC', '0.00'),
+                    xMins_pct=player_data.get('xMins_pct', 1.0),
+                    status=player_data.get('status', 'a'),
+                    news=player_data.get('news', ''),
+                    news_added=player_data.get('news_added'),
+                    chance_of_playing_next_round=player_data.get('chance_of_playing_next_round'),
+                    chance_of_playing_this_round=player_data.get('chance_of_playing_this_round'),
+                    cost_change_start=player_data.get('cost_change_start', 0),
+                    cost_change_event=player_data.get('cost_change_event', 0),
                     team_name=team_info['name'],
                     team_short_name=team_info['short_name']
                 )
@@ -258,10 +267,12 @@ class FPLDataFetcher:
         """
         # Get basic stats that are already available
         stats = {
-            "ppg": player.points_per_game,
-            "form": player.form,
-            "minutes_played": player.minutes_played,
-            "ownership_percent": player.selected_by_pct
+            "ppg": float(player.points_per_game),
+            "form": float(player.form),
+            "minutes_played": player.minutes,
+            "ownership_percent": float(player.selected_by_percent),
+            "chance_of_playing_this_round": player.chance_of_playing_this_round,
+            "chance_of_playing_next_round": player.chance_of_playing_next_round
         }
         
         # Calculate upcoming fixture difficulty

@@ -189,17 +189,18 @@ class FPLOptimizer:
                             "team": player.team_name,
                             "position": player.position.value,
                             "price": player.price,
-                            "chance_of_playing": additional_stats.get('chance_of_playing', 100),
+                            "chance_of_playing_next_round": player.chance_of_playing_next_round,
+                            "chance_of_playing_this_round": player.chance_of_playing_this_round,
                             "ppg": additional_stats.get('ppg', player.points_per_game),
                             "form": additional_stats.get('form', player.form),
-                            "minutes_played": additional_stats.get('minutes_played', player.minutes_played),
+                            "minutes_played": additional_stats.get('minutes_played', player.minutes),
                             "fixture_difficulty": additional_stats.get('upcoming_fixture_difficulty', 3.0),
-                            "ownership_percent": additional_stats.get('ownership_percent', player.selected_by_pct),
+                            "ownership_percent": additional_stats.get('ownership_percent', float(player.selected_by_percent)),
                             "total_points": player.total_points,
                             "points_per_game": player.points_per_game,
-                            "selected_by_pct": player.selected_by_pct,
+                            "selected_by_pct": float(player.selected_by_percent),
                             "is_injured": player.is_injured,
-                            "injury_type": player.injury_type or "",
+                            "injury_type": player.news or "",
                             "price_change": player.price_change,
                             "team_id": player.team_id,
                             "team_short_name": player.team_short_name,
@@ -718,6 +719,7 @@ class FPLOptimizer:
             
             for player_name, enriched_string in enriched_data.items():
                 player_data = structured_data[player_name]
+                data = player_data.get('data', {})
                 injury_news = player_data.get('injury_news', '')
                 hints_tips = player_data.get('hints_tips_news', '')
                 
@@ -1213,7 +1215,7 @@ def display_player_data(result):
         else:
             chance_str = f"{chance_of_playing}%"
         
-        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {chance_str:<6} {player.form:<6.1f} {player.total_points:<10} {player.points_per_game:<8.1f} {player.selected_by_pct:<10.1f}")
+        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {chance_str:<6} {player.form:<6} {player.total_points:<10} {player.points_per_game:<8} {player.selected_by_percent:<10}")
     
     print(f"\nData fetch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
