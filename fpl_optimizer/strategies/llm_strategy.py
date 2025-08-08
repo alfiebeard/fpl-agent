@@ -15,7 +15,7 @@ from ..core.team_manager import TeamManager
 from .llm_engine import LLMEngine
 from .lightweight_llm_strategy import LightweightLLMStrategy
 from .embedding_filter import EmbeddingFilter
-from ..utils.data_transformers import transform_fpl_data_to_teams
+from ..utils.data_transformers import transform_fpl_data_to_teams, calculate_chance_of_playing
 from ..utils.validator import FPLValidator, validate_llm_response
 from ..core.models import Position
 
@@ -163,9 +163,15 @@ class LLMStrategy:
             # Filter players based on criteria
             available_players = []
             for player in players:
+                # Calculate chance of playing as minimum of this round and next round
+                chance_of_playing = calculate_chance_of_playing(
+                    player.chance_of_playing_this_round,
+                    player.chance_of_playing_next_round
+                )
+                
                 # Check if player meets filter criteria
                 if (not player.is_injured and 
-                    player.custom_data.get('chance_of_playing', 100) >= filters['min_chance_of_playing'] and
+                    chance_of_playing >= filters['min_chance_of_playing'] and
                     player.position in filters['positions'] and
                     player.price <= filters['max_price'] and
                     player.form >= filters['min_form']):
@@ -193,12 +199,12 @@ class LLMStrategy:
                 )
                 
                 for player in sorted_players:
-                    # Get chance of playing as raw percentage (or "100%" if missing during off-season)
-                    chance_of_playing = player.custom_data.get('chance_of_playing')
-                    if chance_of_playing is None:
-                        chance_str = "100%"  # Available (default during off-season)
-                    else:
-                        chance_str = f"{chance_of_playing}%"
+                    # Calculate chance of playing as minimum of this round and next round
+                    chance_of_playing = calculate_chance_of_playing(
+                        player.chance_of_playing_this_round,
+                        player.chance_of_playing_next_round
+                    )
+                    chance_str = f"{chance_of_playing}%"
                     
                     # Get additional stats
                     ppg = player.custom_data.get('ppg', player.points_per_game)
@@ -1666,9 +1672,11 @@ Ensure the final team meets all FPL constraints before submitting:
                 data = player_data["data"]
                 
                 # Basic availability filters using structured data
-                chance_of_playing = data.get('chance_of_playing_this_round', 100)
-                if chance_of_playing is None:
-                    chance_of_playing = 100  # Default to 100 if None
+                # Calculate chance of playing as minimum of this_round and next_round
+                chance_of_playing = calculate_chance_of_playing(
+                    data.get('chance_of_playing_this_round'),
+                    data.get('chance_of_playing_next_round')
+                )
                 if chance_of_playing < 25:  # Manual filter: chance of playing
                     filtered_out_count += 1
                     continue

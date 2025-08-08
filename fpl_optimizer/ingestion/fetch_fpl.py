@@ -270,9 +270,7 @@ class FPLDataFetcher:
             "ppg": float(player.points_per_game),
             "form": float(player.form),
             "minutes_played": player.minutes,
-            "ownership_percent": float(player.selected_by_percent),
-            "chance_of_playing_this_round": player.chance_of_playing_this_round,
-            "chance_of_playing_next_round": player.chance_of_playing_next_round
+            "ownership_percent": float(player.selected_by_percent)
         }
         
         # Calculate upcoming fixture difficulty

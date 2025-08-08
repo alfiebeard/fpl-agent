@@ -20,6 +20,7 @@ try:
     from .core.models import Player, Team, Position, FPLTeam
     from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
     from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
+    from fpl_optimizer.utils.data_transformers import calculate_chance_of_playing
 except ImportError:
     # When run directly (python fpl_optimizer/main.py)
     # Add the parent directory to the path
@@ -30,6 +31,7 @@ except ImportError:
     from fpl_optimizer.core.models import Player, Team, Position, FPLTeam
     from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
     from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
+    from fpl_optimizer.utils.data_transformers import calculate_chance_of_playing
 
 
 # Configure logging
@@ -179,8 +181,9 @@ class FPLOptimizer:
             try:
                 # Create structured player data
                 structured_data = {}
+                
                 for player in players:
-                    # Get additional stats if available
+                    # Get additional stats if available (for other fields like fixture difficulty)
                     additional_stats = player.custom_data if hasattr(player, 'custom_data') else {}
                     
                     player_data = {
@@ -189,8 +192,8 @@ class FPLOptimizer:
                             "team": player.team_name,
                             "position": player.position.value,
                             "price": player.price,
-                            "chance_of_playing_next_round": player.chance_of_playing_next_round,
-                            "chance_of_playing_this_round": player.chance_of_playing_this_round,
+                            "chance_of_playing_next_round": player.chance_of_playing_next_round if player.chance_of_playing_next_round is not None else 100,
+                            "chance_of_playing_this_round": player.chance_of_playing_this_round if player.chance_of_playing_this_round is not None else 100,
                             "ppg": additional_stats.get('ppg', player.points_per_game),
                             "form": additional_stats.get('form', player.form),
                             "minutes_played": additional_stats.get('minutes_played', player.minutes),
@@ -247,7 +250,7 @@ class FPLOptimizer:
             
             return {
                 'players': players,
-                'teams': [team_summary.team for team_summary in teams.values()],
+                'teams': teams,  # teams is already a list of Team objects
                 'summary': summary
             }
             
@@ -1208,12 +1211,12 @@ def display_player_data(result):
                           key=lambda p: (p.team_name, position_order[p.position.value], p.name))
     
     for player in sorted_players:
-        # Get chance of playing from custom_data
-        chance_of_playing = player.custom_data.get('chance_of_playing')
-        if chance_of_playing is None:
-            chance_str = "100%"  # Available (default during off-season)
-        else:
-            chance_str = f"{chance_of_playing}%"
+        # Calculate chance of playing as minimum of this round and next round
+        chance_of_playing = calculate_chance_of_playing(
+            player.chance_of_playing_this_round,
+            player.chance_of_playing_next_round
+        )
+        chance_str = f"{chance_of_playing}%"
         
         print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {chance_str:<6} {player.form:<6} {player.total_points:<10} {player.points_per_game:<8} {player.selected_by_percent:<10}")
     

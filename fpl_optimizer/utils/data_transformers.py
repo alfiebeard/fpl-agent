@@ -21,6 +21,25 @@ class TeamSummary:
     average_points: float
 
 
+def calculate_chance_of_playing(this_round: Optional[int], next_round: Optional[int]) -> int:
+    """
+    Calculate the effective chance of playing as the minimum of this round and next round.
+    
+    Args:
+        this_round: Chance of playing this round (null = 100)
+        next_round: Chance of playing next round (null = 100)
+        
+    Returns:
+        Minimum of the two values, treating null as 100
+    """
+    # Handle null values as 100 (player can play)
+    this_round_chance = 100 if this_round is None else this_round
+    next_round_chance = 100 if next_round is None else next_round
+    
+    # Return the minimum (conservative approach)
+    return min(this_round_chance, next_round_chance)
+
+
 def transform_fpl_data_to_teams(
     bootstrap_data: Dict[str, Any],
     filters: Optional[Dict[str, Any]] = None
@@ -123,7 +142,11 @@ def transform_fpl_data_to_teams(
             # Status and availability
             status = player_data.get('status', 'a')
             is_injured = status == 'i'
-            chance_of_playing = player_data.get('chance_of_playing_next_round')
+            # Calculate chance of playing as minimum of this round and next round
+            chance_of_playing = calculate_chance_of_playing(
+                player_data.get('chance_of_playing_this_round'),
+                player_data.get('chance_of_playing_next_round')
+            )
             
             # Expected stats
             expected_goals = player_data.get('expected_goals', 0.0)
@@ -215,7 +238,7 @@ def transform_fpl_data_to_teams(
 def _passes_filters(
     position: Position,
     status: str,
-    chance_of_playing: Optional[int],
+    chance_of_playing: int,
     minutes: int,
     price: float,
     form: float,
@@ -234,8 +257,8 @@ def _passes_filters(
     if filters['exclude_unavailable'] and status in ['n', 'u']:
         return False
     
-    # Chance of playing filter
-    if chance_of_playing is not None and chance_of_playing < filters['min_chance_of_playing']:
+    # Chance of playing filter (chance_of_playing is now always an int, not Optional)
+    if chance_of_playing < filters['min_chance_of_playing']:
         return False
     
     # Minutes filter
@@ -278,13 +301,17 @@ def print_teams_summary(teams: Dict[str, TeamSummary], max_players_per_team: int
         for player in top_players:
             status_indicator = ""
             status = player.custom_data.get('status', 'a')
-            chance_of_playing = player.custom_data.get('chance_of_playing')
+            # Calculate chance of playing from the raw data
+            chance_of_playing = calculate_chance_of_playing(
+                player.chance_of_playing_this_round,
+                player.chance_of_playing_next_round
+            )
             
             if status == 'i':
                 status_indicator = " [INJ]"
             elif status == 'n':
                 status_indicator = " [UNAV]"
-            elif chance_of_playing and chance_of_playing < 75:
+            elif chance_of_playing < 75:
                 status_indicator = f" [{chance_of_playing}%]"
             
             print(f"  {player.name:<25} {player.position.value:<4} £{player.price:<5.1f} {player.total_points:>3}pts "
