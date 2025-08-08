@@ -27,6 +27,72 @@ class LightweightLLMStrategy:
         self.config = config
         self.llm_engine = LightweightLLMEngine(config)
     
+    def _get_fixture_info(self, team_name: str, current_gameweek: int) -> str:
+        """
+        Get fixture information for a team in a specific gameweek.
+        
+        Args:
+            team_name: Name of the team
+            current_gameweek: Current gameweek number
+            
+        Returns:
+            String describing the fixture(s) for the team
+        """
+        from ..ingestion.fetch_fpl import FPLDataFetcher
+        fetcher = FPLDataFetcher(self.config)
+        
+        # Get fixtures to find opponents for this gameweek
+        fixtures_data = fetcher.get_fixtures()
+        teams_data = fetcher.get_bootstrap_data().get('teams', [])
+        
+        # Create team name to ID mapping
+        team_id_map = {team['name']: team['id'] for team in teams_data}
+        team_id = team_id_map.get(team_name)
+        
+        if not team_id:
+            return "no fixture scheduled"
+        
+        # Find opponents for this gameweek
+        opponents = []
+        for fixture_data in fixtures_data:
+            if fixture_data.get('event') == current_gameweek:
+                home_team_id = fixture_data.get('team_h')
+                away_team_id = fixture_data.get('team_a')
+                
+                # Get fixture date and time
+                kickoff_time = fixture_data.get('kickoff_time')
+                if kickoff_time:
+                    try:
+                        # Parse the ISO format date from FPL API
+                        fixture_date = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
+                        # Format as "Sunday 22nd May 2025 at 14:00"
+                        day = fixture_date.day
+                        suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                        formatted_date = f"{fixture_date.strftime('%A')} {day}{suffix} {fixture_date.strftime('%B %Y')} at {fixture_date.strftime('%H:%M')}"
+                    except:
+                        formatted_date = "TBD"
+                else:
+                    formatted_date = "TBD"
+                
+                if home_team_id == team_id:
+                    # Team is playing away
+                    away_team_name = next((team['name'] for team in teams_data if team['id'] == away_team_id), 'Unknown')
+                    opponents.append(f"away to {away_team_name} on {formatted_date}")
+                elif away_team_id == team_id:
+                    # Team is playing home
+                    home_team_name = next((team['name'] for team in teams_data if team['id'] == home_team_id), 'Unknown')
+                    opponents.append(f"home to {home_team_name} on {formatted_date}")
+        
+        # Format opponent string
+        if opponents:
+            if len(opponents) == 1:
+                return opponents[0]
+            else:
+                # Double gameweek
+                return f"double gameweek: {' and '.join(opponents)}"
+        else:
+            return "no fixture scheduled"
+    
     def get_team_injury_news(self, team_name: str, players: List[Player]) -> str:
         """
         Get injury news and playing likelihood for players in a specific team.
@@ -288,12 +354,11 @@ Keep each player's information brief but informative."""
             # Get additional stats if available
             ppg = player.custom_data.get('ppg', player.points_per_game)
             form = player.custom_data.get('form', player.form)
-            fixture_difficulty = player.custom_data.get('upcoming_fixture_difficulty', 3.0)
-            ownership = player.custom_data.get('ownership_percent', player.selected_by_pct)
+            ownership = player.custom_data.get('ownership_percent', player.selected_by_percent)
             
             formatted_players.append(
                 f"- {player.name} ({player.position.value}, £{player.price}m, "
-                f"PPG: {ppg:.1f}, Form: {form:.1f}, Fixture Diff: {fixture_difficulty}, "
+                f"PPG: {ppg:.1f}, Form: {form:.1f}, "
                 f"Ownership: {ownership:.1f}%)"
             )
         
