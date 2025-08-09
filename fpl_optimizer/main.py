@@ -1533,7 +1533,26 @@ def display_embedding_filtering_result(result):
                 # Use structured data for display
                 data = player_data["data"]
                 
-                stats_line = f"Stats: Chance of Playing - {data.get('chance_of_playing', 'N/A')}%, PPG - {data.get('ppg', 0):.1f}, Form - {data.get('form', 0):.1f}, Minutes - {data.get('minutes_played', 0)}, Fixture Difficulty - {data.get('fixture_difficulty', 'N/A')}, Ownership - {data.get('ownership_percent', 0):.1f}%."
+                # Convert values to float for formatting, handling string values
+                ppg_val = data.get('ppg', 0)
+                try:
+                    ppg_float = float(ppg_val) if ppg_val is not None else 0.0
+                except (ValueError, TypeError):
+                    ppg_float = 0.0
+                
+                form_val = data.get('form', 0)
+                try:
+                    form_float = float(form_val) if form_val is not None else 0.0
+                except (ValueError, TypeError):
+                    form_float = 0.0
+                
+                ownership_val = data.get('ownership_percent', 0)
+                try:
+                    ownership_float = float(ownership_val) if ownership_val is not None else 0.0
+                except (ValueError, TypeError):
+                    ownership_float = 0.0
+                
+                stats_line = f"Stats: Chance of Playing - {data.get('chance_of_playing', 'N/A')}%, PPG - {ppg_float:.1f}, Form - {form_float:.1f}, Minutes - {data.get('minutes_played', 0)}, Fixture Difficulty - {data.get('fixture_difficulty', 'N/A')}, Ownership - {ownership_float:.1f}%."
                 injury_line = f"Injury News: {player_data.get('injury_news', 'N/A')}"
                 hints_line = f"FPL Suggestions: {player_data.get('hints_tips_news', 'N/A')}"
             else:
