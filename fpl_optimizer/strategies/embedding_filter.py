@@ -40,8 +40,8 @@ class EmbeddingFilter:
         }
         self.selection_counts = {
             'GK': 15,
-            'DEF': 45,
-            'MID': 45,
+            'DEF': 60,  # Increased from 45
+            'MID': 70,  # Increased from 45
             'FWD': 30
         }
     
@@ -250,13 +250,13 @@ class EmbeddingFilter:
                     
                     # Look for keywords at the start of the text
                     if hints_lower.startswith('must-have'):
-                        return 0.3
+                        return 0.5  # Increased from 0.3
                     elif hints_lower.startswith('recommended'):
-                        return 0.15
+                        return 0.3  # Increased from 0.15
                     elif hints_lower.startswith('rotation risk'):
-                        return -0.1
+                        return -0.2  # Increased penalty from -0.1
                     elif hints_lower.startswith('avoid'):
-                        return -0.3
+                        return -0.5  # Increased penalty from -0.3
                     
             return 0.0  # Default if no keyword found
             
@@ -276,8 +276,8 @@ class EmbeddingFilter:
                 # Get keyword bonus from hints_tips_news
                 keyword_bonus = self._extract_keyword_bonus(player_name, structured_data)
                 
-                # Calculate final hybrid score
-                final_score = 0.8 * embedding_score + 0.2 * keyword_bonus
+                # Calculate final hybrid score - giving more weight to keywords
+                final_score = 0.6 * embedding_score + 0.4 * keyword_bonus
                 
                 hybrid_position_scores.append((player_name, final_score, embedding_score, keyword_bonus))
             
