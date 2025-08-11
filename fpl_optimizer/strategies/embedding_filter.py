@@ -33,10 +33,10 @@ class EmbeddingFilter:
         self.model = None
         self.embeddings_cache = {}
         self.position_queries = {
-            'GK': "Must-have and recommended players that are fit are highly desirable. Expected to score high fantasy points, consistent starter, with strong clean sheet potential. Avoid players that are out of form, injured or suspended.",
-            'DEF': "Must-have and recommended players that are fit are highly desirable. Expected to score high fantasy points, with clean sheet and attacking potential, good fixtures. Avoid players that are out of form, injured or suspended.",  
-            'MID': "Must-have and recommended players that are fit are highly desirable. Expected to score high fantasy points from goals or assists, consistent starter, on set pieces or penalties is a plus. Avoid players that are out of form, injured or suspended.",
-            'FWD': "Must-have and recommended players that are fit are highly desirable. Expected to score high fantasy points from goals, consistent starter, good form and fixtures. Avoid players that are out of form, injured or suspended."
+            'GK': "Must-have OR recommended, fit, high points, clean sheet, saves, consistent starter, good fixtures. NOT out of form, injured, suspended.",
+            'DEF': "Must-have OR recommended, fit, high points, clean sheet, attacking potential, consistent starter, good fixtures. NOT out of form, injured, suspended.",  
+            'MID': "Must-have OR recommended, fit, high points, goals, assists, consistent starter, set pieces, penalties, good fixtures. NOT out of form, injured, suspended.",
+            'FWD': "Must-have OR recommended, fit, high points, goals, assists, consistent starter, set pieces, penalties, good fixtures. NOT out of form, injured, suspended."
         }
         self.selection_counts = {
             'GK': 15,
