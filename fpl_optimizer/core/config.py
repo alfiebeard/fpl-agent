@@ -110,6 +110,10 @@ class Config:
         """Get embeddings configuration"""
         return self._config.get('embeddings', {})
     
+    def get_likely_starter_config(self) -> Dict[str, Any]:
+        """Get likely starter configuration"""
+        return self._config.get('likely_starter', {})
+    
     def get_logging_config(self) -> Dict[str, Any]:
         """Get logging configuration"""
         return self._config.get('logging', {})

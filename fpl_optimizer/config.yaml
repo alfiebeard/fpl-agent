@@ -105,6 +105,44 @@ embeddings:
       "rotation risk": -0.2
       "avoid": -0.5
 
+# Likely Starter Configuration
+# Controls the system for determining if players are likely starters
+likely_starter:
+  # Keywords that indicate a player is likely to start
+  starter_keywords:
+    - "must-have"
+    - "nailed"
+    - "consistent starter"
+    - "first choice"
+    - "key player"
+    - "expected to start"
+    - "fit and available"
+    - "no rotation risk"
+  
+  # Keywords that indicate a player is unlikely to start
+  bench_keywords:
+    - "rotation risk"
+    - "bench"
+    - "unlikely to start"
+    - "doubt"
+    - "injured"
+    - "out"
+    - "rested"
+    - "competition for places"
+    - "minutes may be limited"
+    - "avoid"
+    - "unlikely to see playing time"
+  
+  # Anchor texts for embedding similarity fallback
+  embedding_anchors:
+    positive: "likely to start"
+    negative: "unlikely to start"
+  
+  # Weights for hybrid scoring when keyword matching is inconclusive
+  scoring_weights:
+    keyword_weight: 0.7
+    embedding_weight: 0.3
+
 # Logging Configuration
 logging:
   level: INFO
