@@ -776,6 +776,62 @@ class FPLOptimizer:
         except Exception as e:
             logger.error(f"Failed to filter viable players: {e}")
             raise
+    
+    def show_full_hybrid_rankings(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """
+        Show full hybrid scoring rankings for all positions.
+        
+        Args:
+            force_refresh: If True, ignore cache and fetch fresh data
+            
+        Returns:
+            Dictionary containing full hybrid rankings for all positions
+        """
+        try:
+            # Get enriched player data
+            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            
+            # Apply unified filtering to get viable players
+            viable_result = self.llm_strategy._get_viable_players_from_enriched(enriched_data, for_embeddings=True)
+            
+            # Convert to flat dictionary for embeddings
+            viable_players = {}
+            for position_players in viable_result['positions'].values():
+                for player_name, enriched_string in position_players:
+                    viable_players[player_name] = enriched_string
+            
+            # Create embedding filter
+            from .strategies.embedding_filter import EmbeddingFilter
+            embedding_filter = EmbeddingFilter(self.config)
+            
+            # Get structured data for hybrid scoring
+            structured_data = embedding_filter._get_structured_data_for_hybrid_scoring(viable_players)
+            
+            # Calculate similarities
+            similarities = embedding_filter._calculate_similarities(
+                embedding_filter._encode_players(viable_players),
+                embedding_filter._encode_queries(),
+                embedding_filter._get_player_positions(viable_players)
+            )
+            
+            # Calculate hybrid scores
+            hybrid_scores = embedding_filter._calculate_hybrid_scores(similarities, structured_data)
+            
+            # Create result structure
+            result = {
+                'total_players_loaded': len(enriched_data),
+                'total_players_filtered': len(viable_players),
+                'hybrid_scores': hybrid_scores,
+                'structured_data': structured_data,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Full hybrid rankings calculated: {len(viable_players)} players analyzed")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate full hybrid rankings: {e}")
+            raise
 
 
 def main():
@@ -785,7 +841,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch', 'fetch-fpl-players', 'enrich-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
-        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable'
+        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable', 'show-rankings'
     ], help='Command to run')
     
     # Common arguments
@@ -1153,6 +1209,11 @@ def main():
             # Filter player data for viable FPL players only
             result = optimizer.filter_viable_players(args.force_refresh)
             display_viable_players_result(result)
+            
+        elif args.command == 'show-rankings':
+            # Show full hybrid scoring rankings for all positions
+            result = optimizer.show_full_hybrid_rankings(args.force_refresh)
+            display_full_hybrid_rankings(result)
             
 
             
@@ -1567,6 +1628,87 @@ def display_embedding_filtering_result(result):
             print(f"    {injury_line}")
             print(f"    {hints_line}")
             print()
+    
+    print("="*80)
+
+
+def display_full_hybrid_rankings(result):
+    """Display full hybrid scoring rankings for all positions"""
+    print("\n" + "="*80)
+    print("FULL HYBRID SCORING RANKINGS")
+    print("="*80)
+    
+    # Summary
+    print(f"Total players loaded: {result['total_players_loaded']}")
+    print(f"Players analyzed: {result['total_players_filtered']}")
+    print(f"Timestamp: {result['timestamp']}")
+    
+    # Display hybrid scores by position
+    hybrid_scores = result['hybrid_scores']
+    structured_data = result['structured_data']
+    
+    for position, position_scores in hybrid_scores.items():
+        print(f"\n{position} RANKINGS ({len(position_scores)} players):")
+        print("-" * 80)
+        
+        for i, (player_name, final_score, embedding_score, keyword_bonus) in enumerate(position_scores, 1):
+            # Get player details
+            player_data = structured_data.get(player_name, {})
+            data = player_data.get('data', {})
+            hints_tips = player_data.get('hints_tips_news', '')
+            
+            # Format scores
+            final_score_str = f"{final_score:.4f}"
+            embedding_str = f"{embedding_score:.4f}"
+            keyword_str = f"{keyword_bonus:+.4f}"
+            
+            # Get position info
+            position_val = data.get('position', 'N/A')
+            team_name = data.get('team', 'N/A')
+            price = data.get('price', 0)
+            
+            # Display player ranking
+            print(f"{i:2d}. {player_name} ({position_val}, {team_name}, £{price}m)")
+            print(f"    Final Score: {final_score_str} (Embedding: {embedding_str} + Keyword: {keyword_str})")
+            
+            if hints_tips:
+                print(f"    FPL Suggestions: {hints_tips}")
+            print()
+    
+    # Analysis summary
+    print("="*80)
+    print("ANALYSIS SUMMARY")
+    print("="*80)
+    
+    total_players = sum(len(scores) for scores in hybrid_scores.values())
+    print(f"Total players ranked: {total_players}")
+    
+    for position, position_scores in hybrid_scores.items():
+        if position_scores:
+            scores = [score for _, score, _, _ in position_scores]
+            min_score = min(scores)
+            max_score = max(scores)
+            avg_score = sum(scores) / len(scores)
+            
+            print(f"\n{position}:")
+            print(f"  Count: {len(position_scores)}")
+            print(f"  Score Range: {min_score:.4f} - {max_score:.4f}")
+            print(f"  Average Score: {avg_score:.4f}")
+            
+            # Show top and bottom players
+            if position_scores:
+                top_player, top_score, _, _ = position_scores[0]
+                last_player, last_score, _, _ = position_scores[-1]
+                print(f"  Top: {top_player} ({top_score:.4f})")
+                print(f"  Last: {last_player} ({last_score:.4f})")
+    
+    print(f"\nEmbedding queries used:")
+    print("-" * 50)
+    from .strategies.embedding_filter import EmbeddingFilter
+    from .core.config import Config
+    filter_instance = EmbeddingFilter(Config())
+    for position, query in filter_instance.position_queries.items():
+        print(f"{position}: {query}")
     
     print("="*80)
 
