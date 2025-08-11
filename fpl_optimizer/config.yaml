@@ -67,6 +67,44 @@ llm:
     top_p: 0.8
     top_k: 25
 
+# Embedding Configuration
+# Controls the embedding-based player filtering system
+embeddings:
+  # Sentence transformer model to use for embeddings
+  model: "BAAI/bge-base-en-v1.5"
+  
+  # Caching configuration
+  cache_enabled: true
+  cache_expiry_hours: 24
+  
+  # Performance settings
+  batch_size: 100
+  device: "auto"  # "auto", "cpu", "cuda", "mps" (for Apple Silicon)
+  
+  # Position-specific queries for embedding similarity
+  position_queries:
+    GK: "Must-have OR recommended, fit, high points, clean sheet, saves, consistent starter, good fixtures. NOT out of form, injured, suspended."
+    DEF: "Must-have OR recommended, fit, high points, clean sheet, attacking potential, consistent starter, good fixtures. NOT out of form, injured, suspended."
+    MID: "Must-have OR recommended, fit, high points, goals, assists, consistent starter, set pieces, penalties, good fixtures. NOT out of form, injured, suspended."
+    FWD: "Must-have OR recommended, fit, high points, goals, assists, consistent starter, set pieces, penalties, good fixtures. NOT out of form, injured, suspended."
+  
+  # Player selection counts per position
+  selection_counts:
+    GK: 15
+    DEF: 60
+    MID: 70
+    FWD: 30
+  
+  # Hybrid scoring configuration
+  hybrid_scoring:
+    embedding_weight: 0.6
+    keyword_weight: 0.4
+    keyword_bonuses:
+      "must-have": 0.5
+      "recommended": 0.3
+      "rotation risk": -0.2
+      "avoid": -0.5
+
 # Logging Configuration
 logging:
   level: INFO

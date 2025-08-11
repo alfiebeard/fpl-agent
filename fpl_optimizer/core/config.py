@@ -106,6 +106,10 @@ class Config:
         llm_config = self._config.get('llm', {})
         return llm_config.get('lightweight', {})
     
+    def get_embeddings_config(self) -> Dict[str, Any]:
+        """Get embeddings configuration"""
+        return self._config.get('embeddings', {})
+    
     def get_logging_config(self) -> Dict[str, Any]:
         """Get logging configuration"""
         return self._config.get('logging', {})

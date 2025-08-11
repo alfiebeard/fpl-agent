@@ -19,31 +19,41 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingFilter:
     """
-    Embedding-based player filtering using BAAI/bge-base-en-v1.5 model.
+    Embedding-based player filtering using configurable sentence transformer models.
     
     This class handles:
-    - Loading and caching player embeddings
+    - Loading and caching player embeddings (configurable model)
     - Position-specific query encoding
     - Cosine similarity scoring
     - Top player selection per position
+    - Hybrid scoring with keyword bonuses
+    
+    Configuration is loaded from config.yaml under the 'embeddings' section.
     """
     
     def __init__(self, config: Config):
         self.config = config
         self.model = None
         self.embeddings_cache = {}
-        self.position_queries = {
+        
+        # Load configuration from config file
+        embeddings_config = self.config.get_embeddings_config()
+        
+        # Load position queries from config
+        self.position_queries = embeddings_config.get('position_queries', {
             'GK': "Must-have OR recommended, fit, high points, clean sheet, saves, consistent starter, good fixtures. NOT out of form, injured, suspended.",
             'DEF': "Must-have OR recommended, fit, high points, clean sheet, attacking potential, consistent starter, good fixtures. NOT out of form, injured, suspended.",  
             'MID': "Must-have OR recommended, fit, high points, goals, assists, consistent starter, set pieces, penalties, good fixtures. NOT out of form, injured, suspended.",
             'FWD': "Must-have OR recommended, fit, high points, goals, assists, consistent starter, set pieces, penalties, good fixtures. NOT out of form, injured, suspended."
-        }
-        self.selection_counts = {
+        })
+        
+        # Load selection counts from config
+        self.selection_counts = embeddings_config.get('selection_counts', {
             'GK': 15,
-            'DEF': 60,  # Increased from 45
-            'MID': 70,  # Increased from 45
+            'DEF': 60,
+            'MID': 70,
             'FWD': 30
-        }
+        })
     
     def _get_embeddings_cache_path(self) -> Path:
         """Get the path to the embeddings cache file"""
@@ -52,11 +62,27 @@ class EmbeddingFilter:
         return cache_dir / "player_embeddings.json"
     
     def _load_embeddings_model(self):
-        """Load the sentence-transformers model"""
+        """Load the sentence-transformers model from configuration"""
         try:
             from sentence_transformers import SentenceTransformer
-            logger.info("Loading BAAI/bge-base-en-v1.5 embedding model...")
-            self.model = SentenceTransformer('BAAI/bge-base-en-v1.5')
+            
+            # Get model configuration
+            embeddings_config = self.config.get_embeddings_config()
+            model_name = embeddings_config.get('model', 'BAAI/bge-base-en-v1.5')
+            device = embeddings_config.get('device', 'cpu')
+            
+            # Handle device selection intelligently
+            if device == "auto":
+                import torch
+                if torch.cuda.is_available():
+                    device = "cuda"
+                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    device = "mps"  # Apple Silicon
+                else:
+                    device = "cpu"
+            
+            logger.info(f"Loading {model_name} embedding model on {device}...")
+            self.model = SentenceTransformer(model_name, device=device)
             logger.info("Embedding model loaded successfully")
         except ImportError:
             logger.error("sentence-transformers not installed. Please install with: pip install sentence-transformers")
@@ -67,6 +93,12 @@ class EmbeddingFilter:
     
     def _load_cached_embeddings(self) -> Optional[Dict[str, Any]]:
         """Load cached embeddings from file"""
+        # Check if caching is enabled
+        embeddings_config = self.config.get_embeddings_config()
+        if not embeddings_config.get('cache_enabled', True):
+            logger.info("Embedding cache is disabled")
+            return None
+        
         cache_path = self._get_embeddings_cache_path()
         
         if not cache_path.exists():
@@ -83,8 +115,12 @@ class EmbeddingFilter:
                 cache_time = datetime.fromisoformat(cache_timestamp)
                 age_hours = (datetime.now() - cache_time).total_seconds() / 3600
                 
-                if age_hours > 24:
-                    logger.warning(f"Using cached embeddings that are {age_hours:.1f} hours old")
+                # Get cache expiry from config
+                embeddings_config = self.config.get_embeddings_config()
+                cache_expiry_hours = embeddings_config.get('cache_expiry_hours', 24)
+                
+                if age_hours > cache_expiry_hours:
+                    logger.warning(f"Using cached embeddings that are {age_hours:.1f} hours old (expiry: {cache_expiry_hours}h)")
                 else:
                     logger.info(f"Using cached embeddings ({age_hours:.1f} hours old)")
             
@@ -96,6 +132,12 @@ class EmbeddingFilter:
     
     def _save_embeddings_cache(self, embeddings_data: Dict[str, Any]) -> None:
         """Save embeddings to cache file"""
+        # Check if caching is enabled
+        embeddings_config = self.config.get_embeddings_config()
+        if not embeddings_config.get('cache_enabled', True):
+            logger.info("Embedding cache is disabled, skipping save")
+            return
+        
         cache_path = self._get_embeddings_cache_path()
         
         try:
@@ -126,7 +168,10 @@ class EmbeddingFilter:
             player_texts = list(enriched_data.values())
             
             # Encode all texts at once (more efficient)
-            embeddings = self.model.encode(player_texts, show_progress_bar=True)
+            embeddings_config = self.config.get_embeddings_config()
+            batch_size = embeddings_config.get('batch_size', 100)
+            
+            embeddings = self.model.encode(player_texts, show_progress_bar=True, batch_size=batch_size)
             
             # Create dictionary mapping player names to embeddings
             player_embeddings = {}
@@ -248,16 +293,20 @@ class EmbeddingFilter:
                 if hints_tips:
                     hints_lower = hints_tips.lower()
                     
-                    # Look for keywords at the start of the text
-                    if hints_lower.startswith('must-have'):
-                        return 0.5  # Increased from 0.3
-                    elif hints_lower.startswith('recommended'):
-                        return 0.3  # Increased from 0.15
-                    elif hints_lower.startswith('rotation risk'):
-                        return -0.2  # Increased penalty from -0.1
-                    elif hints_lower.startswith('avoid'):
-                        return -0.5  # Increased penalty from -0.3
+                    # Get keyword bonuses from config
+                    embeddings_config = self.config.get_embeddings_config()
+                    keyword_bonuses = embeddings_config.get('hybrid_scoring', {}).get('keyword_bonuses', {
+                        "must-have": 0.5,
+                        "recommended": 0.3,
+                        "rotation risk": -0.2,
+                        "avoid": -0.5
+                    })
                     
+                    # Look for keywords at the start of the text
+                    for keyword, bonus in keyword_bonuses.items():
+                        if hints_lower.startswith(keyword):
+                            return bonus
+            
             return 0.0  # Default if no keyword found
             
         except Exception as e:
@@ -276,8 +325,13 @@ class EmbeddingFilter:
                 # Get keyword bonus from hints_tips_news
                 keyword_bonus = self._extract_keyword_bonus(player_name, structured_data)
                 
-                # Calculate final hybrid score - giving more weight to keywords
-                final_score = 0.6 * embedding_score + 0.4 * keyword_bonus
+                # Calculate final hybrid score using configurable weights
+                embeddings_config = self.config.get_embeddings_config()
+                hybrid_config = embeddings_config.get('hybrid_scoring', {})
+                embedding_weight = hybrid_config.get('embedding_weight', 0.6)
+                keyword_weight = hybrid_config.get('keyword_weight', 0.4)
+                
+                final_score = embedding_weight * embedding_score + keyword_weight * keyword_bonus
                 
                 hybrid_position_scores.append((player_name, final_score, embedding_score, keyword_bonus))
             
