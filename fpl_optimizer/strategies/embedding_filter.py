@@ -183,6 +183,23 @@ class EmbeddingFilter:
         
         return player_positions
     
+    def _get_structured_data_for_hybrid_scoring(self, enriched_data: Dict[str, str]) -> Dict[str, Any]:
+        """Get structured data needed for hybrid scoring"""
+        try:
+            # Get structured data for keyword extraction
+            from .llm_strategy import LLMStrategy
+            from ..core.config import Config
+            
+            config = Config()
+            strategy = LLMStrategy(config)
+            structured_data = strategy.get_enriched_player_data(force_refresh=False)
+            
+            return structured_data
+            
+        except Exception as e:
+            logger.warning(f"Failed to get structured data for hybrid scoring: {e}")
+            return {}
+    
     def _calculate_similarities(self, player_embeddings: Dict[str, np.ndarray], 
                               query_embeddings: Dict[str, np.ndarray],
                               player_positions: Dict[str, str]) -> Dict[str, List[Tuple[str, float]]]:
@@ -223,17 +240,80 @@ class EmbeddingFilter:
         
         return similarities
     
-    def _select_top_players(self, similarities: Dict[str, List[Tuple[str, float]]]) -> List[str]:
-        """Select top players per position based on similarity scores"""
+    def _extract_keyword_bonus(self, player_name: str, structured_data: Dict) -> float:
+        """Extract keyword bonus from player's hints_tips_news"""
+        try:
+            if player_name in structured_data:
+                hints_tips = structured_data[player_name].get('hints_tips_news', '')
+                if hints_tips:
+                    hints_lower = hints_tips.lower()
+                    
+                    # Look for keywords at the start of the text
+                    if hints_lower.startswith('must-have'):
+                        return 0.3
+                    elif hints_lower.startswith('recommended'):
+                        return 0.15
+                    elif hints_lower.startswith('rotation risk'):
+                        return -0.1
+                    elif hints_lower.startswith('avoid'):
+                        return -0.3
+                    
+            return 0.0  # Default if no keyword found
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract keyword bonus for {player_name}: {e}")
+            return 0.0
+    
+    def _calculate_hybrid_scores(self, similarities: Dict[str, List[Tuple[str, float]]], 
+                               structured_data: Dict) -> Dict[str, List[Tuple[str, float, float, float]]]:
+        """Calculate hybrid scores combining embeddings with keyword bonuses"""
+        hybrid_scores = {}
+        
+        for position, player_scores in similarities.items():
+            hybrid_position_scores = []
+            
+            for player_name, embedding_score in player_scores:
+                # Get keyword bonus from hints_tips_news
+                keyword_bonus = self._extract_keyword_bonus(player_name, structured_data)
+                
+                # Calculate final hybrid score
+                final_score = 0.8 * embedding_score + 0.2 * keyword_bonus
+                
+                hybrid_position_scores.append((player_name, final_score, embedding_score, keyword_bonus))
+            
+            # Sort by hybrid score (descending)
+            hybrid_position_scores.sort(key=lambda x: x[1], reverse=True)
+            hybrid_scores[position] = hybrid_position_scores
+            
+            logger.info(f"Calculated hybrid scores for {position}: {len(hybrid_position_scores)} players")
+        
+        return hybrid_scores
+    
+    def _select_top_players(self, similarities: Dict[str, List[Tuple[str, float]]], 
+                          structured_data: Dict = None) -> List[str]:
+        """Select top players per position based on hybrid scores or embedding scores"""
         selected_players = []
         
-        for position, position_similarities in similarities.items():
-            count = self.selection_counts.get(position, 0)
-            top_players = position_similarities[:count]
+        if structured_data:
+            # Use hybrid scoring
+            hybrid_scores = self._calculate_hybrid_scores(similarities, structured_data)
             
-            selected_players.extend([player_name for player_name, _ in top_players])
-            
-            logger.info(f"Selected top {len(top_players)} players for {position}")
+            for position, player_scores in hybrid_scores.items():
+                count = self.selection_counts.get(position, 0)
+                top_players = player_scores[:count]
+                
+                selected_players.extend([player_name for player_name, _, _, _ in top_players])
+                
+                logger.info(f"Selected top {len(top_players)} players for {position} using hybrid scoring")
+        else:
+            # Fallback to original embedding-only scoring
+            for position, position_similarities in similarities.items():
+                count = self.selection_counts.get(position, 0)
+                top_players = position_similarities[:count]
+                
+                selected_players.extend([player_name for player_name, _ in top_players])
+                
+                logger.info(f"Selected top {len(top_players)} players for {position} using embedding-only scoring")
         
         logger.info(f"Total selected players: {len(selected_players)}")
         return selected_players
@@ -300,8 +380,11 @@ class EmbeddingFilter:
         # Calculate similarities
         similarities = self._calculate_similarities(player_embeddings, query_embeddings, player_positions)
         
-        # Select top players
-        selected_player_names = self._select_top_players(similarities)
+        # Get structured data for hybrid scoring
+        structured_data = self._get_structured_data_for_hybrid_scoring(enriched_data)
+        
+        # Select top players using hybrid scoring
+        selected_player_names = self._select_top_players(similarities, structured_data)
         
         # Filter enriched data to only include selected players
         filtered_data = {
