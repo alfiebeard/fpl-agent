@@ -5,7 +5,6 @@ Core data models for FPL Optimizer
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum
-from datetime import datetime, timedelta
 
 
 class Position(Enum):
@@ -102,13 +101,7 @@ class Player:
         if self.price <= 0:
             return 0.0
         return float(self.points_per_game) / self.price
-    
-    def get_expected_points(self, gameweek: int, config: 'Config') -> float:
-        """Calculate expected points for a specific gameweek"""
-        # This will be implemented in the xPts module
-        # For now, return a placeholder
-        return float(self.points_per_game)
-    
+
     def __post_init__(self):
         """Set derived fields after initialization"""
         # Set position enum from element_type
