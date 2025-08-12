@@ -15,10 +15,9 @@ from pathlib import Path
 try:
     # When run as module (python -m fpl_optimizer.main)
     from .core.config import Config
-    from .ingestion import get_test_data
 
     from .core.models import Player, Team, Position, FPLTeam
-    from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
+    from fpl_optimizer.strategies import LLMStrategy
     from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
     from fpl_optimizer.utils.data_transformers import calculate_chance_of_playing
 except ImportError:
@@ -26,10 +25,9 @@ except ImportError:
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from fpl_optimizer.core.config import Config
-    from fpl_optimizer.ingestion import get_test_data
 
     from fpl_optimizer.core.models import Player, Team, Position, FPLTeam
-    from fpl_optimizer.strategies import ModelStrategy, LLMStrategy
+    from fpl_optimizer.strategies import LLMStrategy
     from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
     from fpl_optimizer.utils.data_transformers import calculate_chance_of_playing
 
@@ -53,41 +51,10 @@ class FPLOptimizer:
         """Initialize the FPL Optimizer"""
         self.config = Config(config_path)
         
-        # Initialize model strategy (always needed)
-        self.model_strategy = ModelStrategy(self.config)
-        
         # LLM strategy will be initialized lazily when needed
         self._llm_strategy = None
         
-    def fetch_data(self, sample_size: int = 50) -> Dict[str, Any]:
-        """Fetch player data without optimization"""
-        
-        try:
-            logger.info("Starting data fetch...")
-            
-            # Get test data
-            logger.info("Fetching player data...")
-            test_data = get_test_data(self.config, sample_size)
-            players = test_data['players']
-            teams = test_data['teams']
-            
-            logger.info(f"Fetched {len(players)} players and {len(teams)} teams")
-            
-            # Calculate expected points using model method
-            logger.info("Calculating expected points...")
-            player_xpts = self.model_strategy._calculate_comprehensive_xpts(players)
-            
-            logger.info("Data fetch completed successfully!")
-            return {
-                'players': players,
-                'teams': teams,
-                'player_xpts': player_xpts,
-                'summary': test_data['summary']
-            }
-            
-        except Exception as e:
-            logger.error(f"Data fetch failed: {e}")
-            raise
+
     
     @property
     def llm_strategy(self):
@@ -258,30 +225,7 @@ class FPLOptimizer:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def create_team_model(self, budget: float = 100.0, sample_size: int = 500) -> Dict[str, Any]:
-        """Create team using model-based statistical approach"""
-        
-        try:
-            logger.info("Creating team using model-based statistical approach...")
-            
-            # Use model strategy
-            result = self.model_strategy.create_team_from_scratch(budget)
-            
-            # Get additional data for display
-            data = get_test_data(self.config, sample_size)
-            
-            logger.info("Model-based team creation completed successfully!")
-            return {
-                'method': 'Model-based Statistical Analysis',
-                'optimization_result': result,
-                'players': data['players'],
-                'teams': data['teams'],
-                'summary': data['summary']
-            }
-            
-        except Exception as e:
-            logger.error(f"Model-based team creation failed: {e}")
-            raise
+
     
     def create_team_llm(self, budget: float = 100.0, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
         """Create team using comprehensive LLM-based approach with FPL integration"""
@@ -313,48 +257,7 @@ class FPLOptimizer:
                 print("="*80)
             raise
     
-    def get_weekly_recommendations_model(self, current_team: FPLTeam, 
-                                     free_transfers: int = 1) -> Dict[str, Any]:
-        """Get weekly recommendations using model-based approach"""
-        
-        try:
-            logger.info("Generating weekly recommendations using model-based approach...")
-            
-            # Get transfer suggestions
-            transfer_result = self.model_strategy.suggest_weekly_transfers(
-                current_team, free_transfers
-            )
-            
-            # Get captain selections
-            captain_id, vice_captain_id = self.model_strategy.select_captain_and_vice(current_team)
-            
-            # Get wildcard analysis
-            wildcard_analysis = self.model_strategy.analyze_wildcard_usage(current_team)
-            
-            recommendations = {
-                'method': 'Model-based Statistical Analysis',
-                'transfers': {
-                    'recommended_transfers': transfer_result.transfers,
-                    'reasoning': transfer_result.reasoning,
-                    'confidence': transfer_result.confidence
-                },
-                'captaincy': {
-                    'captain_id': captain_id,
-                    'vice_captain_id': vice_captain_id,
-                    'captain_name': self._get_player_name_by_id(current_team, captain_id),
-                    'vice_captain_name': self._get_player_name_by_id(current_team, vice_captain_id)
-                },
-                'wildcard': wildcard_analysis,
-                'overall_confidence': transfer_result.confidence,
-                'generated_at': datetime.now().isoformat()
-            }
-            
-            logger.info("Model-based weekly recommendations completed successfully!")
-            return recommendations
-            
-        except Exception as e:
-            logger.error(f"API-based weekly recommendations failed: {e}")
-            raise
+
     
     def get_weekly_recommendations_llm(self, current_team: FPLTeam, 
                                      free_transfers: int = 1,
@@ -840,7 +743,7 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'fetch-fpl-players', 'enrich-players', 'create-model', 'create-team-llm', 'weekly-model', 'weekly-llm', 
+        'fetch-fpl-players', 'enrich-players', 'create-team-llm', 'weekly-llm', 
         'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable', 'show-rankings', 'add-likely-starter'
     ], help='Command to run')
     
@@ -898,12 +801,7 @@ def main():
     try:
         optimizer = FPLOptimizer(args.config)
         
-        if args.command == 'fetch':
-            # Just fetch and display data
-            result = optimizer.fetch_data(args.sample_size)
-            display_player_data(result)
-            
-        elif args.command == 'fetch-fpl-players':
+        if args.command == 'fetch-fpl-players':
             # Fetch real FPL data from API
             result = optimizer.fetch_fpl_players(args.sample_size, args.enrich, args.force_refresh)
             display_player_data(result)
@@ -912,11 +810,6 @@ def main():
             # Enrich existing player data with LLM insights
             result = optimizer.enrich_players(args.force_refresh)
             display_player_data(result)
-            
-        elif args.command == 'create-model':
-            # Create team using model approach
-            result = optimizer.create_team_model(args.budget, args.sample_size)
-            display_team_creation_result(result)
             
         elif args.command == 'create-team-llm':
             # Create team using comprehensive LLM approach
@@ -951,18 +844,6 @@ def main():
             # Update team weekly using comprehensive LLM team manager
             result = optimizer.update_team_weekly_comprehensive(args.gameweek, args.semantic_filtering, args.force_refresh, args.use_embeddings)
             display_comprehensive_team_result(result)
-            
-        elif args.command == 'weekly-model':
-            # Weekly recommendations using model approach
-            team_file = args.team_file
-            if args.latest_team:
-                team_file = get_latest_team_file()
-                if team_file:
-                    print(f"Using latest team: {os.path.basename(team_file)}")
-            
-            current_team = load_team_from_file(team_file) if team_file else create_sample_team()
-            result = optimizer.get_weekly_recommendations_model(current_team, args.free_transfers)
-            display_weekly_recommendations(result)
             
         elif args.command == 'weekly-llm':
             # Weekly recommendations using LLM approach
@@ -1421,51 +1302,6 @@ def display_comprehensive_team_result(result):
     
     print(f"\nComprehensive team operation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-
-def display_team_creation_result(result):
-    """Display team creation results"""
-    print("\n" + "="*80)
-    print(f"FPL TEAM CREATION COMPLETE - {result['method']}")
-    print("="*80)
-    
-    opt_result = result['optimization_result']
-    
-    # Display selected team
-    if hasattr(opt_result, 'selected_players') and opt_result.selected_players:
-        print(f"\n" + "="*100)
-        print("SELECTED TEAM")
-        print("="*100)
-        print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Form':<6} {'Total Pts':<10} {'Captain':<8}")
-        print("-" * 100)
-        
-        total_cost = 0
-        for player in opt_result.selected_players:
-            is_captain = "C" if hasattr(opt_result, 'captain_id') and opt_result.captain_id == player.id else ""
-            is_vice = "VC" if hasattr(opt_result, 'vice_captain_id') and opt_result.vice_captain_id == player.id else ""
-            captain_status = is_captain or is_vice
-            
-            print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {player.form:<6.1f} {player.total_points:<10} {captain_status:<8}")
-            total_cost += player.price
-        
-        print(f"\nTeam Cost: £{total_cost:.1f}m")
-        print(f"Expected Points: {opt_result.expected_points:.1f}")
-        print(f"Confidence: {opt_result.confidence:.2f}")
-    
-    # Display reasoning
-    if hasattr(opt_result, 'reasoning') and opt_result.reasoning:
-        print(f"\n" + "="*80)
-        print("REASONING")
-        print("="*80)
-        print(opt_result.reasoning)
-    
-    # Display LLM insights if available
-    if hasattr(opt_result, 'llm_insights') and opt_result.llm_insights:
-        print(f"\n" + "="*80)
-        print("EXPERT INSIGHTS USED")
-        print("="*80)
-        print(opt_result.llm_insights)
-    
-    print(f"\nTeam creation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 def display_weekly_recommendations(result):
