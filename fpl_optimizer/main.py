@@ -82,9 +82,9 @@ class FPLOptimizer:
             # Initialize FPL fetcher
             fpl_fetcher = FPLDataFetcher(self.config)
             
-            # Get bootstrap data
-            logger.info("Fetching FPL bootstrap data...")
-            bootstrap_data = fpl_fetcher.get_bootstrap_data()
+            # Get FPL static data
+            logger.info("Fetching FPL static data...")
+            bootstrap_data = fpl_fetcher.get_fpl_static_data()
             
             # Use data transformer to get rich player data
             logger.info("Transforming data with rich player information...")

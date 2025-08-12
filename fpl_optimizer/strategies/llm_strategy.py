@@ -395,7 +395,7 @@ class LLMStrategy:
             # Validate bank calculation if transfers were made
             if team_data.get('transfers'):
                 # Get available players data for bank validation
-                bootstrap_data = self.fpl_fetcher.get_bootstrap_data()
+                bootstrap_data = self.fpl_fetcher.get_fpl_static_data()
                 available_players = self._get_available_players_dict(bootstrap_data)
                 
                 bank_errors = validator.validate_bank_calculation(
@@ -1159,7 +1159,7 @@ Ensure the final team meets all FPL constraints before submitting:
             
             # Get fixtures and teams data once
             fixtures_data = fpl_fetcher.get_fixtures()
-            teams_data = fpl_fetcher.get_bootstrap_data().get('teams', [])
+            teams_data = fpl_fetcher.get_fpl_static_data().get('teams', [])
             
             logger.info(f"Using Gameweek {current_gameweek} with {len(fixtures_data)} fixtures")
             
@@ -1369,7 +1369,7 @@ Ensure the final team meets all FPL constraints before submitting:
             
             # Get fixtures and teams data once
             fixtures_data = fpl_fetcher.get_fixtures()
-            teams_data = fpl_fetcher.get_bootstrap_data().get('teams', [])
+            teams_data = fpl_fetcher.get_fpl_static_data().get('teams', [])
             
             logger.info(f"Using Gameweek {current_gameweek} with {len(fixtures_data)} fixtures")
             

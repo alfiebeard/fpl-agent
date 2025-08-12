@@ -39,7 +39,7 @@ class LightweightLLMStrategy:
             from ..ingestion.fetch_fpl import FPLDataFetcher
             fetcher = FPLDataFetcher(self.config)
             
-            self._cached_bootstrap_data = fetcher.get_bootstrap_data()
+            self._cached_bootstrap_data = fetcher.get_fpl_static_data()
             self._cached_fixtures_data = fetcher.get_fixtures()
             self._cached_current_gameweek = fetcher.get_current_gameweek()
             

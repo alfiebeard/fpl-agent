@@ -3,14 +3,11 @@ FPL API data fetcher
 """
 
 import requests
-import json
-import time
-import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import logging
 
-from ..core.models import Player, Team, Fixture, Gameweek, Position
+from ..core.models import Player, Team, Position
 from ..core.config import Config
 
 
@@ -45,9 +42,9 @@ class FPLDataFetcher:
             logger.error(f"Failed to fetch data from {url}: {e}")
             raise
     
-    def get_bootstrap_data(self) -> Dict[str, Any]:
-        """Get bootstrap static data (players, teams, events)"""
-        logger.info("Fetching FPL bootstrap data...")
+    def get_fpl_static_data(self) -> Dict[str, Any]:
+        """Get FPL static reference data (players, teams, events)"""
+        logger.info("Fetching FPL static data...")
         return self._make_request("bootstrap-static/")
     
     def get_fixtures(self) -> List[Dict[str, Any]]:
@@ -138,76 +135,14 @@ class FPLDataFetcher:
         
         return teams
     
-    def parse_fixtures(self, fixtures_data: List[Dict[str, Any]], teams: List[Team]) -> List[Fixture]:
-        """Parse fixtures from fixtures data"""
-        fixtures = []
-        
-        # Create team ID to name mapping
-        team_mapping = {team.id: team.name for team in teams}
-        
-        for fixture_data in fixtures_data:
-            try:
-                kickoff_time = None
-                if fixture_data.get('kickoff_time'):
-                    kickoff_time = datetime.fromisoformat(
-                        fixture_data['kickoff_time'].replace('Z', '+00:00')
-                    )
-                
-                # Get team names from mapping
-                home_team_name = team_mapping.get(fixture_data['team_h'], 'Unknown Team')
-                away_team_name = team_mapping.get(fixture_data['team_a'], 'Unknown Team')
-                
-                fixture = Fixture(
-                    id=fixture_data['id'],
-                    gameweek=fixture_data['event'],
-                    home_team_id=fixture_data['team_h'],
-                    away_team_id=fixture_data['team_a'],
-                    home_team_name=home_team_name,
-                    away_team_name=away_team_name,
-                    difficulty=fixture_data.get('difficulty', 3),
-                    home_difficulty=fixture_data.get('team_h_difficulty', 3),
-                    away_difficulty=fixture_data.get('team_a_difficulty', 3),
-                    kickoff_time=kickoff_time,
-                    is_finished=fixture_data.get('finished', False),
-                    home_score=fixture_data.get('team_h_score'),
-                    away_score=fixture_data.get('team_a_score')
-                )
-                fixtures.append(fixture)
-            except Exception as e:
-                logger.warning(f"Failed to parse fixture {fixture_data.get('id')}: {e}")
-                continue
-        
-        return fixtures
+
     
-    def parse_gameweeks(self, bootstrap_data: Dict[str, Any]) -> List[Gameweek]:
-        """Parse gameweeks from bootstrap data"""
-        gameweeks = []
-        
-        for event_data in bootstrap_data.get('events', []):
-            try:
-                deadline_time = datetime.fromisoformat(
-                    event_data['deadline_time'].replace('Z', '+00:00')
-                )
-                
-                gameweek = Gameweek(
-                    id=event_data['id'],
-                    name=event_data['name'],
-                    deadline_time=deadline_time,
-                    is_finished=event_data.get('finished', False),
-                    is_current=event_data.get('is_current', False),
-                    is_next=event_data.get('is_next', False)
-                )
-                gameweeks.append(gameweek)
-            except Exception as e:
-                logger.warning(f"Failed to parse gameweek {event_data.get('id')}: {e}")
-                continue
-        
-        return gameweeks
+
     
     def get_current_gameweek(self) -> Optional[int]:
         """Get the current gameweek number"""
         try:
-            bootstrap_data = self.get_bootstrap_data()
+            bootstrap_data = self.get_fpl_static_data()
             events = bootstrap_data.get('events', [])
             
             for event in events:
@@ -226,7 +161,7 @@ class FPLDataFetcher:
     def get_next_deadline(self) -> Optional[datetime]:
         """Get the next deadline time"""
         try:
-            bootstrap_data = self.get_bootstrap_data()
+            bootstrap_data = self.get_fpl_static_data()
             events = bootstrap_data.get('events', [])
             
             for event in events:
@@ -241,150 +176,17 @@ class FPLDataFetcher:
             return None
     
     def get_all_data(self) -> Dict[str, Any]:
-        """Get all FPL data (bootstrap, fixtures, etc.)"""
+        """Get all FPL data (static data, fixtures, etc.)"""
         logger.info("Fetching all FPL data...")
         
-        bootstrap_data = self.get_bootstrap_data()
+        bootstrap_data = self.get_fpl_static_data()
         fixtures_data = self.get_fixtures()
         
         return {
-            'bootstrap': bootstrap_data,
+            'fpl_static_data': bootstrap_data,
             'fixtures': fixtures_data
         }
     
-    def calculate_player_additional_stats(self, player: Player, fixtures: List[Fixture], 
-                                        current_gameweek: int) -> Dict[str, Any]:
-        """
-        Calculate additional statistics for a player including upcoming fixture difficulty.
-        
-        Args:
-            player: Player object
-            fixtures: List of all fixtures
-            current_gameweek: Current gameweek number
-            
-        Returns:
-            Dictionary with additional player statistics
-        """
-        # Get basic stats that are already available
-        stats = {
-            "ppg": float(player.points_per_game),
-            "form": float(player.form),
-            "minutes_played": player.minutes,
-            "ownership_percent": float(player.selected_by_percent)
-        }
-        
-        # Calculate upcoming fixture difficulty
-        upcoming_fixture_difficulty = self._calculate_upcoming_fixture_difficulty(
-            player, fixtures, current_gameweek
-        )
-        stats["upcoming_fixture_difficulty"] = upcoming_fixture_difficulty
-        
-        return stats
+
     
-    def _calculate_upcoming_fixture_difficulty(self, player: Player, fixtures: List[Fixture], 
-                                             current_gameweek: int) -> float:
-        """
-        Calculate weighted upcoming fixture difficulty for the next 5 gameweeks.
-        
-        Args:
-            player: Player object
-            fixtures: List of all fixtures
-            current_gameweek: Current gameweek number
-            
-        Returns:
-            Weighted average fixture difficulty (1-5 scale, lower is easier)
-        """
-        # Get upcoming fixtures for the player's team (next 5 gameweeks)
-        upcoming_fixtures = []
-        
-        for fixture in fixtures:
-            # Check if fixture is in the next 5 gameweeks and involves player's team
-            if (fixture.gameweek > current_gameweek and 
-                fixture.gameweek <= current_gameweek + 5 and
-                (fixture.home_team_id == player.team_id or fixture.away_team_id == player.team_id)):
-                
-                upcoming_fixtures.append(fixture)
-        
-        if not upcoming_fixtures:
-            # If no upcoming fixtures found, return neutral difficulty
-            return 3.0
-        
-        # Sort fixtures by gameweek
-        upcoming_fixtures.sort(key=lambda f: f.gameweek)
-        
-        # Calculate weighted difficulty
-        # Weights: [0.4, 0.25, 0.2, 0.1, 0.05] for next 5 gameweeks
-        weights = [0.4, 0.25, 0.2, 0.1, 0.05]
-        total_weighted_difficulty = 0.0
-        total_weight = 0.0
-        
-        for i, fixture in enumerate(upcoming_fixtures[:5]):  # Limit to 5 fixtures
-            if i < len(weights):
-                # Determine if player's team is home or away
-                if fixture.home_team_id == player.team_id:
-                    difficulty = fixture.home_difficulty
-                else:
-                    difficulty = fixture.away_difficulty
-                
-                weight = weights[i]
-                total_weighted_difficulty += difficulty * weight
-                total_weight += weight
-        
-        if total_weight == 0:
-            return 3.0
-        
-        return round(total_weighted_difficulty / total_weight, 1)
-    
-    def get_players_with_additional_stats(self, bootstrap_data: Dict[str, Any], 
-                                        fixtures_data: List[Dict[str, Any]]) -> List[Player]:
-        """
-        Get all players with additional statistics calculated.
-        
-        Args:
-            bootstrap_data: Bootstrap data from FPL API
-            fixtures_data: Fixtures data from FPL API
-            
-        Returns:
-            List of Player objects with additional stats in custom_data
-        """
-        # Parse basic player data
-        players = self.parse_players(bootstrap_data)
-        fixtures = self.parse_fixtures(fixtures_data, self.parse_teams(bootstrap_data))
-        current_gameweek = self.get_current_gameweek() or 1
-        
-        # Calculate additional stats for each player
-        for player in players:
-            additional_stats = self.calculate_player_additional_stats(
-                player, fixtures, current_gameweek
-            )
-            player.custom_data.update(additional_stats)
-        
-        return players
-    
-    def get_all_data_with_additional_stats(self) -> Dict[str, Any]:
-        """Get all FPL data with additional player statistics calculated"""
-        logger.info("Fetching all FPL data with additional player statistics...")
-        
-        try:
-            bootstrap_data = self.get_bootstrap_data()
-            fixtures_data = self.get_fixtures()
-            
-            # Parse teams first so we can use them for fixture parsing
-            teams = self.parse_teams(bootstrap_data)
-            
-            # Get players with additional stats
-            players = self.get_players_with_additional_stats(bootstrap_data, fixtures_data)
-            
-            return {
-                'players': players,
-                'teams': teams,
-                'fixtures': self.parse_fixtures(fixtures_data, teams),
-                'gameweeks': self.parse_gameweeks(bootstrap_data),
-                'current_gameweek': self.get_current_gameweek(),
-                'next_deadline': self.get_next_deadline(),
-                'raw_bootstrap': bootstrap_data,
-                'raw_fixtures': fixtures_data
-            }
-        except Exception as e:
-            logger.error(f"Failed to fetch all FPL data with additional stats: {e}")
-            raise
+
