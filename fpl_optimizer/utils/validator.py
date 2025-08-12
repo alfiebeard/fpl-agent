@@ -5,7 +5,7 @@ Validates FPL teams against official rules and checks bank calculations
 
 import json
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from pathlib import Path
 from enum import Enum
 

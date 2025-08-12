@@ -3,8 +3,6 @@ Core LLM engine for Gemini API communication with web search
 """
 
 import logging
-import json
-from typing import Dict, List, Any
 
 from google import genai
 from google.genai import types

@@ -4,10 +4,9 @@ FPL team manager using LLM for comprehensive team management
 
 import logging
 import json
-import os
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from ..core.config import Config
 from ..ingestion.fetch_fpl import FPLDataFetcher
@@ -16,7 +15,7 @@ from .llm_engine import LLMEngine
 from .lightweight_llm_strategy import LightweightLLMStrategy
 from .embedding_filter import EmbeddingFilter
 from ..utils.data_transformers import transform_fpl_data_to_teams, calculate_chance_of_playing
-from ..utils.validator import FPLValidator, validate_llm_response
+from ..utils.validator import FPLValidator
 from ..core.models import Position
 
 logger = logging.getLogger(__name__)

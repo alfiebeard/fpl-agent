@@ -3,7 +3,6 @@ Lightweight LLM Engine for team-specific analysis
 """
 
 import logging
-from typing import Dict, Any
 
 from google import genai
 from google.genai import types

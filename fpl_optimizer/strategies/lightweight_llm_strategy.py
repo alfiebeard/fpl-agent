@@ -3,7 +3,7 @@ Lightweight LLM Strategy for team-specific analysis
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List
 from datetime import datetime
 
 from ..core.config import Config

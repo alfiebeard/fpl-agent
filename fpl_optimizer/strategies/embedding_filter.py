@@ -4,15 +4,13 @@ Embedding-based player filtering for FPL Optimizer
 
 import logging
 import json
-import os
 from typing import Dict, List, Tuple, Optional, Any
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..core.config import Config
-from ..core.models import Position
 
 logger = logging.getLogger(__name__)
 
