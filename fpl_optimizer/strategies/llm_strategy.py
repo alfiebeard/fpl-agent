@@ -39,6 +39,22 @@ class LLMStrategy:
         self.llm_engine = LLMEngine(config)
         self.embedding_filter = None  # Lazy initialization
     
+    def _get_team_constraints_prompt(self) -> str:
+        """Generate team constraints prompt from config"""
+        position_limits = self.config.get_position_limits()
+        formation_constraints = self.config.get_formation_constraints()
+        
+        return f"""* The squad must include exactly 15 players:
+    * {position_limits['GK']} goalkeepers
+    * {position_limits['DEF']} defenders
+    * {position_limits['MID']} midfielders
+    * {position_limits['FWD']} forwards
+* The starting 11 must follow valid FPL formations:
+    * 1 goalkeeper
+    * {formation_constraints['DEF'][0]} to {formation_constraints['DEF'][1]} defenders
+    * {formation_constraints['MID'][0]} to {formation_constraints['MID'][1]} midfielders
+    * {formation_constraints['FWD'][0]} to {formation_constraints['FWD'][1]} forwards"""
+    
     def _get_player_data_cache_path(self) -> Path:
         """Get the path to the player data cache file"""
         cache_dir = Path("team_data")
@@ -430,17 +446,8 @@ class LLMStrategy:
 
 You must strictly follow all official FPL rules and constraints when building the team:
 * The total budget must not exceed £{budget} million.
-* The squad must include exactly 15 players:
-    * 2 goalkeepers
-    * 5 defenders
-    * 5 midfielders
-    * 3 forwards
+{self._get_team_constraints_prompt()}
 * A maximum of 3 players are allowed from any single Premier League club.
-* The starting 11 must follow valid FPL formations:
-    * 1 goalkeeper
-    * 3 to 5 defenders
-    * 2 to 5 midfielders
-    * 1 to 3 forwards
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
 
@@ -674,9 +681,9 @@ Return your updated squad in this JSON format:
 
 Ensure the final team meets all FPL constraints before submitting:
 * Total cost ≤ £100.0 million
-* 15 total players: 2 goalkeepers, 5 defenders, 5 midfielders, 3 forwards
-* Max 3 players from any single club
-* Valid formation for starting 11 (1GK, 3–5 DEF, 2–5 MID, 1–3 FWD)"""
+* {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
+* Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
+* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)"""
     
     def _format_current_team_for_prompt(self, team_data: Dict) -> str:
         """Format current team data for the prompt"""
@@ -917,19 +924,25 @@ Ensure the final team meets all FPL constraints before submitting:
         
         # Check team composition (basic validation)
         all_players = starting + substitutes
+        
+        # Get constraints from config
+        position_limits = self.config.get_position_limits()
+        
+        # Count positions
         gk_count = sum(1 for p in all_players if p.get('position') == 'GK')
         def_count = sum(1 for p in all_players if p.get('position') == 'DEF')
         mid_count = sum(1 for p in all_players if p.get('position') == 'MID')
         fwd_count = sum(1 for p in all_players if p.get('position') == 'FWD')
         
-        if gk_count != 2:
-            raise ValueError(f"Must have exactly 2 goalkeepers, got {gk_count}")
-        if def_count != 5:
-            raise ValueError(f"Must have exactly 5 defenders, got {def_count}")
-        if mid_count != 5:
-            raise ValueError(f"Must have exactly 5 midfielders, got {mid_count}")
-        if fwd_count != 3:
-            raise ValueError(f"Must have exactly 3 forwards, got {fwd_count}")
+        # Validate against config
+        if gk_count != position_limits['GK']:
+            raise ValueError(f"Must have exactly {position_limits['GK']} goalkeepers, got {gk_count}")
+        if def_count != position_limits['DEF']:
+            raise ValueError(f"Must have exactly {position_limits['DEF']} defenders, got {def_count}")
+        if mid_count != position_limits['MID']:
+            raise ValueError(f"Must have exactly {position_limits['MID']} midfielders, got {mid_count}")
+        if fwd_count != position_limits['FWD']:
+            raise ValueError(f"Must have exactly {position_limits['FWD']} forwards, got {fwd_count}")
         
         logger.info("Team data validation passed")
     

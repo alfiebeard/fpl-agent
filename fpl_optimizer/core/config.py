@@ -110,9 +110,25 @@ class Config:
         """Get embeddings configuration"""
         return self._config.get('embeddings', {})
     
-    def get_likely_starter_config(self) -> Dict[str, Any]:
-        """Get likely starter configuration"""
-        return self._config.get('likely_starter', {})
+    def get_team_config(self) -> Dict[str, Any]:
+        """Get team configuration"""
+        return self._config.get('team', {})
+    
+    def get_position_limits(self) -> Dict[str, int]:
+        """Get squad position limits"""
+        team_config = self.get_team_config()
+        return team_config.get('position_limits', {
+            'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3
+        })
+    
+    def get_formation_constraints(self) -> Dict[str, List[int]]:
+        """Get starting 11 formation constraints"""
+        team_config = self.get_team_config()
+        return team_config.get('formation_constraints', {}).get('starting_11', {
+            'DEF': [3, 5], 'MID': [2, 5], 'FWD': [1, 3]
+        })
+    
+
     
     def get_logging_config(self) -> Dict[str, Any]:
         """Get logging configuration"""

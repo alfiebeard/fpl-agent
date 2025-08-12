@@ -186,9 +186,15 @@ class FPLValidator:
         team = team_data['team']
         all_players = team.get('starting', []) + team.get('substitutes', [])
         
+        # Get constraints from config
+        position_limits = self.config.get_position_limits()
+        squad_size = self.config.get_team_config().get('squad_size', 15)
+        budget = self.config.get_team_config().get('budget', 100.0)
+        max_players_per_team = self.config.get_team_config().get('max_players_per_team', 3)
+        
         # Check squad size
-        if len(all_players) != 15:
-            errors.append(f"Must have exactly 15 players, got {len(all_players)}")
+        if len(all_players) != squad_size:
+            errors.append(f"Must have exactly {squad_size} players, got {len(all_players)}")
             return errors
         
         # Check position distribution
@@ -207,24 +213,19 @@ class FPLValidator:
                 team_counts[team_name] = team_counts.get(team_name, 0) + 1
         
         # Validate position counts
-        if position_counts['GK'] != 2:
-            errors.append(f"Must have exactly 2 goalkeepers, got {position_counts['GK']}")
-        if position_counts['DEF'] != 5:
-            errors.append(f"Must have exactly 5 defenders, got {position_counts['DEF']}")
-        if position_counts['MID'] != 5:
-            errors.append(f"Must have exactly 5 midfielders, got {position_counts['MID']}")
-        if position_counts['FWD'] != 3:
-            errors.append(f"Must have exactly 3 forwards, got {position_counts['FWD']}")
+        for pos, limit in position_limits.items():
+            if position_counts.get(pos, 0) != limit:
+                errors.append(f"Must have exactly {limit} {pos.lower()}s, got {position_counts.get(pos, 0)}")
         
         # Validate team limits
         for team_name, count in team_counts.items():
-            if count > 3:
-                errors.append(f"Maximum 3 players allowed from {team_name}, got {count}")
+            if count > max_players_per_team:
+                errors.append(f"Maximum {max_players_per_team} players allowed from {team_name}, got {count}")
         
         # Check total cost
         total_cost = team_data.get('total_cost', 0)
-        if total_cost > 100.0:
-            errors.append(f"Total cost £{total_cost}m exceeds budget of £100.0m")
+        if total_cost > budget:
+            errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
         
         return errors
     
@@ -246,15 +247,17 @@ class FPLValidator:
             if position in position_counts:
                 position_counts[position] += 1
         
+        # Get formation constraints from config
+        formation_constraints = self.config.get_formation_constraints()
+        
         # Validate formation
         if position_counts['GK'] != 1:
             errors.append(f"Must have exactly 1 goalkeeper in starting 11, got {position_counts['GK']}")
-        if position_counts['DEF'] < 3 or position_counts['DEF'] > 5:
-            errors.append(f"Must have 3-5 defenders in starting 11, got {position_counts['DEF']}")
-        if position_counts['MID'] < 2 or position_counts['MID'] > 5:
-            errors.append(f"Must have 2-5 midfielders in starting 11, got {position_counts['MID']}")
-        if position_counts['FWD'] < 1 or position_counts['FWD'] > 3:
-            errors.append(f"Must have 1-3 forwards in starting 11, got {position_counts['FWD']}")
+        
+        for pos, (min_count, max_count) in formation_constraints.items():
+            count = position_counts.get(pos, 0)
+            if not (min_count <= count <= max_count):
+                errors.append(f"Must have {min_count}-{max_count} {pos.lower()}s in starting 11, got {count}")
         
         return errors
     

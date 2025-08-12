@@ -744,7 +744,7 @@ def main():
     # Main command
     parser.add_argument('command', choices=[
         'fetch-fpl-players', 'enrich-players', 'create-team-llm', 'weekly-llm', 
-        'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable', 'show-rankings', 'add-likely-starter'
+                    'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable', 'show-rankings'
     ], help='Command to run')
     
     # Common arguments
@@ -1096,22 +1096,7 @@ def main():
             result = optimizer.show_full_hybrid_rankings(args.force_refresh)
             display_full_hybrid_rankings(result)
             
-        elif args.command == 'add-likely-starter':
-            # Add is_likely_starter attributes to all players
-            print("Adding likely starter attributes to player data...")
-            
-            # Create the embedding filter instance directly
-            from fpl_optimizer.strategies.embedding_filter import EmbeddingFilter
-            filter_instance = EmbeddingFilter(optimizer.config)
-            
-            # Process all players and add likely starter attributes
-            filter_instance.add_likely_starter_attributes(force_refresh=args.force_refresh)
-            
-            print("✅ Successfully added likely starter attributes to all players")
-            if args.force_refresh:
-                print("🔄 All attributes were refreshed")
-            else:
-                print("⏭️  Existing attributes were preserved")
+
         
     except Exception as e:
         logger.error(f"Command failed: {e}")

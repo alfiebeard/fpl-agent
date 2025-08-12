@@ -5,6 +5,7 @@ Core data models for FPL Optimizer
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum
+from .config import Config
 
 
 class Position(Enum):
@@ -143,10 +144,10 @@ class FPLTeam:
     vice_captain_id: Optional[int] = None
     
     # Formation
-    formation: List[int] = field(default_factory=lambda: [3, 4, 3])  # [def, mid, fwd]
+    formation: List[int] = field(default_factory=lambda: FPLTeam.get_default_formation())  # [def, mid, fwd]
     
     # Budget
-    total_value: float = 100.0
+    total_value: float = field(default_factory=lambda: FPLTeam.get_default_budget())
     bank: float = 0.0
     
     # Chips
@@ -215,6 +216,29 @@ class FPLTeam:
         if self.vice_captain_id is None:
             return None
         return next((p for p in self.players if p.id == self.vice_captain_id), None)
+    
+    @classmethod
+    def get_default_formation(cls) -> List[int]:
+        """Get default formation from config or fallback to [3, 4, 3]"""
+        try:
+            config = Config()
+            formation_constraints = config.get_formation_constraints()
+            return [
+                formation_constraints['DEF'][0],  # Min defenders
+                formation_constraints['MID'][0],  # Min midfielders  
+                formation_constraints['FWD'][0]   # Min forwards
+            ]
+        except Exception:
+            return [3, 4, 3]  # Fallback
+    
+    @classmethod
+    def get_default_budget(cls) -> float:
+        """Get default budget from config or fallback to 100.0"""
+        try:
+            config = Config()
+            return config.get_team_config().get('budget', 100.0)
+        except Exception:
+            return 100.0  # Fallback
 
 
 @dataclass
