@@ -6,15 +6,13 @@ __version__ = "1.0.0"
 __author__ = "FPL Optimizer Team"
 
 from .core.config import Config
-from .core.models import Player, Team, Fixture, Gameweek, FPLTeam, OptimizationResult, Transfer
+from .core.models import Player, Team, FPLTeam, OptimizationResult, Transfer
 from .main import FPLOptimizer
 
 __all__ = [
     "Config",
     "Player", 
     "Team",
-    "Fixture",
-    "Gameweek",
     "FPLTeam",
     "OptimizationResult",
     "Transfer",

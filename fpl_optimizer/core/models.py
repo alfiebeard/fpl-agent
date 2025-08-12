@@ -132,54 +132,7 @@ class Team:
     custom_data: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
-class Fixture:
-    """Fixture model"""
-    
-    id: int
-    gameweek: int
-    home_team_id: int
-    away_team_id: int
-    home_team_name: str = ""
-    away_team_name: str = ""
-    
-    # Fixture difficulty
-    difficulty: int = 3  # 1-5 scale
-    home_difficulty: int = 3
-    away_difficulty: int = 3
-    
-    # Match details
-    kickoff_time: Optional[datetime] = None
-    is_finished: bool = False
-    home_score: Optional[int] = None
-    away_score: Optional[int] = None
-    
-    # Expected stats
-    expected_goals: float = 2.5
-    home_win_prob: float = 0.33
-    draw_prob: float = 0.25
-    away_win_prob: float = 0.42
-    
-    # Custom fields
-    custom_data: Dict[str, Any] = field(default_factory=dict)
 
-
-@dataclass
-class Gameweek:
-    """Gameweek model"""
-    
-    id: int
-    name: str
-    deadline_time: datetime
-    is_finished: bool = False
-    is_current: bool = False
-    is_next: bool = False
-    
-    # Fixtures in this gameweek
-    fixtures: List[Fixture] = field(default_factory=list)
-    
-    # Custom fields
-    custom_data: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
