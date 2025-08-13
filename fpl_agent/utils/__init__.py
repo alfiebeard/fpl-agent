@@ -10,6 +10,7 @@ from .player_factory import PlayerFactory
 from .fpl_data_manager import FPLDataManager
 from .data_enrichment import DataEnrichment
 from .player_data_cache import PlayerDataCache
+from .player_data_service import PlayerDataService
 from .validator import FPLValidator, validate_llm_response
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "PlayerFactory",
     "FPLDataManager",
     "DataEnrichment",
-    "PlayerDataCache"
+    "PlayerDataCache",
+    "PlayerDataService"
 ] 
