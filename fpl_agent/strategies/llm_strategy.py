@@ -36,7 +36,8 @@ class LLMStrategy:
         self.config = config
         self.fpl_fetcher = FPLDataFetcher(config)
         self.team_manager = TeamManager()
-        self.llm_engine = LLMEngine(config)
+        # Use main model for complex team optimization
+        self.llm_engine = LLMEngine(config, model_name="main")
         self.embedding_filter = None  # Lazy initialization
     
     def _get_team_constraints_prompt(self) -> str:
@@ -304,7 +305,7 @@ class LLMStrategy:
         # Get LLM response
         logger.info("Querying LLM for team creation...")
         try:
-            response = self.llm_engine._query_gemini_with_search(prompt)
+            response = self.llm_engine.query(prompt, use_web_search=True)
             logger.info(f"LLM Response received (length: {len(response)})")
             logger.debug(f"LLM Response preview: {response[:500]}...")
         except Exception as e:
@@ -391,7 +392,7 @@ class LLMStrategy:
             )
             
             # Get LLM response
-            response = self.llm_engine._query_gemini_with_search(prompt)
+            response = self.llm_engine.query(prompt, use_web_search=True)
             
             # Parse and validate the response
             team_data = self._parse_team_response(response)

@@ -106,6 +106,21 @@ class Config:
         llm_config = self._config.get('llm', {})
         return llm_config.get('lightweight', {})
     
+    def get_llm_model_config(self, model_name: str) -> Dict[str, Any]:
+        """Get LLM configuration for a specific model by name"""
+        llm_config = self._config.get('llm', {})
+        
+        # Look for the model in the llm config
+        if model_name in llm_config:
+            return llm_config[model_name]
+        
+        # If not found, raise an error with available options
+        available_models = list(llm_config.keys())
+        raise ValueError(
+            f"Model '{model_name}' not found in config. "
+            f"Available models: {available_models}"
+        )
+    
     def get_embeddings_config(self) -> Dict[str, Any]:
         """Get embeddings configuration"""
         return self._config.get('embeddings', {})

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from ..core.config import Config
 from ..core.models import Player
-from ..strategies.lightweight_llm_engine import LightweightLLMEngine
+from ..strategies.llm_engine import LLMEngine
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,8 @@ class LightweightLLMStrategy:
     
     def __init__(self, config: Config):
         self.config = config
-        self.llm_engine = LightweightLLMEngine(config)
+        # Use lightweight model for quick analysis
+        self.llm_engine = LLMEngine(config, model_name="lightweight")
         
         # Cache for FPL data to avoid repeated API calls
         self._cached_bootstrap_data = None
@@ -181,7 +182,7 @@ class LightweightLLMStrategy:
         prompt = self._create_injury_news_prompt(team_name, players, current_gameweek, fixture_info)
         
         # Get LLM response
-        return self.llm_engine.query_llm(prompt)
+        return self.llm_engine.query(prompt, use_web_search=False, extract_json=True)
     
     def get_team_hints_tips(self, team_name: str, players: List[Player]) -> str:
         """
@@ -207,7 +208,7 @@ class LightweightLLMStrategy:
         prompt = self._create_hints_tips_prompt(team_name, players, current_gameweek, fixture_info)
         
         # Get LLM response
-        return self.llm_engine.query_llm(prompt)
+        return self.llm_engine.query(prompt, use_web_search=False, extract_json=True)
     
     def get_team_summary(self, team_name: str, players: List[Player]) -> Dict[str, str]:
         """
