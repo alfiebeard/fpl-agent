@@ -4,7 +4,7 @@ Configuration management for FPL Optimizer
 
 import os
 import yaml
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -136,7 +136,7 @@ class Config:
             'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3
         })
     
-    def get_formation_constraints(self) -> Dict[str, list[int]]:
+    def get_formation_constraints(self) -> Dict[str, List[int]]:
         """Get starting 11 formation constraints"""
         team_config = self.get_team_config()
         return team_config.get('formation_constraints', {}).get('starting_11', {
