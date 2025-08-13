@@ -12,7 +12,7 @@ from ..core.config import Config
 from ..core.models import Player
 from .player_factory import PlayerFactory
 from .fpl_data_manager import FPLDataManager
-from ..strategies.lightweight_llm_strategy import LightweightLLMStrategy
+from ..strategies.team_analysis_strategy import TeamAnalysisStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,10 @@ class DataEnrichment:
         self.config = config
         self.player_factory = PlayerFactory()
         self.data_manager = FPLDataManager(config)
-        self.lightweight_llm = LightweightLLMStrategy(config)
+        self.team_analysis = TeamAnalysisStrategy(config)
         
         # Initialize FPL data cache once to avoid repeated API calls
-        self.lightweight_llm.initialize_fpl_data()
+        self.team_analysis.initialize_fpl_data()
     
     def enrich_player_data(self, existing_player_data: Dict[str, Dict[str, Any]], 
                           force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
@@ -139,11 +139,11 @@ class DataEnrichment:
                     player_objects.append(player)
                 
                 # Get injury news for this team
-                injury_news = self.lightweight_llm.get_team_injury_news(team_name, player_objects)
+                injury_news = self.team_analysis.get_team_injury_news(team_name, player_objects)
                 all_injury_news[team_name] = injury_news
                 
                 # Get hints and tips for this team
-                hints_tips = self.lightweight_llm.get_team_hints_tips(team_name, player_objects)
+                hints_tips = self.team_analysis.get_team_hints_tips(team_name, player_objects)
                 all_hints_tips[team_name] = hints_tips
                 
                 logger.info(f"Processed {team_name}: {len(team_players)} players")
@@ -246,8 +246,8 @@ class DataEnrichment:
             fixture_info = self.data_manager.get_fixture_info(team_name, current_gameweek)
             
             # Get team analysis
-            injury_news = self.lightweight_llm.get_team_injury_news(team_name, players)
-            hints_tips = self.lightweight_llm.get_team_hints_tips(team_name, players)
+            injury_news = self.team_analysis.get_team_injury_news(team_name, players)
+            hints_tips = self.team_analysis.get_team_hints_tips(team_name, players)
             
             # Parse responses
             injury_dict = self._parse_json_response(injury_news, f"injury news for {team_name}")
@@ -282,7 +282,7 @@ class DataEnrichment:
         self.data_manager.refresh_cache(force=force)
         
         # Reinitialize lightweight LLM strategy data
-        self.lightweight_llm.initialize_fpl_data()
+        self.team_analysis.initialize_fpl_data()
         
         logger.info("Data refresh completed")
     
@@ -295,6 +295,6 @@ class DataEnrichment:
         """
         return {
             "fpl_data_cache": self.data_manager.get_cache_status(),
-            "lightweight_llm_initialized": hasattr(self.lightweight_llm, '_cached_bootstrap_data'),
+            "team_analysis_initialized": hasattr(self.team_analysis, '_cached_bootstrap_data'),
             "enrichment_timestamp": datetime.now().isoformat()
         }

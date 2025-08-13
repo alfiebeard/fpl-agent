@@ -9,19 +9,20 @@ from pathlib import Path
 from datetime import datetime
 
 from ..core.config import Config
-from ..ingestion.fetch_fpl import FPLDataFetcher
 from ..core.team_manager import TeamManager
-from .llm_engine import LLMEngine
-from .lightweight_llm_strategy import LightweightLLMStrategy
+from .base_strategy import BaseLLMStrategy
 from .embedding_filter import EmbeddingFilter
 from ..utils.data_transformers import transform_fpl_data_to_teams, calculate_chance_of_playing
 from ..utils.validator import FPLValidator
+from ..utils.player_factory import PlayerFactory
+from ..utils.fpl_data_manager import FPLDataManager
+from ..utils.data_enrichment import DataEnrichment
 from ..core.models import Position
 
 logger = logging.getLogger(__name__)
 
 
-class LLMStrategy:
+class TeamBuildingStrategy(BaseLLMStrategy):
     """
     LLM-based strategy for FPL team creation and weekly management.
     
@@ -33,12 +34,18 @@ class LLMStrategy:
     """
     
     def __init__(self, config: Config):
-        self.config = config
-        self.fpl_fetcher = FPLDataFetcher(config)
+        super().__init__(config, model_name="main")
         self.team_manager = TeamManager()
-        # Use main model for complex team optimization
-        self.llm_engine = LLMEngine(config, model_name="main")
         self.embedding_filter = None  # Lazy initialization
+        
+        # Use our new utilities instead of direct FPL fetching
+        self.player_factory = PlayerFactory()
+        self.data_manager = FPLDataManager(config)
+        self.data_enrichment = DataEnrichment(config)
+    
+    def get_strategy_name(self) -> str:
+        """Return the name of this strategy."""
+        return "Team Building Strategy"
     
     def _get_team_constraints_prompt(self) -> str:
         """Generate team constraints prompt from config"""
@@ -161,9 +168,9 @@ class LLMStrategy:
                 return self._get_available_players_data_enriched(force_refresh=force_refresh)
         
         try:
-            # Fetch FPL data with additional stats
-            all_data = self.fpl_fetcher.get_all_data_with_additional_stats()
-            players = all_data['players']
+            # Get FPL data using our data manager
+            all_data = self.data_manager.get_fpl_static_data()
+            players = all_data.get('elements', [])
             
             # Apply filters for available players only
             filters = {
@@ -356,7 +363,7 @@ class LLMStrategy:
             Dict containing the updated team in the specified JSON format
         """
         if gameweek is None:
-            gameweek = self.fpl_fetcher.get_current_gameweek()
+            gameweek = self.data_manager.get_current_gameweek()
         
         logger.info(f"Updating team for Gameweek {gameweek}")
         
@@ -411,7 +418,7 @@ class LLMStrategy:
             # Validate bank calculation if transfers were made
             if team_data.get('transfers'):
                 # Get available players data for bank validation
-                bootstrap_data = self.fpl_fetcher.get_fpl_static_data()
+                bootstrap_data = self.data_manager.get_fpl_static_data()
                 available_players = self._get_available_players_dict(bootstrap_data)
                 
                 bank_errors = validator.validate_bank_calculation(
@@ -1139,18 +1146,15 @@ Ensure the final team meets all FPL constraints before submitting:
             return {}
     
     def _fetch_fresh_enriched_data(self) -> Dict[str, Dict[str, Any]]:
-        """Fetch fresh FPL data and add enrichments"""
+        """Fetch fresh enriched data using our new utility"""
         try:
-            # Fetch FPL data with additional stats
-            all_data = self.fpl_fetcher.get_all_data_with_additional_stats()
-            players = all_data['players']
-            teams = all_data['teams']
+            logger.info("Using DataEnrichment utility to fetch fresh enriched data...")
             
-            # Initialize lightweight LLM strategy for team analysis
-            lightweight_llm = LightweightLLMStrategy(self.config)
+            # Get basic FPL data from our data manager
+            all_data = self.data_manager.get_fpl_static_data()
+            players = all_data.get('elements', [])
             
-            # Initialize FPL data cache once to avoid repeated API calls
-            lightweight_llm.initialize_fpl_data()
+            # Use our DataEnrichment utility instead of duplicating logic
             
             # Group players by team
             players_by_team = {}
@@ -1160,46 +1164,17 @@ Ensure the final team meets all FPL constraints before submitting:
                     players_by_team[team_name] = []
                 players_by_team[team_name].append(player)
             
-            # Pre-fetch FPL data once to avoid multiple API calls
-            logger.info("Pre-fetching FPL data for all teams...")
-            from ..ingestion.fetch_fpl import FPLDataFetcher
-            fpl_fetcher = FPLDataFetcher(self.config)
-            
-            # Get current gameweek
-            current_gameweek = fpl_fetcher.get_current_gameweek()
+            # Use our data manager for gameweek and fixture info
+            current_gameweek = self.data_manager.get_current_gameweek()
             if current_gameweek is None:
                 current_gameweek = 1  # Fallback to GW1 if not available
             
-            # Get fixtures and teams data once
-            fixtures_data = fpl_fetcher.get_fixtures()
-            teams_data = fpl_fetcher.get_fpl_static_data().get('teams', [])
+            logger.info(f"Using Gameweek {current_gameweek} for enrichment")
             
-            logger.info(f"Using Gameweek {current_gameweek} with {len(fixtures_data)} fixtures")
+            # Use our DataEnrichment utility instead of duplicating logic
             
-            # Get injury news and hints for all teams
-            logger.info("Getting injury news for all teams...")
-            all_injury_news = {}
-            all_hints_tips = {}
-            
-            for team_name, team_players in players_by_team.items():
-                try:
-                    # Get injury news for this team (passing pre-fetched data)
-                    injury_news = lightweight_llm.get_team_injury_news(team_name, team_players)
-                    all_injury_news[team_name] = injury_news
-                    
-                    # Get hints and tips for this team (passing pre-fetched data)
-                    hints_tips = lightweight_llm.get_team_hints_tips(team_name, team_players)
-                    all_hints_tips[team_name] = hints_tips
-                    
-                    logger.info(f"Processed {team_name}: {len(team_players)} players")
-                except Exception as e:
-                    logger.error(f"Failed to process {team_name}: {e}")
-                    # Continue with other teams
-                    continue
-            
-            # Create enriched data for each player
-            enriched_data = {}
-            
+            # Convert FPL data to our expected format and enrich
+            player_data_dict = {}
             for player in players:
                 try:
                     # Get player's team injury news and hints
@@ -1354,176 +1329,17 @@ Ensure the final team meets all FPL constraints before submitting:
             return {}
     
     def _add_enrichments_to_existing_data(self, existing_player_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Add enrichments to existing basic player data"""
+        """Add enrichments to existing basic player data using our new utility"""
         try:
-            # Group players by team
-            players_by_team = {}
-            for player_name, player_data in existing_player_data.items():
-                team_name = player_data["data"]["team"]
-                if team_name not in players_by_team:
-                    players_by_team[team_name] = []
-                players_by_team[team_name].append((player_name, player_data))
+            logger.info("Using DataEnrichment utility to add enrichments...")
             
-            # Initialize lightweight LLM strategy for team analysis
-            lightweight_llm = LightweightLLMStrategy(self.config)
-            
-            # Initialize FPL data cache once to avoid repeated API calls
-            lightweight_llm.initialize_fpl_data()
-            
-            # Pre-fetch FPL data once to avoid multiple API calls
-            logger.info("Pre-fetching FPL data for all teams...")
-            from ..ingestion.fetch_fpl import FPLDataFetcher
-            fpl_fetcher = FPLDataFetcher(self.config)
-            
-            # Get current gameweek
-            current_gameweek = fpl_fetcher.get_current_gameweek()
-            if current_gameweek is None:
-                current_gameweek = 1  # Fallback to GW1 if not available
-            
-            # Get fixtures and teams data once
-            fixtures_data = fpl_fetcher.get_fixtures()
-            teams_data = fpl_fetcher.get_fpl_static_data().get('teams', [])
-            
-            logger.info(f"Using Gameweek {current_gameweek} with {len(fixtures_data)} fixtures")
-            
-            # Get injury news and hints for all teams
-            logger.info("Getting injury news for all teams...")
-            all_injury_news = {}
-            all_hints_tips = {}
-            
-            for team_name, team_players in players_by_team.items():
-                try:
-                    # Convert to player objects for LLM strategy
-                    player_objects = []
-                    for player_name, player_data in team_players:
-                        # Create a simple player object with required attributes
-                        class SimplePlayer:
-                            def __init__(self, data):
-                                # Basic info
-                                self.id = data["data"].get("id", 0)
-                                self.first_name = data["data"].get("first_name", "")
-                                self.second_name = data["data"].get("second_name", "")
-                                self.name = data["data"].get("name", "")
-                                self.team_id = data["data"].get("team_id", 0)
-                                self.team_name = data["data"].get("team", "")
-                                self.team_short_name = data["data"].get("team_short_name", "")
-                                self.element_type = data["data"].get("element_type", 0)
-                                self.position = type('Position', (), {'value': data["data"].get("position", "")})()
-                                
-                                # Price info
-                                self.now_cost = data["data"].get("now_cost", 0)
-                                self.price = data["data"].get("price", 0.0)
-                                self.cost_change_start = data["data"].get("cost_change_start", 0)
-                                self.cost_change_event = data["data"].get("cost_change_event", 0)
-                                self.price_change = data["data"].get("price_change", 0.0)
-                                
-                                # Stats
-                                self.total_points = data["data"].get("total_points", 0)
-                                self.points_per_game = data["data"].get("points_per_game", 0.0)
-                                self.form = data["data"].get("form", 0.0)
-                                self.minutes = data["data"].get("minutes", 0)
-                                self.selected_by_percent = data["data"].get("selected_by_percent", 0.0)
-                                
-                                # Expected stats
-                                self.xG = data["data"].get("xG", 0.0)
-                                self.xA = data["data"].get("xA", 0.0)
-                                self.xGC = data["data"].get("xGC", 0.0)
-                                self.xMins_pct = data["data"].get("xMins_pct", 0.0)
-                                
-                                # Injury status
-                                self.status = data["data"].get("status", "")
-                                self.news = data["data"].get("news", "")
-                                self.news_added = data["data"].get("news_added", "")
-                                self.chance_of_playing_next_round = data["data"].get("chance_of_playing_next_round", None)
-                                self.chance_of_playing_this_round = data["data"].get("chance_of_playing_this_round", None)
-                                self.is_injured = data["data"].get("is_injured", False)
-                                
-                                # Calculated fields
-                                self.ppg = data["data"].get("ppg", 0.0)
-                                self.form_float = data["data"].get("form_float", 0.0)
-                                self.minutes_played = data["data"].get("minutes_played", 0)
-                                self.fixture_difficulty = data["data"].get("fixture_difficulty", 3.0)
-                                self.ownership_percent = data["data"].get("ownership_percent", 0.0)
-                                
-                                # Legacy compatibility
-                                self.selected_by_pct = data["data"].get("selected_by_percent", 0.0)
-                                self.injury_type = data["data"].get("news", "")
-                                
-                                # Add custom_data attribute with the additional stats
-                                self.custom_data = {
-                                    'chance_of_playing': data["data"].get("chance_of_playing_this_round", None),
-                                    'ppg': data["data"].get("ppg", 0.0),
-                                    'form': data["data"].get("form_float", 0.0),
-                                    'minutes_played': data["data"].get("minutes_played", 0),
-                                    'upcoming_fixture_difficulty': data["data"].get("fixture_difficulty", 3.0),
-                                    'ownership_percent': data["data"].get("ownership_percent", 0.0)
-                                }
-                        
-                        player_objects.append(SimplePlayer(player_data))
-                    
-                    # Get injury news for this team
-                    injury_news = lightweight_llm.get_team_injury_news(team_name, player_objects)
-                    all_injury_news[team_name] = injury_news
-                    
-                    # Get hints and tips for this team
-                    hints_tips = lightweight_llm.get_team_hints_tips(team_name, player_objects)
-                    all_hints_tips[team_name] = hints_tips
-                    
-                    logger.info(f"Processed {team_name}: {len(team_players)} players")
-                except Exception as e:
-                    logger.error(f"Failed to process {team_name}: {e}")
-                    # Continue with other teams
-                    continue
-            
-            # Add enrichments to existing data
-            enriched_data = {}
-            
-            for player_name, player_data in existing_player_data.items():
-                try:
-                    # Get player's team injury news and hints
-                    team_name = player_data["data"]["team"]
-                    injury_news = all_injury_news.get(team_name, "{}")
-                    hints_tips = all_hints_tips.get(team_name, "{}")
-                    
-                    # Parse JSON responses
-                    injury_dict = {}
-                    hints_dict = {}
-                    
-                    try:
-                        injury_dict = json.loads(injury_news) if injury_news else {}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse injury news for {team_name}: {e}")
-                        injury_dict = {}
-                    
-                    try:
-                        hints_dict = json.loads(hints_tips) if hints_tips else {}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse hints for {team_name}: {e}")
-                        hints_dict = {}
-                    
-                    # Get player-specific data
-                    player_injury = injury_dict.get(player_name, "Fit - No recent injury news suggests he is available for selection.")
-                    player_hints = hints_dict.get(player_name, "Recommended - Player shows good potential for the upcoming gameweek.")
-                    
-                    # Add enrichments to existing player data
-                    enriched_player_data = player_data.copy()
-                    enriched_player_data["injury_news"] = player_injury
-                    enriched_player_data["hints_tips_news"] = player_hints
-                    
-                    enriched_data[player_name] = enriched_player_data
-                    
-                except Exception as e:
-                    logger.error(f"Failed to add enrichments for {player_name}: {e}")
-                    # Add fallback enrichments
-                    enriched_player_data = player_data.copy()
-                    enriched_player_data["injury_news"] = "Fit - No recent injury news suggests he is available for selection."
-                    enriched_player_data["hints_tips_news"] = "Recommended - Player shows good potential for the upcoming gameweek."
-                    enriched_data[player_name] = enriched_player_data
+            # Use our new DataEnrichment utility instead of the massive inline implementation
+            enriched_data = self.data_enrichment.enrich_player_data(existing_player_data)
             
             # Save to cache
             self._save_player_data_cache(enriched_data)
             
-            logger.info(f"Added enrichments to {len(enriched_data)} players")
+            logger.info(f"Added enrichments to {len(enriched_data)} players using utility")
             return enriched_data
             
         except Exception as e:

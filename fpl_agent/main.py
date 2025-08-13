@@ -16,8 +16,8 @@ try:
     # When run as module (python -m fpl_agent.main)
     from .core.config import Config
     from .core.models import Player, Position, FPLTeam
-    from .strategies import LLMStrategy
-    from .strategies.lightweight_llm_strategy import LightweightLLMStrategy
+    from .strategies import TeamBuildingStrategy
+    from .strategies.team_analysis_strategy import TeamAnalysisStrategy
     from .utils.data_transformers import calculate_chance_of_playing
 except ImportError:
     # When run directly (python fpl_agent/main.py)
@@ -25,8 +25,8 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from fpl_agent.core.config import Config
     from fpl_agent.core.models import Player, Position, FPLTeam
-    from fpl_agent.strategies import LLMStrategy
-    from fpl_agent.strategies.lightweight_llm_strategy import LightweightLLMStrategy
+    from fpl_agent.strategies import TeamBuildingStrategy
+    from fpl_agent.strategies.team_analysis_strategy import TeamAnalysisStrategy
     from fpl_agent.utils.data_transformers import calculate_chance_of_playing
 
 
@@ -58,7 +58,7 @@ class FPLAgent:
     def llm_strategy(self):
         """Lazy initialization of LLM strategy"""
         if self._llm_strategy is None:
-            self._llm_strategy = LLMStrategy(self.config)
+            self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
     def fetch_fpl_players(self, limit: Optional[int] = None, enrich_with_llm: bool = False, force_refresh: bool = False) -> Dict[str, Any]:

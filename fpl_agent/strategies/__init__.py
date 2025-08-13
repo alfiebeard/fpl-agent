@@ -3,11 +3,11 @@ FPL optimization strategies package
 """
 
 from .base_strategy import BaseLLMStrategy
-from .llm_strategy import LLMStrategy
-from .lightweight_llm_strategy import LightweightLLMStrategy
+from .team_building_strategy import TeamBuildingStrategy
+from .team_analysis_strategy import TeamAnalysisStrategy
 
 __all__ = [
     "BaseLLMStrategy",
-    "LLMStrategy",
-    "LightweightLLMStrategy"
+    "TeamBuildingStrategy",
+    "TeamAnalysisStrategy"
 ]

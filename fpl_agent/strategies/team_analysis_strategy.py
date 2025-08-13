@@ -8,12 +8,12 @@ from datetime import datetime
 
 from ..core.config import Config
 from ..core.models import Player
-from ..strategies.llm_engine import LLMEngine
+from .base_strategy import BaseLLMStrategy
 
 logger = logging.getLogger(__name__)
 
 
-class LightweightLLMStrategy:
+class TeamAnalysisStrategy(BaseLLMStrategy):
     """
     Lightweight LLM strategy for team-specific analysis.
     
@@ -24,14 +24,16 @@ class LightweightLLMStrategy:
     """
     
     def __init__(self, config: Config):
-        self.config = config
-        # Use lightweight model for quick analysis
-        self.llm_engine = LLMEngine(config, model_name="lightweight")
+        super().__init__(config, model_name="lightweight")
         
         # Cache for FPL data to avoid repeated API calls
         self._cached_bootstrap_data = None
         self._cached_fixtures_data = None
         self._cached_current_gameweek = None
+    
+    def get_strategy_name(self) -> str:
+        """Return the name of this strategy."""
+        return "Team Analysis Strategy"
     
     def initialize_fpl_data(self):
         """Initialize FPL data cache to avoid repeated API calls during team processing"""
@@ -182,7 +184,10 @@ class LightweightLLMStrategy:
         prompt = self._create_injury_news_prompt(team_name, players, current_gameweek, fixture_info)
         
         # Get LLM response
-        return self.llm_engine.query(prompt, use_web_search=False, extract_json=True)
+        response = self.llm_engine.query(prompt, use_web_search=False, extract_json=True)
+        
+        # Use base class JSON extraction for better error handling
+        return self._extract_json_response(response, f"injury news for {team_name}")
     
     def get_team_hints_tips(self, team_name: str, players: List[Player]) -> str:
         """
@@ -208,7 +213,10 @@ class LightweightLLMStrategy:
         prompt = self._create_hints_tips_prompt(team_name, players, current_gameweek, fixture_info)
         
         # Get LLM response
-        return self.llm_engine.query(prompt, use_web_search=False, extract_json=True)
+        response = self.llm_engine.query(prompt, use_web_search=False, extract_json=True)
+        
+        # Use base class JSON extraction for better error handling
+        return self._extract_json_response(response, f"hints/tips for {team_name}")
     
     def get_team_summary(self, team_name: str, players: List[Player]) -> Dict[str, str]:
         """
