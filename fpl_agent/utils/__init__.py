@@ -7,6 +7,7 @@ from .data_transformers import (
     TeamSummary
 )
 from .player_factory import PlayerFactory
+from .fpl_data_manager import FPLDataManager
 from .validator import FPLValidator, validate_llm_response
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "TeamSummary",
     "FPLValidator",
     "validate_llm_response",
-    "PlayerFactory"
+    "PlayerFactory",
+    "FPLDataManager"
 ] 
