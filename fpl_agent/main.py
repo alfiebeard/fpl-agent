@@ -45,9 +45,11 @@ logger = logging.getLogger(__name__)
 class FPLAgent:
     """Enhanced FPL Agent with dual team creation approaches"""
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config: Optional[Config] = None):
         """Initialize the FPL Agent"""
-        self.config = Config(config_path)
+        if config is None:
+            config = Config()
+        self.config = config
         
         # LLM strategy will be initialized lazily when needed
         self._llm_strategy = None
