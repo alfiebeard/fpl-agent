@@ -7,10 +7,10 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="fpl_optimizer",
-    version="0.1.0",
+    name="fpl_agent",
+    version="1.0.0",
     author="FPL Agent",
-    description="An autonomous Fantasy Premier League team manager using AI and optimization",
+    description="An AI-powered Fantasy Premier League team manager using LLM insights",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
@@ -29,7 +29,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "fpl-optimizer=fpl_optimizer.main:main",
+            "fpl-agent=fpl_agent.main:main",
         ],
     },
 ) 

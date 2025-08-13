@@ -13,23 +13,21 @@ from pathlib import Path
 
 # Handle imports for both direct execution and module execution
 try:
-    # When run as module (python -m fpl_optimizer.main)
+    # When run as module (python -m fpl_agent.main)
     from .core.config import Config
-
-    from .core.models import Player, Team, Position, FPLTeam
-    from fpl_optimizer.strategies import LLMStrategy
-    from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
-    from fpl_optimizer.utils.data_transformers import calculate_chance_of_playing
+    from .core.models import Player, Position, FPLTeam
+    from .strategies import LLMStrategy
+    from .strategies.lightweight_llm_strategy import LightweightLLMStrategy
+    from .utils.data_transformers import calculate_chance_of_playing
 except ImportError:
-    # When run directly (python fpl_optimizer/main.py)
+    # When run directly (python fpl_agent/main.py)
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from fpl_optimizer.core.config import Config
-
-    from fpl_optimizer.core.models import Player, Team, Position, FPLTeam
-    from fpl_optimizer.strategies import LLMStrategy
-    from fpl_optimizer.strategies.lightweight_llm_strategy import LightweightLLMStrategy
-    from fpl_optimizer.utils.data_transformers import calculate_chance_of_playing
+    from fpl_agent.core.config import Config
+    from fpl_agent.core.models import Player, Position, FPLTeam
+    from fpl_agent.strategies import LLMStrategy
+    from fpl_agent.strategies.lightweight_llm_strategy import LightweightLLMStrategy
+    from fpl_agent.utils.data_transformers import calculate_chance_of_playing
 
 
 # Configure logging
@@ -44,11 +42,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class FPLOptimizer:
-    """Enhanced FPL Optimizer with dual team creation approaches"""
+class FPLAgent:
+    """Enhanced FPL Agent with dual team creation approaches"""
     
     def __init__(self, config_path: Optional[str] = None):
-        """Initialize the FPL Optimizer"""
+        """Initialize the FPL Agent"""
         self.config = Config(config_path)
         
         # LLM strategy will be initialized lazily when needed
@@ -327,7 +325,7 @@ class FPLOptimizer:
             lightweight_llm = LightweightLLMStrategy(self.config)
             
             # Fetch FPL data with additional stats
-            from fpl_optimizer.ingestion.fetch_fpl import FPLDataFetcher
+            from fpl_agent.ingestion.fetch_fpl import FPLDataFetcher
             fetcher = FPLDataFetcher(self.config)
             all_data = fetcher.get_all_data_with_additional_stats()
             players = all_data['players']
@@ -390,7 +388,7 @@ class FPLOptimizer:
             lightweight_llm = LightweightLLMStrategy(self.config)
             
             # Fetch FPL data with additional stats
-            from fpl_optimizer.ingestion.fetch_fpl import FPLDataFetcher
+            from fpl_agent.ingestion.fetch_fpl import FPLDataFetcher
             fetcher = FPLDataFetcher(self.config)
             all_data = fetcher.get_all_data_with_additional_stats()
             players = all_data['players']
@@ -449,7 +447,7 @@ class FPLOptimizer:
             logger.info("Running embedding filtering on viable players only...")
             
             # Import embedding filter
-            from fpl_optimizer.strategies.embedding_filter import EmbeddingFilter
+            from fpl_agent.strategies.embedding_filter import EmbeddingFilter
             
             # Initialize embedding filter
             embedding_filter = EmbeddingFilter(self.config)
@@ -799,7 +797,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        optimizer = FPLOptimizer(args.config)
+        optimizer = FPLAgent(args.config)
         
         if args.command == 'fetch-fpl-players':
             # Fetch real FPL data from API
@@ -1387,8 +1385,8 @@ def _get_structured_player_data(player_name: str) -> Dict[str, Any]:
     """Helper function to get structured player data from cache"""
     # Cache the structured data to avoid repeated lookups
     if not hasattr(_get_structured_player_data, '_cached_data'):
-        from fpl_optimizer.strategies.llm_strategy import LLMStrategy
-        from fpl_optimizer.core.config import Config
+        from fpl_agent.strategies.llm_strategy import LLMStrategy
+        from fpl_agent.core.config import Config
         
         # Create a minimal config and strategy to access cached data
         config = Config()

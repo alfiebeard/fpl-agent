@@ -121,7 +121,7 @@ class Config:
             'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3
         })
     
-    def get_formation_constraints(self) -> Dict[str, List[int]]:
+    def get_formation_constraints(self) -> Dict[str, list[int]]:
         """Get starting 11 formation constraints"""
         team_config = self.get_team_config()
         return team_config.get('formation_constraints', {}).get('starting_11', {

@@ -1,15 +1,14 @@
 """
-Core FPL Optimizer modules
+Core FPL Agent modules
 """
 
 from .config import Config
-from .models import Player, Team, Position
+from .models import Player, Position
 from .team_manager import TeamManager
 
 __all__ = [
     'Config',
     'Player', 
-    'Team', 
     'Position',
     'TeamManager'
 ] 
