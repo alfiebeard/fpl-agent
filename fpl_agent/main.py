@@ -532,6 +532,8 @@ def main():
                        help='Save the created team to a JSON file')
     parser.add_argument('--save-file', type=str,
                        help='Specific file path to save team')
+    parser.add_argument('--show-prompt', action='store_true',
+                       help='Show the prompt that would be sent to the LLM (for debugging)')
     
     args = parser.parse_args()
     
@@ -558,55 +560,117 @@ def main():
                 sys.exit(1)
                 
         elif args.command == 'gw-update':
-            # Complete weekly gameweek update
-            result = optimizer.gw_update(
-                gameweek=args.gameweek,
-                force_fetch=args.force_fetch,
-                force_enrich=args.force_enrich,
-                force_all=args.force_all,
-                cached_only=args.cached_only
-            )
-            
-            # Display team update result
-            display_comprehensive_team_result({'team_data': result['team_update']})
-            
-            # Save team if requested
-            if args.save_team:
+            if args.show_prompt:
+                # Show the prompt that would be sent to the LLM
+                print("📝 FPL Gameweek Update Prompt")
+                print("=" * 80)
+                
+                # Generate the prompt without executing
                 try:
-                    team_data = result['team_update']
-                    # Use TeamManager to save the team
-                    gameweek = args.gameweek or 1
-                    optimizer.team_manager.save_team(gameweek, team_data)
-                    print(f"\n💾 Team saved for Gameweek {gameweek}")
+                    # Create minimal data for prompt generation
+                    current_team = {
+                        "team": {
+                            "starting": [
+                                {"name": "Sample Player 1", "position": "GK", "price": 5.0, "team": "Sample Team"},
+                                {"name": "Sample Player 2", "position": "DEF", "price": 5.5, "team": "Sample Team"}
+                            ],
+                            "substitutes": [
+                                {"name": "Sample Sub 1", "position": "MID", "price": 5.0, "team": "Sample Team"}
+                            ]
+                        }
+                    }
+                    
+                    chips_data = {"wildcard": True, "bench_boost": True, "free_hit": True, "triple_captain": True}
+                    transfers_data = {"free_transfers": 1}
+                    
+                    # Generate the prompt
+                    prompt = optimizer.llm_strategy._create_weekly_update_prompt(
+                        current_team, args.gameweek or 1, chips_data, transfers_data
+                    )
+                    
+                    print(f"Prompt Length: {len(prompt)} characters")
+                    print("=" * 80)
+                    print(prompt)
+                    print("=" * 80)
+                    print("✅ Prompt generated successfully. Use --show-prompt to preview, remove flag to execute.")
+                    
                 except Exception as e:
-                    logger.error(f"Failed to save team: {e}")
-                    print(f"\n❌ Error saving team: {e}")
+                    logger.error(f"Failed to generate prompt: {e}")
+                    print(f"❌ Error generating prompt: {e}")
+                    sys.exit(1)
+            else:
+                # Complete weekly gameweek update
+                result = optimizer.gw_update(
+                    gameweek=args.gameweek,
+                    force_fetch=args.force_fetch,
+                    force_enrich=args.force_enrich,
+                    force_all=args.force_all,
+                    cached_only=args.cached_only
+                )
+                
+                # Display team update result
+                display_comprehensive_team_result({'team_data': result['team_update']})
+                
+                # Save team if requested
+                if args.save_team:
+                    try:
+                        team_data = result['team_update']
+                        # Use TeamManager to save the team
+                        gameweek = args.gameweek or 1
+                        optimizer.team_manager.save_team(gameweek, team_data)
+                        print(f"\n💾 Team saved for Gameweek {gameweek}")
+                    except Exception as e:
+                        logger.error(f"Failed to save team: {e}")
+                        print(f"\n❌ Error saving team: {e}")
             
         elif args.command == 'build-team':
-            # Build new team
-            result = optimizer.build_team(
-                budget=args.budget,
-                gameweek=args.gameweek,
-                force_fetch=args.force_fetch,
-                force_enrich=args.force_enrich,
-                force_all=args.force_all,
-                cached_only=args.cached_only
-            )
-            
-            # Display team result
-            display_comprehensive_team_result({'team_data': result['team_data']})
-            
-            # Save team if requested
-            if args.save_team:
+            if args.show_prompt:
+                # Show the prompt that would be sent to the LLM
+                print("📝 FPL Team Building Prompt")
+                print("=" * 80)
+                
+                # Generate the prompt without executing
                 try:
-                    team_data = result['team_data']
-                    # Use TeamManager to save the team
-                    gameweek = args.gameweek or 1
-                    optimizer.team_manager.save_team(gameweek, team_data)
-                    print(f"\n💾 Team saved for Gameweek {gameweek}")
+                    # Generate the prompt
+                    prompt = optimizer.llm_strategy._create_team_creation_prompt(
+                        args.budget, args.gameweek or 1
+                    )
+                    
+                    print(f"Prompt Length: {len(prompt)} characters")
+                    print("=" * 80)
+                    print(prompt)
+                    print("=" * 80)
+                    print("✅ Prompt generated successfully. Use --show-prompt to preview, remove flag to execute.")
+                    
                 except Exception as e:
-                    logger.error(f"Failed to save team: {e}")
-                    print(f"\n❌ Error saving team: {e}")
+                    logger.error(f"Failed to generate prompt: {e}")
+                    print(f"❌ Error generating prompt: {e}")
+                    sys.exit(1)
+            else:
+                # Build new team
+                result = optimizer.build_team(
+                    budget=args.budget,
+                    gameweek=args.gameweek,
+                    force_fetch=args.force_fetch,
+                    force_enrich=args.force_enrich,
+                    force_all=args.force_all,
+                    cached_only=args.cached_only
+                )
+                
+                # Display team result
+                display_comprehensive_team_result({'team_data': result['team_data']})
+                
+                # Save team if requested
+                if args.save_team:
+                    try:
+                        team_data = result['team_data']
+                        # Use TeamManager to save the team
+                        gameweek = args.gameweek or 1
+                        optimizer.team_manager.save_team(gameweek, team_data)
+                        print(f"\n💾 Team saved for Gameweek {gameweek}")
+                    except Exception as e:
+                        logger.error(f"Failed to save team: {e}")
+                        print(f"\n❌ Error saving team: {e}")
             
         elif args.command == 'show-data':
             # Show current data status
