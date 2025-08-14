@@ -19,16 +19,14 @@ logger = logging.getLogger(__name__)
 class TeamAnalysisStrategy(BaseLLMStrategy):
     """Strategy for analyzing FPL teams"""
     
-    def __init__(self, config: Config, data_service: DataService):
+    def __init__(self, config: Config):
         """
         Initialize the strategy.
         
         Args:
             config: FPL configuration object
-            data_service: Data service for fetching FPL data
         """
-        super().__init__(config)
-        self.data_service = data_service
+        super().__init__(config, model_name="main")
         self.validator = FPLValidator(config)
     
     def analyze_team(self, team: FPLTeam) -> Dict[str, Any]:
@@ -53,7 +51,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             prompt = self._create_analysis_prompt(team, current_data)
             
             # Get LLM analysis
-            analysis_response = self.llm_engine.get_response(prompt)
+            analysis_response = self.llm_engine.query(prompt)
             
             # Parse and validate response
             analysis_data = self._parse_analysis_response(analysis_response)
@@ -102,7 +100,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             prompt = self._create_performance_analysis_prompt(team, performance_data, gameweek)
             
             # Get LLM analysis
-            analysis_response = self.llm_engine.get_response(prompt)
+            analysis_response = self.llm_engine.query(prompt)
             
             # Parse response
             analysis_data = self._parse_performance_analysis_response(analysis_response)
@@ -143,7 +141,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             prompt = self._create_recommendations_prompt(team, current_data, context)
             
             # Get LLM recommendations
-            recommendations_response = self.llm_engine.get_response(prompt)
+            recommendations_response = self.llm_engine.query(prompt)
             
             # Parse response
             recommendations_data = self._parse_recommendations_response(recommendations_response)
