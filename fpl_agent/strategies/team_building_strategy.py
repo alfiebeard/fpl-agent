@@ -52,7 +52,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         # Get LLM response
         logger.info("Querying LLM for team creation...")
         try:
-            response = self.llm_engine.query(prompt, use_web_search=True)
+            response = self.llm_engine.query(prompt)
             logger.info(f"LLM Response received (length: {len(response)})")
             logger.debug(f"LLM Response preview: {response[:500]}...")
         except Exception as e:
@@ -138,7 +138,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             )
             
             # Get LLM response
-            response = self.llm_engine.query(prompt, use_web_search=True)
+            response = self.llm_engine.query(prompt)
             
             # Parse and validate the response
             validator = FPLValidator()

@@ -1,5 +1,5 @@
 """
-Main FPL Optimizer application - Enhanced with dual team creation methods
+Main FPL Optimizer application - Simplified with smart data handling
 """
 
 import logging
@@ -16,18 +16,16 @@ try:
     # When run as module (python -m fpl_agent.main)
     from .core.config import Config
     from .core.models import Position, FPLTeam
-    from .strategies import TeamBuildingStrategy
-    from .strategies.team_analysis_strategy import TeamAnalysisStrategy
     from .data import DataService
+    from .data.data_store import DataStore
 except ImportError:
     # When run directly (python fpl_agent/main.py)
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from fpl_agent.core.config import Config
     from fpl_agent.core.models import Position, FPLTeam
-    from fpl_agent.strategies import TeamBuildingStrategy
-    from fpl_agent.strategies.team_analysis_strategy import TeamAnalysisStrategy
     from fpl_agent.data import DataService
+    from fpl_agent.data.data_store import DataStore
 
 
 # Configure logging
@@ -43,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class FPLAgent:
-    """Enhanced FPL Agent with dual team creation approaches"""
+    """Enhanced FPL Agent with smart data handling"""
     
     def __init__(self, config: Optional[Config] = None):
         """Initialize the FPL Agent"""
@@ -51,1105 +49,507 @@ class FPLAgent:
             config = Config()
         self.config = config
         
+        # Initialize services
+        self.data_service = DataService(config)
+        self.data_store = DataStore()
+        
         # LLM strategy will be initialized lazily when needed
         self._llm_strategy = None
-        
-
     
     @property
     def llm_strategy(self):
         """Lazy initialization of LLM strategy"""
         if self._llm_strategy is None:
+            from .strategies import TeamBuildingStrategy
+            from .strategies.team_analysis_strategy import TeamAnalysisStrategy
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
-    def fetch_fpl_players(self, limit: Optional[int] = None, enrich_with_llm: bool = False, force_refresh: bool = False) -> Dict[str, Any]:
-        """Fetch real FPL player data from the API
-        
-        Args:
-            limit: Optional limit on number of players to fetch
-            enrich_with_llm: If True, fetch injury news and FPL hints for all players and cache them
+    def check_data_freshness(self) -> Dict[str, Any]:
         """
+        Check the freshness of all cached data.
         
+        Returns:
+            Dictionary containing freshness status for all data types
+        """
+        status = {
+            'fpl_data': {'fresh': False, 'age_hours': None, 'available': False},
+            'enriched_data': {'fresh': False, 'age_hours': None, 'available': False},
+            'embeddings': {'fresh': False, 'age_hours': None, 'available': False},
+            'overall_status': 'unknown'
+        }
+        
+        # Check FPL data freshness
+        fpl_data = self.data_store.load_player_data()
+        if fpl_data and 'cache_timestamp' in fpl_data:
+            age_hours = self.data_store._calculate_data_age_hours(fpl_data)
+            status['fpl_data']['available'] = True
+            status['fpl_data']['age_hours'] = age_hours
+            status['fpl_data']['fresh'] = age_hours is not None and age_hours < 1.0
+        
+        # Check enriched data freshness (from LLM strategy cache)
         try:
-            logger.info("Starting FPL API data fetch...")
-            
-            # Use our new consolidated data pipeline
-            from .data import DataService
-            
-            # Initialize data service
-            data_service = DataService(self.config)
-            
-            # Get processed player data
-            logger.info("Getting processed player data...")
-            player_data = data_service.get_players(force_refresh=force_refresh)
-            
-            # Get processed player data directly
-            logger.info("Using processed player data directly...")
-            all_players = list(player_data.values())
-            
-            # Apply limit if specified
-            if limit and limit > 0:
-                players = all_players[:limit]
-                logger.info(f"Limited to {limit} players out of {len(all_players)} total")
+            # For now, we'll assume enriched data is not available
+            # This can be enhanced when the enrichment functionality is implemented
+            status['enriched_data']['available'] = False
+            status['enriched_data']['age_hours'] = None
+        except Exception as e:
+            logger.debug(f"Could not check enriched data freshness: {e}")
+        
+        # Check embeddings freshness
+        embeddings_file = Path("team_data/player_embeddings.json")
+        if embeddings_file.exists():
+            file_stat = embeddings_file.stat()
+            age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
+            status['embeddings']['available'] = True
+            status['embeddings']['age_hours'] = age_hours
+            status['embeddings']['fresh'] = age_hours < 1.0
+        
+        # Determine overall status
+        if status['fpl_data']['available'] and status['enriched_data']['available']:
+            if status['fpl_data']['fresh'] and status['enriched_data']['fresh']:
+                status['overall_status'] = 'fresh'
+            elif status['fpl_data']['available'] and status['enriched_data']['available']:
+                status['overall_status'] = 'stale'
             else:
-                players = all_players
-                logger.info(f"Using all {len(players)} players")
+                status['overall_status'] = 'partial'
+        elif status['fpl_data']['available']:
+            status['overall_status'] = 'fpl_only'
+        else:
+            status['overall_status'] = 'none'
+        
+        return status
+    
+    def should_fetch_data(self, force_fetch: bool, cached_only: bool, data_fresh: bool) -> bool:
+        """Determine if we should fetch fresh FPL data"""
+        if cached_only:
+            return False
+        if force_fetch:
+            return True
+        return not data_fresh
+    
+    def should_enrich_data(self, force_enrich: bool, cached_only: bool, enrich_fresh: bool) -> bool:
+        """Determine if we should run LLM enrichment"""
+        if cached_only:
+            return False
+        if force_enrich:
+            return True
+        return not enrich_fresh
+    
+    def fetch_fpl_data(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Fetch FPL data with smart caching"""
+        try:
+            logger.info("Fetching FPL data...")
+            result = self.data_service.get_players(force_refresh=force_refresh)
             
-            # Create summary
-            position_distribution = {}
-            price_range_distribution = {}
-            
-            for player in players:
-                # Position distribution
-                pos = player.get('position', 'UNK')
-                position_distribution[pos] = position_distribution.get(pos, 0) + 1
-                
-                # Price range distribution
-                price = player.get('now_cost', 0) / 10.0
-                if price <= 5.0:
-                    price_range = "£0-5m"
-                elif price <= 7.5:
-                    price_range = "£5-7.5m"
-                elif price <= 10.0:
-                    price_range = "£7.5-10m"
-                else:
-                    price_range = "£10m+"
-                price_range_distribution[price_range] = price_range_distribution.get(price_range, 0) + 1
-            
-            # Count unique teams from player data
-            unique_teams = len(set(player.get('team_name') for player in players))
-            
-            summary = {
-                'total_players': len(players),
-                'total_teams': unique_teams,
-                'position_distribution': position_distribution,
-                'price_range_distribution': price_range_distribution,
-                'data_source': 'FPL API (with rich data)',
-                'fetched_at': datetime.now().isoformat()
-            }
-            
-            logger.info("FPL data fetch completed successfully!")
-            
-            # Save basic player data to structured format
-            try:
-                # Create structured player data
-                structured_data = {}
-                
-                for player in players:
-                    # Get additional stats if available (for other fields like fixture difficulty)
-                    additional_stats = player.get('custom_data', {})
-                    
-                    player_data = {
-                        "data": {
-                            "name": player.get('full_name', 'Unknown'),
-                            "team": player.get('team_name', 'Unknown'),
-                            "position": player.get('position', 'UNK'),
-                            "price": player.get('now_cost', 0) / 10.0,
-                            "chance_of_playing_next_round": player.get('chance_of_playing_next_round', 100),
-                            "chance_of_playing_this_round": player.get('chance_of_playing_this_round', 100),
-                            "ppg": additional_stats.get('ppg', player.get('points_per_game', '0.0')),
-                            "form": additional_stats.get('form', player.get('form', 0.0)),
-                            "minutes_played": additional_stats.get('minutes_played', player.get('minutes', 0)),
-                            "fixture_difficulty": additional_stats.get('upcoming_fixture_difficulty', 3.0),
-                            "ownership_percent": additional_stats.get('ownership_percent', float(player.get('selected_by_percent', '0.0'))),
-                            "total_points": player.get('total_points', 0),
-                            "points_per_game": player.get('points_per_game', '0.0'),
-                            "selected_by_pct": float(player.get('selected_by_percent', '0.0')),
-                            "is_injured": player.get('is_injured', False),
-                            "injury_type": player.get('news', ''),
-                            "price_change": player.get('cost_change_start', 0) / 10.0,
-                            "team_id": player.get('team_id', 0),
-                            "team_short_name": player.get('team_short_name', 'UNK'),
-                            "xG": player.get('xG', '0.00'),
-                            "xA": player.get('xA', '0.00'),
-                            "xGC": player.get('xGC', '0.00'),
-                            "xMins_pct": player.get('xMins_pct', 1.0)
-                        }
-                    }
-                    structured_data[player.get('full_name', 'Unknown')] = player_data
-                
-                # Save to cache
-                self.llm_strategy._save_player_data_cache(structured_data)
-                logger.info(f"Saved basic player data for {len(structured_data)} players")
-                
-            except Exception as e:
-                logger.error(f"Failed to save basic player data: {e}")
-            
-            # Enrich with LLM data if requested
-            if enrich_with_llm:
-                print("\n" + "="*80)
-                print("ENRICHING PLAYER DATA WITH LLM ANALYSIS")
-                print("="*80)
-                print("This will fetch injury news and FPL hints for all teams...")
-                print("This process may take 15-20 minutes.")
-                print("="*80)
-                
-                try:
-                    # Get enriched player data (respect force_refresh flag)
-                    enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
-                    
-                    if enriched_data:
-                        print(f"✅ Successfully enriched and cached data for {len(enriched_data)} players")
-                        summary['enriched_with_llm'] = True
-                        summary['enriched_players_count'] = len(enriched_data)
-                    else:
-                        print("❌ Failed to enrich player data")
-                        summary['enriched_with_llm'] = False
-                        
-                except Exception as e:
-                    logger.error(f"Failed to enrich player data: {e}")
-                    print(f"❌ Error enriching player data: {e}")
-                    summary['enriched_with_llm'] = False
-            
+            # Return basic player data
             return {
-                'players': players,
-                'teams': teams,  # teams is already a list of Team objects
-                'summary': summary
+                'players': list(result.values()),
+                'total_players': len(result),
+                'fetched_at': datetime.now().isoformat()
             }
             
         except Exception as e:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-
-    
-    def create_team_llm(self, budget: float = 100.0, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
-        """Create team using comprehensive LLM-based approach with FPL integration"""
-        
+    def enrich_player_data(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Enrich player data with LLM insights"""
         try:
-            logger.info("Creating team using comprehensive LLM-based approach...")
+            logger.info("Enriching player data with LLM insights...")
             
-            # Use LLM strategy
-            result = self.llm_strategy.create_team(budget, gameweek or 1, use_semantic_filtering, force_refresh, use_embeddings)
-            
-            logger.info("Comprehensive LLM-based team creation completed successfully!")
-            return {
-                'method': 'Comprehensive LLM-based Team Creation',
-                'team_data': result,
-                'semantic_filtering': use_semantic_filtering,
-                'force_refresh': force_refresh
-            }
-            
-        except Exception as e:
-            logger.error(f"Comprehensive LLM-based team creation failed: {e}")
-            # If it's a ValueError with the LLM response, extract and show it
-            if isinstance(e, ValueError) and "LLM failed to generate a valid team" in str(e):
-                error_msg = str(e)
-                llm_response = error_msg.split("Response: ", 1)[1] if "Response: " in error_msg else "No response available"
-                print(f"\n" + "="*80)
-                print("LLM RESPONSE (FAILED TO PARSE)")
-                print("="*80)
-                print(llm_response)
-                print("="*80)
-            raise
-    
-
-    
-    def get_weekly_recommendations_llm(self, current_team: FPLTeam, 
-                                     free_transfers: int = 1,
-                                     gameweek: Optional[int] = None) -> Dict[str, Any]:
-        """Get weekly recommendations using LLM-based approach"""
-        
-        try:
-            logger.info("Generating weekly recommendations using LLM-based approach...")
-            
-            # Use comprehensive team manager for weekly analysis
-            recommendations = self.llm_strategy.update_team_weekly(gameweek)
-            
-            # Add method identifier
-            recommendations['method'] = 'LLM-based Expert Insights'
-            
-            logger.info("LLM-based weekly recommendations completed successfully!")
-            return recommendations
-            
-        except Exception as e:
-            logger.error(f"LLM-based weekly recommendations failed: {e}")
-            raise
-    
-
-    
-
-    
-
-    
-    def update_team_weekly_comprehensive(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
-        """Update the current FPL team weekly using the comprehensive LLM team manager"""
-        try:
-            logger.info(f"Updating team weekly for gameweek {gameweek or 'current'}...")
-            result = self.llm_strategy.update_team_weekly(gameweek, use_semantic_filtering, force_refresh, use_embeddings)
-            logger.info("Weekly team update completed successfully!")
-            return result
-        except Exception as e:
-            logger.error(f"Weekly team update failed: {e}")
-            raise
-    
-    # Helper methods
-    
-    def _get_player_name_by_id(self, team: FPLTeam, player_id: Optional[int]) -> str:
-        """Get player name by ID from team"""
-        if player_id is None:
-            return "Unknown"
-        
-        for player in team.players:
-            if player.get('id') == player_id:
-                return player.get('full_name', 'Unknown')
-        
-        return f"Player {player_id}"
-    
-    def get_team_injury_news(self, team_name: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get injury news and playing likelihood for players in a specific team or all teams.
-        
-        Args:
-            team_name: Name of the team (None for all teams)
-            
-        Returns:
-            Dictionary containing injury news for the team(s)
-        """
-        try:
-            logger.info("Starting team injury news analysis...")
-            
-            # Initialize lightweight LLM engine
-            lightweight_llm = LightweightLLMStrategy(self.config)
-            
-            # Fetch FPL data with additional stats
-            from fpl_agent.data import FPLDataFetcher
-            fetcher = FPLDataFetcher(self.config)
-            all_data = fetcher.get_all_data_with_additional_stats()
-            players = all_data['players']
-            
-            if team_name:
-                # Get specific team
-                team_players = [p for p in players if p.get('team_name') == team_name]
-                if not team_players:
-                    raise ValueError(f"No players found for team: {team_name}")
-                
-                logger.info(f"Getting injury news for {team_name} ({len(team_players)} players)")
-                injury_news = lightweight_llm.get_team_injury_news(team_name, team_players)
-                
-                return {
-                    'team_name': team_name,
-                    'injury_news': injury_news,
-                    'player_count': len(team_players)
-                }
+            if force_refresh:
+                print("🔄 Forcing fresh enrichment (this will take 15-20 minutes)...")
             else:
-                # Get all teams
-                teams = {}
-                for player in players:
-                    team_name = player.get('team_name')
-                    if team_name not in teams:
-                        teams[team_name] = []
-                    teams[team_name].append(player)
-                
-                results = {}
-                for team_name, team_players in teams.items():
-                    logger.info(f"Getting injury news for {team_name} ({len(team_players)} players)")
-                    injury_news = lightweight_llm.get_team_injury_news(team_name, team_players)
-                    results[team_name] = {
-                        'injury_news': injury_news,
-                        'player_count': len(team_players)
-                    }
-                
-                return {
-                    'all_teams': True,
-                    'teams': results,
-                    'total_teams': len(results)
-                }
-                
-        except Exception as e:
-            logger.error(f"Failed to get team injury news: {e}")
-            raise
-    
-    def get_team_hints_tips(self, team_name: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get hints, tips, and recommendations for players in a specific team or all teams.
-        
-        Args:
-            team_name: Name of the team (None for all teams)
+                print("🧠 Enriching player data with LLM insights...")
+                print("⏱️  This process takes 15-20 minutes but is cached for future use")
             
-        Returns:
-            Dictionary containing hints and tips for the team(s)
-        """
-        try:
-            logger.info("Starting team hints and tips analysis...")
-            
-            # Initialize lightweight LLM engine
-            lightweight_llm = LightweightLLMStrategy(self.config)
-            
-            # Fetch FPL data with additional stats
-            from fpl_agent.data import FPLDataFetcher
-            fetcher = FPLDataFetcher(self.config)
-            all_data = fetcher.get_all_data_with_additional_stats()
-            players = all_data['players']
-            
-            if team_name:
-                # Get specific team
-                team_players = [p for p in players if p.get('team_name') == team_name]
-                if not team_players:
-                    raise ValueError(f"No players found for team: {team_name}")
-                
-                logger.info(f"Getting hints and tips for {team_name} ({len(team_players)} players)")
-                hints_tips = lightweight_llm.get_team_hints_tips(team_name, team_players)
-                
-                return {
-                    'team_name': team_name,
-                    'hints_tips': hints_tips,
-                    'player_count': len(team_players)
-                }
-            else:
-                # Get all teams
-                teams = {}
-                for player in players:
-                    team_name = player.get('team_name')
-                    if team_name not in teams:
-                        teams[team_name] = []
-                    teams[team_name].append(player)
-                
-                results = {}
-                for team_name, team_players in teams.items():
-                    logger.info(f"Getting hints and tips for {team_name} ({len(team_players)} players)")
-                    hints_tips = lightweight_llm.get_team_hints_tips(team_name, team_players)
-                    results[team_name] = {
-                        'hints_tips': hints_tips,
-                        'player_count': len(team_players)
-                    }
-                
-                return {
-                    'all_teams': True,
-                    'teams': results,
-                    'total_teams': len(results)
-                }
-                
-        except Exception as e:
-            logger.error(f"Failed to get team hints and tips: {e}")
-            raise
-    
-    def run_embedding_filtering(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """Run embedding filtering on cached player data with pre-filtering for viable players
-        
-        Args:
-            force_refresh: If True, recompute embeddings even if cached
-            
-        Returns:
-            Dict containing filtered players organized by position
-        """
-        try:
-            logger.info("Running embedding filtering on viable players only...")
-            
-            # Import embedding filter
-            from fpl_agent.strategies.embedding_filter import EmbeddingFilter
-            
-            # Initialize embedding filter
-            embedding_filter = EmbeddingFilter(self.config)
-            
-            # Get structured enriched player data for filtering
-            structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
-            
-            if not structured_data:
-                raise ValueError("No enriched player data found. Please run 'fetch-fpl-players --enrich' first.")
-            
-            # Apply unified filtering to structured data
-            viable_result = self.llm_strategy._get_viable_players_from_enriched(structured_data, for_embeddings=True)
-            viable_players = {}
-            
-            # Convert the positions structure back to a flat dictionary
-            for position_players in viable_result['positions'].values():
-                for player_name, enriched_string in position_players:
-                    viable_players[player_name] = enriched_string
-            
-            logger.info(f"Using {len(viable_players)} viable players for embedding filtering")
-            
-            # Apply embedding filtering on viable players only
-            filtered_data = embedding_filter.filter_players_by_position(viable_players, force_refresh=force_refresh)
-            
-            # Group by position using structured data
-            positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
-            
-            # Get the structured data to access positions directly
-            structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
-            
-            for player_name, enriched_string in filtered_data.items():
-                # Get position from structured data
-                if player_name in structured_data and isinstance(structured_data[player_name], dict) and "data" in structured_data[player_name]:
-                    position = structured_data[player_name]["data"]["position"]
-                    if position in positions:
-                        positions[position].append((player_name, enriched_string))
-                else:
-                    # Fallback to string parsing if structured data not available
-                    if ', GK,' in enriched_string:
-                        positions['GK'].append((player_name, enriched_string))
-                    elif ', DEF,' in enriched_string:
-                        positions['DEF'].append((player_name, enriched_string))
-                    elif ', MID,' in enriched_string:
-                        positions['MID'].append((player_name, enriched_string))
-                    elif ', FWD,' in enriched_string:
-                        positions['FWD'].append((player_name, enriched_string))
-            
-            # Create result structure
-            result = {
-                'total_players_loaded': viable_result['total_players_loaded'],
-                'viable_players': viable_result['total_players_filtered'],
-                'pre_filtered_out': viable_result['filtered_out_count'],
-                'total_players_filtered': len(filtered_data),
-                'reduction_percentage': ((viable_result['total_players_loaded'] - len(filtered_data)) / viable_result['total_players_loaded'] * 100),
-                'positions': positions,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            logger.info(f"Embedding filtering complete: {len(filtered_data)} players selected from {len(viable_players)} viable players")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to run embedding filtering: {e}")
-            raise
-    
-    def enrich_players(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """
-        Enrich existing player data with LLM insights.
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh enrichment data
-            
-        Returns:
-            Dict containing enrichment results
-        """
-        logger.info("Starting player data enrichment...")
-        
-        try:
-            # Get enriched player data (this will load existing data and add enrichments)
-            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
-            
-            if not enriched_data:
-                return {
-                    'error': 'No player data available to enrich',
-                    'total_players': 0,
-                    'enriched_players': 0
-                }
-            
-            # Format the results for display
-            formatted_players = []
-            position_distribution = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
-            price_range_distribution = {'£0-5m': 0, '£5-7.5m': 0, '£7.5-10m': 0, '£10m+': 0}
-            
-            for player_name, player_data in enriched_data.items():
-                if isinstance(player_data, dict) and "data" in player_data:
-                    # Structured data format
-                    prompt_text = self.llm_strategy._generate_prompt_text(player_data)
-                    formatted_players.append(prompt_text)
-                    
-                    # Count positions
-                    position = player_data["data"]["position"]
-                    if position in position_distribution:
-                        position_distribution[position] += 1
-                    
-                    # Count price ranges
-                    price = player_data["data"]["price"]
-                    if price <= 5.0:
-                        price_range_distribution['£0-5m'] += 1
-                    elif price <= 7.5:
-                        price_range_distribution['£5-7.5m'] += 1
-                    elif price <= 10.0:
-                        price_range_distribution['£7.5-10m'] += 1
-                    else:
-                        price_range_distribution['£10m+'] += 1
-                else:
-                    # Legacy text format
-                    formatted_players.append(player_data)
+            # TODO: Implement actual enrichment functionality
+            # For now, return a placeholder response
+            print("⚠️  Enrichment functionality not yet implemented")
+            print("   This is a placeholder for future development")
             
             return {
-                'players': [],  # Empty list for compatibility with display function
-                'teams': [],    # Empty list for compatibility with display function
-                'summary': {
-                    'total_players': len(enriched_data),
-                    'total_teams': 20,  # Fixed number for FPL
-                    'enriched_players': len(enriched_data),
-                    'position_distribution': position_distribution,
-                    'price_range_distribution': price_range_distribution,
-                    'data_source': 'FPL API (enriched with LLM)',
-                    'fetched_at': datetime.now().isoformat()
-                },
-                'formatted_players': formatted_players,
-                'timestamp': datetime.now().isoformat()
+                'enriched_players': 0,
+                'status': 'not_implemented',
+                'message': 'Enrichment functionality not yet implemented',
+                'enriched_at': datetime.now().isoformat()
             }
-            
+                
         except Exception as e:
-            logger.error(f"Failed to enrich players: {e}")
+            logger.error(f"Failed to enrich player data: {e}")
+            print(f"❌ Error enriching player data: {e}")
             return {
-                'error': f'Failed to enrich players: {e}',
-                'total_players': 0,
-                'enriched_players': 0
+                'enriched_players': 0,
+                'status': 'failed',
+                'error': str(e)
             }
-
-    def filter_viable_players(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """Filter player data to only include viable FPL players
-        
-        Filters out players who are:
-        - "Out" according to injury news
-        - "Avoid" according to FPL suggestions
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            Dict containing filtered players organized by position
-        """
-        try:
-            logger.info("Filtering player data for viable FPL players...")
-            
-            # Get enriched player data from cache
-            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
-            
-            if not enriched_data:
-                raise ValueError("No enriched player data found in cache. Please run 'fetch-fpl-players' first.")
-            
-            logger.info(f"Loaded {len(enriched_data)} players from cache")
-            
-            # Filter players based on injury status and FPL recommendations
-            viable_players = {}
-            filtered_out_count = 0
-            
-            # Get structured data for filtering
-            structured_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
-            
-            for player_name, enriched_string in enriched_data.items():
-                player_data = structured_data[player_name]
-                data = player_data.get('data', {})
-                injury_news = player_data.get('injury_news', '')
-                hints_tips = player_data.get('hints_tips_news', '')
-                
-                # Check if player should be filtered out
-                should_exclude = False
-                exclusion_reason = ""
-                
-                # Check injury status
-                if injury_news.startswith("Out"):
-                    should_exclude = True
-                    exclusion_reason = "Injured (Out)"
-                
-                # Check FPL recommendations
-                if hints_tips.startswith("Avoid"):
-                    should_exclude = True
-                    exclusion_reason = "FPL Avoid"
-                
-                # Include player if they pass both filters
-                if not should_exclude:
-                    viable_players[player_name] = enriched_string
-                else:
-                    filtered_out_count += 1
-            
-            # Group by position
-            positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
-            
-            for player_name, enriched_string in viable_players.items():
-                # Extract position from the enriched string
-                if '(GK,' in enriched_string:
-                    positions['GK'].append((player_name, enriched_string))
-                elif '(DEF,' in enriched_string:
-                    positions['DEF'].append((player_name, enriched_string))
-                elif '(MID,' in enriched_string:
-                    positions['MID'].append((player_name, enriched_string))
-                elif '(FWD,' in enriched_string:
-                    positions['FWD'].append((player_name, enriched_string))
-            
-            # Create result structure
-            result = {
-                'total_players_loaded': len(enriched_data),
-                'total_players_filtered': len(viable_players),
-                'filtered_out_count': filtered_out_count,
-                'reduction_percentage': ((len(enriched_data) - len(viable_players)) / len(enriched_data) * 100),
-                'positions': positions,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            logger.info(f"Viable player filtering complete: {len(viable_players)} players selected from {len(enriched_data)} total (filtered out {filtered_out_count})")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to filter viable players: {e}")
-            raise
     
-    def show_full_hybrid_rankings(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """
-        Show full hybrid scoring rankings for all positions.
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            Dictionary containing full hybrid rankings for all positions
-        """
+    def gw_update(self, gameweek: Optional[int] = None, 
+                  force_fetch: bool = False, force_enrich: bool = False,
+                  force_all: bool = False, cached_only: bool = False) -> Dict[str, Any]:
+        """Complete weekly gameweek update workflow"""
         try:
-            # Get enriched player data
-            enriched_data = self.llm_strategy.get_enriched_player_data(force_refresh=force_refresh)
+            print("🔄 Starting weekly FPL update...")
             
-            # Apply unified filtering to get viable players
-            viable_result = self.llm_strategy._get_viable_players_from_enriched(enriched_data, for_embeddings=True)
+            # Check data freshness
+            data_status = self.check_data_freshness()
             
-            # Convert to flat dictionary for embeddings
-            viable_players = {}
-            for position_players in viable_result['positions'].values():
-                for player_name, enriched_string in position_players:
-                    viable_players[player_name] = enriched_string
-            
-            # Create embedding filter
-            from .strategies.embedding_filter import EmbeddingFilter
-            embedding_filter = EmbeddingFilter(self.config)
-            
-            # Get structured data for hybrid scoring
-            structured_data = embedding_filter._get_structured_data_for_hybrid_scoring(viable_players)
-            
-            # Calculate similarities
-            similarities = embedding_filter._calculate_similarities(
-                embedding_filter._encode_players(viable_players),
-                embedding_filter._encode_queries(),
-                embedding_filter._get_player_positions(viable_players)
+            # Determine what to do based on flags and data freshness
+            should_fetch = self.should_fetch_data(
+                force_fetch or force_all, 
+                cached_only, 
+                data_status['fpl_data']['fresh']
             )
             
-            # Calculate hybrid scores
-            hybrid_scores = embedding_filter._calculate_hybrid_scores(similarities, structured_data)
+            should_enrich = self.should_enrich_data(
+                force_enrich or force_all, 
+                cached_only, 
+                data_status['enriched_data']['fresh']
+            )
             
-            # Create result structure
-            result = {
-                'total_players_loaded': len(enriched_data),
-                'total_players_filtered': len(viable_players),
-                'hybrid_scores': hybrid_scores,
-                'structured_data': structured_data,
-                'timestamp': datetime.now().isoformat()
+            # Show data status
+            print(f"\n📊 Data Status:")
+            fpl_age = data_status['fpl_data']['age_hours'] or 0
+            enrich_age = data_status['enriched_data']['age_hours'] or 0
+            print(f"   • FPL data: {fpl_age:.1f} hours old")
+            print(f"   • Enriched data: {enrich_age:.1f} hours old")
+            
+            if cached_only:
+                print("   • Using ONLY cached data (--cached-only flag)")
+                should_fetch = False
+                should_enrich = False
+            
+            # Step 1: Fetch FPL data if needed
+            if should_fetch:
+                print(f"\n🔄 Fetching fresh FPL data...")
+                fetch_result = self.fetch_fpl_data(force_refresh=True)
+                print(f"✅ Fetched {fetch_result['total_players']} players")
+            else:
+                print(f"\n📊 Using cached FPL data ({fpl_age:.1f} hours old)")
+            
+            # Step 2: Enrich data if needed
+            if should_enrich:
+                print(f"\n🧠 Enriching player data...")
+                enrich_result = self.enrich_player_data(force_refresh=True)
+                if enrich_result['status'] == 'success':
+                    print(f"✅ Enriched {enrich_result['enriched_players']} players")
+                else:
+                    print(f"❌ Enrichment failed: {enrich_result.get('error', 'Unknown error')}")
+            else:
+                print(f"\n🧠 Using cached enriched data ({enrich_age:.1f} hours old)")
+            
+            # Step 3: Update team for gameweek
+            print(f"\n⚽ Updating team for gameweek {gameweek or 'current'}...")
+            team_result = self.llm_strategy.update_team_weekly(
+                gameweek=gameweek,
+                use_semantic_filtering=True,
+                force_refresh=False,  # Use cached enriched data
+                use_embeddings=False
+            )
+            
+            print("✅ Weekly update complete!")
+            
+            return {
+                'fetch_performed': should_fetch,
+                'enrich_performed': should_enrich,
+                'team_update': team_result,
+                'data_status': data_status,
+                'completed_at': datetime.now().isoformat()
             }
             
-            logger.info(f"Full hybrid rankings calculated: {len(viable_players)} players analyzed")
-            return result
+        except Exception as e:
+            logger.error(f"Weekly update failed: {e}")
+            print(f"❌ Weekly update failed: {e}")
+            raise
+    
+    def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
+                   force_fetch: bool = False, force_enrich: bool = False,
+                   force_all: bool = False, cached_only: bool = False) -> Dict[str, Any]:
+        """Build new team with smart data handling"""
+        try:
+            print("⚽ Building new FPL team...")
+            
+            # Check data freshness
+            data_status = self.check_data_freshness()
+            
+            # Determine what to do based on flags and data freshness
+            should_fetch = self.should_fetch_data(
+                force_fetch or force_all, 
+                cached_only, 
+                data_status['fpl_data']['fresh']
+            )
+            
+            should_enrich = self.should_enrich_data(
+                force_enrich or force_all, 
+                cached_only, 
+                data_status['enriched_data']['fresh']
+            )
+            
+            # Show data status
+            print(f"\n📊 Data Status:")
+            fpl_age = data_status['fpl_data']['age_hours'] or 0
+            enrich_age = data_status['enriched_data']['age_hours'] or 0
+            print(f"   • FPL data: {fpl_age:.1f} hours old")
+            print(f"   • Enriched data: {enrich_age:.1f} hours old")
+            
+            if cached_only:
+                print("   • Using ONLY cached data (--cached-only flag)")
+                should_fetch = False
+                should_enrich = False
+            
+            # Step 1: Fetch FPL data if needed
+            if should_fetch:
+                print(f"\n🔄 Fetching fresh FPL data...")
+                fetch_result = self.fetch_fpl_data(force_refresh=True)
+                print(f"✅ Fetched {fetch_result['total_players']} players")
+            else:
+                print(f"\n📊 Using cached FPL data ({fpl_age:.1f} hours old)")
+            
+            # Step 2: Enrich data if needed
+            if should_enrich:
+                print(f"\n🧠 Enriching player data...")
+                enrich_result = self.enrich_player_data(force_refresh=True)
+                if enrich_result['status'] == 'success':
+                    print(f"✅ Enriched {enrich_result['enriched_players']} players")
+                else:
+                    print(f"❌ Enrichment failed: {enrich_result.get('error', 'Unknown error')}")
+            else:
+                print(f"\n🧠 Using cached enriched data ({enrich_age:.1f} hours old)")
+            
+            # Step 3: Build team
+            print(f"\n⚽ Building team with £{budget}m budget...")
+            team_result = self.llm_strategy.create_team(
+                budget=budget,
+                gameweek=gameweek or 1,
+                use_semantic_filtering=True,
+                force_refresh=False,  # Use cached enriched data
+                use_embeddings=False
+            )
+            
+            print("✅ Team building complete!")
+            
+            return {
+                'fetch_performed': should_fetch,
+                'enrich_performed': should_enrich,
+                'team_data': team_result,
+                'data_status': data_status,
+                'completed_at': datetime.now().isoformat()
+            }
             
         except Exception as e:
-            logger.error(f"Failed to calculate full hybrid rankings: {e}")
+            logger.error(f"Team building failed: {e}")
+            print(f"❌ Team building failed: {e}")
+            raise
+    
+    def show_data_status(self) -> Dict[str, Any]:
+        """Display current data status"""
+        try:
+            print("📊 FPL Data Status")
+            print("=" * 50)
+            
+            data_status = self.check_data_freshness()
+            
+            # FPL Data Status
+            print(f"\n🔄 FPL Data:")
+            if data_status['fpl_data']['available']:
+                age = data_status['fpl_data']['age_hours']
+                status = "✅ Fresh" if data_status['fpl_data']['fresh'] else "⚠️  Stale"
+                print(f"   • Status: {status}")
+                print(f"   • Age: {age:.1f} hours")
+                print(f"   • Last updated: {datetime.now().timestamp() - (age * 3600):.0f} seconds ago")
+            else:
+                print("   • Status: ❌ Not available")
+                print("   • Action: Run 'fetch' command")
+            
+            # Enriched Data Status
+            print(f"\n🧠 Enriched Data:")
+            if data_status['enriched_data']['available']:
+                age = data_status['enriched_data']['age_hours']
+                status = "✅ Fresh" if data_status['enriched_data']['fresh'] else "⚠️  Stale"
+                print(f"   • Status: {status}")
+                print(f"   • Age: {age:.1f} hours")
+                print(f"   • Last updated: {datetime.now().timestamp() - (age * 3600):.0f} seconds ago")
+            else:
+                print("   • Status: ❌ Not available")
+                print("   • Action: Run 'enrich' command")
+            
+            # Embeddings Status
+            print(f"\n🔍 Embeddings:")
+            if data_status['embeddings']['available']:
+                age = data_status['embeddings']['age_hours']
+                status = "✅ Fresh" if data_status['embeddings']['fresh'] else "⚠️  Stale"
+                print(f"   • Status: {status}")
+                print(f"   • Age: {age:.1f} hours")
+            else:
+                print("   • Status: ❌ Not available")
+            
+            # Overall Status
+            print(f"\n📋 Overall Status:")
+            overall = data_status['overall_status']
+            if overall == 'fresh':
+                print("   • Status: ✅ All data is fresh and ready")
+                print("   • Action: Ready for team building/updates")
+            elif overall == 'stale':
+                print("   • Status: ⚠️  Data is available but stale")
+                print("   • Action: Consider running 'gw-update' or 'build-team' with --force-all")
+            elif overall == 'partial':
+                print("   • Status: ⚠️  Partial data available")
+                print("   • Action: Run 'enrich' to complete data preparation")
+            elif overall == 'fpl_only':
+                print("   • Status: ⚠️  Only FPL data available")
+                print("   • Action: Run 'enrich' to add LLM insights")
+            else:
+                print("   • Status: ❌ No data available")
+                print("   • Action: Run 'fetch' to get started")
+            
+            # Recommendations
+            print(f"\n💡 Recommendations:")
+            if data_status['overall_status'] == 'fresh':
+                print("   • All data is fresh - ready for team operations")
+            elif data_status['overall_status'] in ['stale', 'partial']:
+                print("   • Run 'gw-update' for complete weekly refresh")
+                print("   • Or run 'build-team' with --force-all for fresh team")
+            else:
+                print("   • Start with 'fetch' to get FPL data")
+                print("   • Then 'enrich' to add insights")
+                print("   • Finally 'build-team' or 'gw-update'")
+            
+            return data_status
+            
+        except Exception as e:
+            logger.error(f"Failed to show data status: {e}")
+            print(f"❌ Error showing data status: {e}")
             raise
 
 
 def main():
-    """Main entry point with enhanced command options"""
-    parser = argparse.ArgumentParser(description='FPL Optimizer with Dual Approaches')
+    """Main entry point with simplified command structure"""
+    parser = argparse.ArgumentParser(description='FPL Agent - Smart Data Handling')
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch-fpl-players', 'enrich-players', 'create-team-llm', 'weekly-llm', 
-                    'update-team', 'load-team', 'list-teams', 'validate-team', 'team-injuries', 'team-hints', 'embedding-filter', 'filter-viable', 'show-rankings'
+        'fetch', 'enrich', 'gw-update', 'build-team', 'show-data'
     ], help='Command to run')
     
-    # Common arguments
-    parser.add_argument('--sample-size', type=int, default=0, 
-                       help='Number of players to sample/limit (default: 0 = all players, specify number to limit)')
-    parser.add_argument('--config', type=str, help='Path to config file')
+    # Smart data flags
+    parser.add_argument('--force-fetch', action='store_true',
+                       help='Force fresh FPL data fetch')
+    parser.add_argument('--force-enrich', action='store_true',
+                       help='Force fresh LLM enrichment')
+    parser.add_argument('--force-all', action='store_true',
+                       help='Force both fresh fetch and enrichment')
+    parser.add_argument('--cached-only', action='store_true',
+                       help='Use ONLY cached data (no API calls or enrichment)')
+    
+    # Common options
     parser.add_argument('--budget', type=float, default=100.0,
                        help='Team budget in millions (default: 100.0)')
-    parser.add_argument('--gameweek', type=int, 
-                       help='Current gameweek (for LLM context)')
-    parser.add_argument('--free-transfers', type=int, default=1,
-                       help='Number of free transfers available (default: 1)')
-    
-    # Team file for weekly commands
+    parser.add_argument('--gameweek', type=int,
+                       help='Current gameweek')
     parser.add_argument('--team-file', type=str,
                        help='Path to JSON file containing current team data')
-    parser.add_argument('--latest-team', action='store_true',
-                       help='Use the most recently created team file')
-    
-    # Team analysis arguments
-    parser.add_argument('--team-name', type=str,
-                       help='Specific team name for analysis (e.g., "Chelsea", "Arsenal")')
-    
-
     
     # Save options
     parser.add_argument('--save-team', action='store_true',
                        help='Save the created team to a JSON file')
     parser.add_argument('--save-file', type=str,
-                       help='Specific file path to save team (if not provided, auto-generates filename)')
-    
-    # Debug options
-    parser.add_argument('--show-prompt', action='store_true',
-                       help='Show the LLM prompt without executing (for debugging)')
-    
-    # Semantic filtering option
-    parser.add_argument('--semantic-filtering', action='store_true',
-                       help='Use enriched player data with injury news and FPL suggestions for semantic filtering')
-    
-    # Embedding filtering option
-    parser.add_argument('--use-embeddings', action='store_true',
-                       help='Use embedding-based filtering to select top players per position (requires --semantic-filtering)')
-    
-    # Force refresh option
-    parser.add_argument('--force-refresh', action='store_true',
-                       help='Force refresh of cached data (player data, embeddings, etc.)')
-    
-    # Enrichment option
-    parser.add_argument('--enrich', action='store_true',
-                       help='Enrich player data with injury news and FPL hints (requires LLM calls, takes 15-20 minutes)')
+                       help='Specific file path to save team')
     
     args = parser.parse_args()
     
     try:
-        optimizer = FPLAgent(args.config)
+        optimizer = FPLAgent()
         
-        if args.command == 'fetch-fpl-players':
-            # Fetch real FPL data from API
-            result = optimizer.fetch_fpl_players(args.sample_size, args.enrich, args.force_refresh)
-            display_player_data(result)
+        if args.command == 'fetch':
+            # Fetch fresh FPL data
+            result = optimizer.fetch_fpl_data(force_refresh=args.force_fetch)
+            print(f"\n✅ Fetched {result['total_players']} players")
+            print(f"📅 Data timestamp: {result['fetched_at']}")
             
-        elif args.command == 'enrich-players':
-            # Enrich existing player data with LLM insights
-            result = optimizer.enrich_players(args.force_refresh)
-            display_player_data(result)
-            
-        elif args.command == 'create-team-llm':
-            # Create team using comprehensive LLM approach
-            if args.show_prompt:
-                # Show the prompt without executing
-                prompt = optimizer.llm_strategy._create_team_creation_prompt(args.budget, args.gameweek or 1, args.semantic_filtering, args.force_refresh, args.use_embeddings)
-                print("\n" + "="*80)
-                print("LLM TEAM CREATION PROMPT (DEBUG MODE)")
-                print("="*80)
-                print(prompt)
-                print("="*80)
+        elif args.command == 'enrich':
+            # Enrich player data with LLM insights
+            result = optimizer.enrich_player_data(force_refresh=args.force_enrich)
+            if result['status'] == 'success':
+                print(f"\n✅ Enriched {result['enriched_players']} players")
+                print(f"📅 Enriched at: {result['enriched_at']}")
+            elif result['status'] == 'not_implemented':
+                print(f"\n⚠️  {result['message']}")
+                print(f"📅 Status checked at: {result['enriched_at']}")
             else:
-                # Execute normally
-                result = optimizer.create_team_llm(args.budget, args.gameweek, args.semantic_filtering, args.force_refresh, args.use_embeddings)
-                display_comprehensive_team_result(result)
-                
-                # Save team if requested
-                if args.save_team:
-                    try:
-                        team_data = result['team_data']
-                        saved_file = save_team_to_json(team_data, args.save_file)
-                        print(f"\n" + "="*80)
-                        print("TEAM SAVED")
-                        print("="*80)
-                        print(f"Team saved to: {saved_file}")
-                        print("="*80)
-                    except Exception as e:
-                        logger.error(f"Failed to save team: {e}")
-                        print(f"\nError saving team: {e}")
-            
-        elif args.command == 'update-team':
-            # Update team weekly using comprehensive LLM team manager
-            result = optimizer.update_team_weekly_comprehensive(args.gameweek, args.semantic_filtering, args.force_refresh, args.use_embeddings)
-            display_comprehensive_team_result(result)
-            
-        elif args.command == 'weekly-llm':
-            # Weekly recommendations using LLM approach
-            team_file = args.team_file
-            if args.latest_team:
-                team_file = get_latest_team_file()
-                if team_file:
-                    print(f"Using latest team: {os.path.basename(team_file)}")
-            
-            current_team = load_team_from_file(team_file) if team_file else create_sample_team()
-            result = optimizer.get_weekly_recommendations_llm(current_team, args.free_transfers, args.gameweek)
-            display_weekly_recommendations(result)
-            
-        elif args.command == 'load-team':
-            # Load and display a saved team
-            team_file = args.team_file
-            
-            if args.latest_team:
-                team_file = get_latest_team_file()
-                if not team_file:
-                    print("Error: No saved teams found")
-                    sys.exit(1)
-                print(f"Loading latest team: {os.path.basename(team_file)}")
-            elif not args.team_file:
-                print("Error: --team-file is required for load-team command (or use --latest-team)")
+                print(f"\n❌ Enrichment failed: {result.get('error', 'Unknown error')}")
                 sys.exit(1)
+                
+        elif args.command == 'gw-update':
+            # Complete weekly gameweek update
+            result = optimizer.gw_update(
+                gameweek=args.gameweek,
+                force_fetch=args.force_fetch,
+                force_enrich=args.force_enrich,
+                force_all=args.force_all,
+                cached_only=args.cached_only
+            )
             
-            try:
-                saved_team_data = load_team_from_json(team_file)
-                
-                # Convert saved format back to the format expected by display function
-                team_data = {
-                    'captain': saved_team_data.get('team_info', {}).get('captain'),
-                    'vice_captain': saved_team_data.get('team_info', {}).get('vice_captain'),
-                    'total_cost': saved_team_data.get('team_info', {}).get('total_cost', 0.0),
-                    'bank': saved_team_data.get('team_info', {}).get('bank', 0.0),
-                    'expected_points': saved_team_data.get('team_info', {}).get('expected_points', 0.0),
-                    'team': {
-                        'starting': saved_team_data.get('squad', {}).get('starting_11', []),
-                        'substitutes': saved_team_data.get('squad', {}).get('substitutes', [])
-                    },
-                    'raw_llm_response': saved_team_data.get('raw_llm_response', ''),
-                    # Add reasoning fields
-                    'captain_reason': saved_team_data.get('reasoning', {}).get('captain_reason', ''),
-                    'vice_captain_reason': saved_team_data.get('reasoning', {}).get('vice_captain_reason', ''),
-                    'chip_reason': saved_team_data.get('reasoning', {}).get('chip_reason', ''),
-                    'transfers': saved_team_data.get('reasoning', {}).get('transfers', [])
-                }
-                
-                display_comprehensive_team_result({'team_data': team_data})
-            except Exception as e:
-                logger.error(f"Failed to load team: {e}")
-                sys.exit(1)
+            # Display team update result
+            display_comprehensive_team_result({'team_data': result['team_update']})
             
-        elif args.command == 'list-teams':
-            team_files = list_saved_teams()
-            if not team_files:
-                print("No saved teams found.")
-            else:
-                print("\n" + "="*80)
-                print("SAVED TEAMS")
-                print("="*80)
-                for file_path in team_files:
-                    print(f"- {os.path.basename(file_path)}")
-                print("="*80)
-        
-        elif args.command == 'validate-team':
-            # Validate existing team data
-            try:
-                from .utils.validator import FPLValidator
-                from .core.team_manager import TeamManager
-                
-                print("\n" + "="*80)
-                print("FPL TEAM VALIDATION")
-                print("="*80)
-                
-                # Create validator and team manager
-                validator = FPLValidator("team_data")
-                team_manager = TeamManager("team_data")
-                
-                # Determine which gameweek to validate
-                gameweek = args.gameweek
-                if not gameweek:
-                    # Try to find the latest gameweek
-                    latest_gw = team_manager.get_latest_gameweek()
-                    if latest_gw:
-                        gameweek = latest_gw
-                        print(f"Validating latest team (Gameweek {gameweek})")
-                    else:
-                        print("❌ No team files found in team_data directory")
-                        sys.exit(1)
-                else:
-                    print(f"Validating team for Gameweek {gameweek}")
-                
-                # Check if team file exists
-                team_file = Path(f"team_data/gw{gameweek:02d}.json")
-                if not team_file.exists():
-                    print(f"❌ Team file gw{gameweek:02d}.json not found")
-                    sys.exit(1)
-                
-                # Load and validate team data
-                print(f"\n1. Loading and validating gw{gameweek:02d}.json...")
-                
-                with open(team_file, 'r') as f:
-                    team_data = json.load(f)
-                
-                print(f"✓ Loaded team data for Gameweek {team_data.get('gameweek', 'Unknown')}")
-                
-                # Validate team data
-                validation_errors = validator.validate_team_data(team_data['team'], gameweek)
-                
-                if validation_errors:
-                    print("❌ Team validation failed:")
-                    for error in validation_errors:
-                        print(f"  - {error}")
-                    sys.exit(1)
-                else:
-                    print("✓ Team validation passed")
-                
-                # Display team summary
-                print(f"\n2. Team Summary:")
-                team = team_data['team']
-                print(f"   Captain: {team.get('captain', 'Unknown')}")
-                print(f"   Vice Captain: {team.get('vice_captain', 'Unknown')}")
-                print(f"   Total Cost: £{team.get('total_cost', 0)}m")
-                print(f"   Bank: £{team.get('bank', 0)}m")
-                print(f"   Expected Points: {team.get('expected_points', 0)}")
-                
-                # Count players by position
-                all_players = team.get('team', {}).get('starting', []) + team.get('team', {}).get('substitutes', [])
-                position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
-                team_counts = {}
-                
-                for player in all_players:
-                    position = player.get('position')
-                    if position in position_counts:
-                        position_counts[position] += 1
-                    
-                    team_name = player.get('team')
-                    if team_name:
-                        team_counts[team_name] = team_counts.get(team_name, 0) + 1
-                
-                print(f"   Squad: {position_counts['GK']} GK, {position_counts['DEF']} DEF, {position_counts['MID']} MID, {position_counts['FWD']} FWD")
-                print(f"   Teams: {len(team_counts)} different teams")
-                
-                # Show formation
-                starting = team.get('team', {}).get('starting', [])
-                starting_positions = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
-                for player in starting:
-                    position = player.get('position')
-                    if position in starting_positions:
-                        starting_positions[position] += 1
-                
-                formation = f"{starting_positions['DEF']}-{starting_positions['MID']}-{starting_positions['FWD']}"
-                print(f"   Formation: {formation}")
-                
-                # Check meta.json
-                print(f"\n3. Checking meta.json...")
-                meta_file = Path("team_data/meta.json")
-                if meta_file.exists():
-                    with open(meta_file, 'r') as f:
-                        meta_data = json.load(f)
-                    
-                    print("✓ meta.json found")
-                    meta_current_gw = meta_data.get('current_gw', 'Unknown')
-                    print(f"   Current GW: {meta_current_gw}")
-                    print(f"   Last Team File: {meta_data.get('last_team_file', 'Unknown')}")
-                    print(f"   Bank: £{meta_data.get('bank', 0)}m")
-                    print(f"   Free Transfers: {meta_data.get('free_transfers', 0)}")
-                    
-                    # Check if meta.json is for a different gameweek
-                    if meta_current_gw != 'Unknown' and meta_current_gw != gameweek:
-                        print(f"\n⚠️  WARNING: meta.json is for Gameweek {meta_current_gw}, but you're validating Gameweek {gameweek}")
-                        print(f"   This means you're validating a historical team, not the current team.")
-                        print(f"   The meta.json reflects the current state after Gameweek {meta_current_gw}.")
-                        
-                        # Ask if they want to continue
-                        print(f"\n   Do you want to continue validating the historical team? (y/N): ", end="")
-                        try:
-                            response = input().strip().lower()
-                            if response not in ['y', 'yes']:
-                                print("Validation cancelled.")
-                                sys.exit(0)
-                        except KeyboardInterrupt:
-                            print("\nValidation cancelled.")
-                            sys.exit(0)
-                    
-                    # Validate file consistency (only if meta.json matches the gameweek being validated)
-                    if meta_current_gw == gameweek:
-                        print(f"\n4. Validating file consistency...")
-                        consistency_errors = validator.validate_files_consistency(gameweek)
-                        
-                        if consistency_errors:
-                            print("❌ File consistency validation failed:")
-                            for error in consistency_errors:
-                                print(f"  - {error}")
-                            sys.exit(1)
-                        else:
-                            print("✓ File consistency validation passed")
-                    else:
-                        print(f"\n4. Skipping file consistency validation (meta.json is for GW{meta_current_gw}, validating GW{gameweek})")
-                        
-                else:
-                    print("⚠️  meta.json not found - creating it now...")
-                    team_manager.initialize_meta(gameweek, team_data['team'])
-                    print("✓ meta.json created successfully")
-                    
-                    # Now validate consistency since we just created meta.json
-                    print(f"\n4. Validating file consistency...")
-                    consistency_errors = validator.validate_files_consistency(gameweek)
-                    
-                    if consistency_errors:
-                        print("❌ File consistency validation failed:")
-                        for error in consistency_errors:
-                            print(f"  - {error}")
-                        sys.exit(1)
-                    else:
-                        print("✓ File consistency validation passed")
-                
-                print(f"\n🎉 All validations passed! Team data is ready for use.")
-                print("="*80)
-                
-            except Exception as e:
-                logger.error(f"Team validation failed: {e}")
-                print(f"❌ Validation failed: {e}")
-                sys.exit(1)
+            # Save team if requested
+            if args.save_team:
+                try:
+                    team_data = result['team_update']
+                    saved_file = save_team_to_json(team_data, args.save_file)
+                    print(f"\n💾 Team saved to: {saved_file}")
+                except Exception as e:
+                    logger.error(f"Failed to save team: {e}")
+                    print(f"\n❌ Error saving team: {e}")
             
-        elif args.command == 'team-injuries':
-            # Get team injury news
-            result = optimizer.get_team_injury_news(args.team_name)
-            display_team_injury_news(result)
+        elif args.command == 'build-team':
+            # Build new team
+            result = optimizer.build_team(
+                budget=args.budget,
+                gameweek=args.gameweek,
+                force_fetch=args.force_fetch,
+                force_enrich=args.force_enrich,
+                force_all=args.force_all,
+                cached_only=args.cached_only
+            )
             
-        elif args.command == 'team-hints':
-            # Get team hints and tips
-            result = optimizer.get_team_hints_tips(args.team_name)
-            display_team_hints_tips(result)
+            # Display team result
+            display_comprehensive_team_result({'team_data': result['team_data']})
             
-        elif args.command == 'embedding-filter':
-            # Run embedding filtering on cached player data
-            result = optimizer.run_embedding_filtering(args.force_refresh)
-            display_embedding_filtering_result(result)
+            # Save team if requested
+            if args.save_team:
+                try:
+                    team_data = result['team_data']
+                    saved_file = save_team_to_json(team_data, args.save_file)
+                    print(f"\n💾 Team saved to: {saved_file}")
+                except Exception as e:
+                    logger.error(f"Failed to save team: {e}")
+                    print(f"\n❌ Error saving team: {e}")
             
-        elif args.command == 'filter-viable':
-            # Filter player data for viable FPL players only
-            result = optimizer.filter_viable_players(args.force_refresh)
-            display_viable_players_result(result)
-            
-        elif args.command == 'show-rankings':
-            # Show full hybrid scoring rankings for all positions
-            result = optimizer.show_full_hybrid_rankings(args.force_refresh)
-            display_full_hybrid_rankings(result)
-            
-
+        elif args.command == 'show-data':
+            # Show current data status
+            optimizer.show_data_status()
         
     except Exception as e:
         logger.error(f"Command failed: {e}")
+        print(f"\n❌ Command failed: {e}")
         sys.exit(1)
 
 
-def display_player_data(result):
-    """Display fetched player data"""
-    print("\n" + "="*60)
-    print("FPL PLAYER DATA FETCHED")
-    print("="*60)
+def calculate_chance_of_playing(chance_this_round: Optional[int], chance_next_round: Optional[int]) -> int:
+    """Calculate the effective chance of playing based on this round and next round"""
+    if chance_this_round is None and chance_next_round is None:
+        return 100  # Default to 100% if no data
     
-    # Print summary
-    summary = result['summary']
-    print(f"\nData Summary:")
-    print(f"  Players: {summary['total_players']}")
-    print(f"  Teams: {summary['total_teams']}")
+    if chance_this_round is None:
+        return chance_next_round or 100
     
-    # Show data source if available
-    if 'data_source' in summary:
-        print(f"  Data Source: {summary['data_source']}")
-    if 'fetched_at' in summary:
-        print(f"  Fetched At: {summary['fetched_at']}")
-    if 'enriched_with_llm' in summary:
-        if summary['enriched_with_llm']:
-            print(f"  ✅ Enriched with LLM data: {summary.get('enriched_players_count', 0)} players")
-        else:
-            print(f"  ❌ LLM enrichment failed or not requested")
+    if chance_next_round is None:
+        return chance_this_round or 100
     
-    print(f"\nPosition Distribution:")
-    for pos, count in summary['position_distribution'].items():
-        print(f"  {pos}: {count}")
-    
-    print(f"\nPrice Range Distribution:")
-    for price_range, count in summary['price_range_distribution'].items():
-        print(f"  {price_range}: {count}")
-    
-    # Print detailed player table
-    print(f"\n" + "="*120)
-    print("DETAILED PLAYER DATA TABLE")
-    print("="*120)
-    
-    # Header
-    print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Chance':<6} {'Form':<6} {'Total Pts':<10} {'Pts/Game':<8} {'Selected %':<10}")
-    print("-" * 110)
-    print("Note: 'Chance' shows likelihood of playing this gameweek (100% = Available during off-season)")
-    print("-" * 110)
-    
-    # Sort players: club alphabetically, then position (GK, DEF, MID, FWD), then player name alphabetically
-    position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
-    sorted_players = sorted(result['players'], 
-                          key=lambda p: (p.get('team_name', 'Unknown'), position_order.get(p.get('position', 'UNK'), 4), p.get('full_name', 'Unknown')))
-    
-    for player in sorted_players:
-        # Calculate chance of playing as minimum of this round and next round
-        chance_of_playing = calculate_chance_of_playing(
-            player.get('chance_of_playing_this_round'),
-            player.get('chance_of_playing_next_round')
-        )
-        chance_str = f"{chance_of_playing}%"
-        
-        print(f"{player.get('full_name', 'Unknown'):<25} {player.get('team_name', 'Unknown'):<15} {player.get('position', 'UNK'):<4} £{player.get('now_cost', 0)/10.0:<5.1f} {chance_str:<6} {player.get('form', 0):<6} {player.get('total_points', 0):<10} {player.get('points_per_game', '0.0'):<8} {player.get('selected_by_percent', '0.0'):<10}")
-    
-    print(f"\nData fetch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # Return the minimum of the two (more conservative)
+    return min(chance_this_round, chance_next_round)
 
 
 def display_comprehensive_team_result(result):
@@ -1275,312 +675,6 @@ def display_comprehensive_team_result(result):
         print("-" * 80)
     
     print(f"\nComprehensive team operation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-
-
-def display_weekly_recommendations(result):
-    """Display weekly recommendations"""
-    print("\n" + "="*80)
-    print("FPL WEEKLY RECOMMENDATIONS")
-    print("="*80)
-    
-    # Display basic info
-    print(f"Method: {result.get('method', 'Unknown')}")
-    print(f"Gameweek: {result.get('gameweek', 'Unknown')}")
-    print(f"Free Transfers: {result.get('free_transfers', 'Unknown')}")
-    
-    # Display transfers if any
-    transfers = result.get('transfers', [])
-    if transfers:
-        print(f"\nTransfers ({len(transfers)}):")
-        for i, transfer in enumerate(transfers, 1):
-            print(f"  {i}. {transfer.get('out', 'Unknown')} → {transfer.get('in', 'Unknown')}")
-            if 'reason' in transfer:
-                print(f"     Reason: {transfer['reason']}")
-    else:
-        print("\nNo transfers recommended")
-    
-    # Display team changes
-    team_changes = result.get('team_changes', {})
-    if team_changes:
-        print(f"\nTeam Changes:")
-        for change_type, details in team_changes.items():
-            print(f"  {change_type}: {details}")
-    
-    # Display reasoning
-    reasoning = result.get('reasoning', '')
-    if reasoning:
-        print(f"\nReasoning:")
-        print(reasoning)
-    
-    print("="*80)
-
-
-def display_team_injury_news(result):
-    """Display team injury news results"""
-    print("\n" + "="*80)
-    print("FPL TEAM INJURY NEWS")
-    print("="*80)
-    
-    if result.get('all_teams', False):
-        # Display all teams
-        print(f"Analyzed {result['total_teams']} teams")
-        print()
-        
-        for team_name, team_data in result['teams'].items():
-            print(f"{'='*60}")
-            print(f"TEAM: {team_name.upper()}")
-            print(f"Players: {team_data['player_count']}")
-            print(f"{'='*60}")
-            print(team_data['injury_news'])
-            print()
-    else:
-        # Display single team
-        print(f"Team: {result['team_name']}")
-        print(f"Players: {result['player_count']}")
-        print()
-        print(result['injury_news'])
-    
-    print("="*80)
-
-
-def display_team_hints_tips(result):
-    """Display team hints and tips results"""
-    print("\n" + "="*80)
-    print("FPL TEAM HINTS & TIPS")
-    print("="*80)
-    
-    if result.get('all_teams', False):
-        # Display all teams
-        print(f"Analyzed {result['total_teams']} teams")
-        print()
-        
-        for team_name, team_data in result['teams'].items():
-            print(f"{'='*60}")
-            print(f"TEAM: {team_name.upper()}")
-            print(f"Players: {team_data['player_count']}")
-            print(f"{'='*60}")
-            print(team_data['hints_tips'])
-            print()
-    else:
-        # Display single team
-        print(f"Team: {result['team_name']}")
-        print(f"Players: {result['player_count']}")
-        print()
-        print(result['hints_tips'])
-    
-    print("="*80)
-
-
-def _get_structured_player_data(player_name: str) -> Dict[str, Any]:
-    """Helper function to get structured player data from cache"""
-    # Cache the structured data to avoid repeated lookups
-    if not hasattr(_get_structured_player_data, '_cached_data'):
-        from fpl_agent.strategies.llm_strategy import LLMStrategy
-        from fpl_agent.core.config import Config
-        
-        # Create a minimal config and strategy to access cached data
-        config = Config()
-        strategy = LLMStrategy(config)
-        _get_structured_player_data._cached_data = strategy.get_enriched_player_data(force_refresh=False)
-    
-    cached_data = _get_structured_player_data._cached_data
-    return cached_data[player_name]
-
-def display_embedding_filtering_result(result):
-    """Display embedding filtering results"""
-    print("\n" + "="*80)
-    print("EMBEDDING FILTERING RESULTS")
-    print("="*80)
-    
-    # Summary
-    print(f"Total players loaded: {result['total_players_loaded']}")
-    if 'viable_players' in result:
-        print(f"Viable players (after pre-filtering): {result['viable_players']}")
-        print(f"Pre-filtered out: {result['pre_filtered_out']} (Injured 'Out' or FPL 'Avoid')")
-    print(f"Final filtered players: {result['total_players_filtered']}")
-    print(f"Total reduction: {result['reduction_percentage']:.1f}%")
-    print(f"Timestamp: {result['timestamp']}")
-    
-    # Display by position
-    positions = result['positions']
-    
-    for position, players in positions.items():
-        print(f"\n{position} ({len(players)} players):")
-        print("-" * 60)
-        
-        for i, (player_name, enriched_string) in enumerate(players, 1):
-            # Try to get structured data for display
-            player_data = _get_structured_player_data(player_name)
-            
-            if player_data:
-                # Use structured data for display
-                data = player_data["data"]
-                
-                # Convert values to float for formatting, handling string values
-                ppg_val = data.get('ppg', 0)
-                try:
-                    ppg_float = float(ppg_val) if ppg_val is not None else 0.0
-                except (ValueError, TypeError):
-                    ppg_float = 0.0
-                
-                form_val = data.get('form', 0)
-                try:
-                    form_float = float(form_val) if form_val is not None else 0.0
-                except (ValueError, TypeError):
-                    form_float = 0.0
-                
-                ownership_val = data.get('ownership_percent', 0)
-                try:
-                    ownership_float = float(ownership_val) if ownership_val is not None else 0.0
-                except (ValueError, TypeError):
-                    ownership_float = 0.0
-                
-                stats_line = f"Stats: Chance of Playing - {data.get('chance_of_playing', 'N/A')}%, PPG - {ppg_float:.1f}, Form - {form_float:.1f}, Minutes - {data.get('minutes_played', 0)}, Fixture Difficulty - {data.get('fixture_difficulty', 'N/A')}, Ownership - {ownership_float:.1f}%."
-                injury_line = f"Injury News: {player_data.get('injury_news', 'N/A')}"
-                hints_line = f"FPL Suggestions: {player_data.get('hints_tips_news', 'N/A')}"
-            else:
-                # Fallback to string parsing for legacy data
-                lines = enriched_string.split('\n')
-                stats_line = lines[1] if len(lines) > 1 else ""
-                injury_line = lines[2] if len(lines) > 2 else ""
-                hints_line = lines[3] if len(lines) > 3 else ""
-            
-            print(f"{i:2d}. {player_name}")
-            print(f"    {stats_line}")
-            print(f"    {injury_line}")
-            print(f"    {hints_line}")
-            print()
-    
-    print("="*80)
-
-
-def display_full_hybrid_rankings(result):
-    """Display full hybrid scoring rankings for all positions"""
-    print("\n" + "="*80)
-    print("FULL HYBRID SCORING RANKINGS")
-    print("="*80)
-    
-    # Summary
-    print(f"Total players loaded: {result['total_players_loaded']}")
-    print(f"Players analyzed: {result['total_players_filtered']}")
-    print(f"Timestamp: {result['timestamp']}")
-    
-    # Display hybrid scores by position
-    hybrid_scores = result['hybrid_scores']
-    structured_data = result['structured_data']
-    
-    for position, position_scores in hybrid_scores.items():
-        print(f"\n{position} RANKINGS ({len(position_scores)} players):")
-        print("-" * 80)
-        
-        for i, (player_name, final_score, embedding_score, keyword_bonus) in enumerate(position_scores, 1):
-            # Get player details
-            player_data = structured_data.get(player_name, {})
-            data = player_data.get('data', {})
-            hints_tips = player_data.get('hints_tips_news', '')
-            
-            # Format scores
-            final_score_str = f"{final_score:.4f}"
-            embedding_str = f"{embedding_score:.4f}"
-            keyword_str = f"{keyword_bonus:+.4f}"
-            
-            # Get position info
-            position_val = data.get('position', 'N/A')
-            team_name = data.get('team', 'N/A')
-            price = data.get('price', 0)
-            
-            # Display player ranking
-            print(f"{i:2d}. {player_name} ({position_val}, {team_name}, £{price}m)")
-            print(f"    Final Score: {final_score_str} (Embedding: {embedding_str} + Keyword: {keyword_str})")
-            
-            if hints_tips:
-                print(f"    FPL Suggestions: {hints_tips}")
-            print()
-    
-    # Analysis summary
-    print("="*80)
-    print("ANALYSIS SUMMARY")
-    print("="*80)
-    
-    total_players = sum(len(scores) for scores in hybrid_scores.values())
-    print(f"Total players ranked: {total_players}")
-    
-    for position, position_scores in hybrid_scores.items():
-        if position_scores:
-            scores = [score for _, score, _, _ in position_scores]
-            min_score = min(scores)
-            max_score = max(scores)
-            avg_score = sum(scores) / len(scores)
-            
-            print(f"\n{position}:")
-            print(f"  Count: {len(position_scores)}")
-            print(f"  Score Range: {min_score:.4f} - {max_score:.4f}")
-            print(f"  Average Score: {avg_score:.4f}")
-            
-            # Show top and bottom players
-            if position_scores:
-                top_player, top_score, _, _ = position_scores[0]
-                last_player, last_score, _, _ = position_scores[-1]
-                print(f"  Top: {top_player} ({top_score:.4f})")
-                print(f"  Last: {last_player} ({last_score:.4f})")
-    
-    print(f"\nEmbedding queries used:")
-    print("-" * 50)
-    from .strategies.embedding_filter import EmbeddingFilter
-    from .core.config import Config
-    filter_instance = EmbeddingFilter(Config())
-    for position, query in filter_instance.position_queries.items():
-        print(f"{position}: {query}")
-    
-    print("="*80)
-
-
-def display_viable_players_result(result):
-    """Display viable players filtering results"""
-    print("\n" + "="*80)
-    print("VIABLE PLAYERS FILTERING RESULTS")
-    print("="*80)
-    
-    # Summary
-    print(f"Total players loaded: {result['total_players_loaded']}")
-    print(f"Viable players: {result['total_players_filtered']}")
-    print(f"Filtered out: {result['filtered_out_count']} (Injured 'Out' or FPL 'Avoid')")
-    print(f"Reduction: {result['reduction_percentage']:.1f}%")
-    print(f"Timestamp: {result['timestamp']}")
-    
-    # Display by position
-    positions = result['positions']
-    
-    for position, players in positions.items():
-        print(f"\n{position} ({len(players)} players):")
-        print("-" * 60)
-        
-        for i, (player_name, enriched_string) in enumerate(players, 1):
-            # Try to get structured data for display
-            player_data = _get_structured_player_data(player_name)
-            
-            if player_data:
-                # Use structured data for display
-                data = player_data["data"]
-                
-                stats_line = f"Stats: Chance of Playing - {data.get('chance_of_playing', 'N/A')}%, PPG - {data.get('ppg', 0):.1f}, Form - {data.get('form', 0):.1f}, Minutes - {data.get('minutes_played', 0)}, Fixture Difficulty - {data.get('fixture_difficulty', 'N/A')}, Ownership - {data.get('ownership_percent', 0):.1f}%."
-                injury_line = f"Injury News: {player_data.get('injury_news', 'N/A')}"
-                hints_line = f"FPL Suggestions: {player_data.get('hints_tips_news', 'N/A')}"
-            else:
-                # Fallback to string parsing for legacy data
-                lines = enriched_string.split('\n')
-                stats_line = lines[1] if len(lines) > 1 else ""
-                injury_line = lines[2] if len(lines) > 2 else ""
-                hints_line = lines[3] if len(lines) > 3 else ""
-            
-            print(f"{i:2d}. {player_name}")
-            print(f"    {stats_line}")
-            print(f"    {injury_line}")
-            print(f"    {hints_line}")
-            print()
-    
-    print("="*80)
 
 
 def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None) -> str:

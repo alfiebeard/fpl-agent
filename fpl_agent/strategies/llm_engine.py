@@ -73,13 +73,12 @@ class LLMEngine:
             logger.error(f"Failed to initialize Gemini model: {e}")
             raise
     
-    def query(self, prompt: str, use_web_search: bool = False, extract_json: bool = False) -> str:
+    def query(self, prompt: str, extract_json: bool = False) -> str:
         """
         Query the LLM with a given prompt.
         
         Args:
             prompt: The prompt to send to the LLM
-            use_web_search: Whether to enable web search (affects model behavior)
             extract_json: Whether to extract and clean JSON from response
             
         Returns:
@@ -97,11 +96,33 @@ class LLMEngine:
             )
             
             # Check if response has text content
-            if not hasattr(response, 'text') or response.text is None:
-                logger.warning(f"LLM response has no text content. Response type: {type(response)}")
+            if not hasattr(response, 'candidates') or not response.candidates:
+                logger.warning(f"LLM response has no candidates. Response type: {type(response)}")
                 return "Error: Empty response from LLM"
             
-            response_text = response.text.strip()
+            # Extract text from the first candidate
+            candidate = response.candidates[0]
+            if not hasattr(candidate, 'content') or not candidate.content:
+                logger.warning(f"LLM response candidate has no content. Candidate: {candidate}")
+                return "Error: Empty response content from LLM"
+            
+            # Extract text from content parts
+            content_parts = candidate.content.parts
+            if not content_parts:
+                logger.warning(f"LLM response content has no parts. Content: {candidate.content}")
+                return "Error: Empty response parts from LLM"
+            
+            # Get text from the first part
+            first_part = content_parts[0]
+            if not hasattr(first_part, 'text'):
+                logger.warning(f"LLM response part has no text. Part: {first_part}")
+                return "Error: No text in response part"
+            
+            response_text = first_part.text.strip()
+            
+            if not response_text:
+                logger.warning("LLM response text is empty")
+                return "Error: Empty response text from LLM"
             
             # Extract JSON if requested
             if extract_json:

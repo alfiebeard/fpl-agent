@@ -432,50 +432,50 @@ class FPLValidator:
         return round(sell_price, 1)  # Round to 1 decimal place
 
 
-def validate_llm_response(response: str, gameweek: int, available_players: Dict[str, Dict[str, Any]] = None) -> List[str]:
-    """
-    Validate LLM response for team creation/update
-    
-    Args:
-        response: LLM response string
-        gameweek: Current gameweek
-        available_players: Available players data (for bank validation)
+    def validate_llm_response(self, response: str, gameweek: int, available_players: Dict[str, Dict[str, Any]] = None) -> List[str]:
+        """
+        Validate LLM response for team creation/update
         
-    Returns:
-        List of validation errors (empty if valid)
-    """
-    errors = []
-    
-    try:
-        # Extract JSON from response
-        json_start = response.find('{')
-        json_end = response.rfind('}') + 1
+        Args:
+            response: LLM response string
+            gameweek: Current gameweek
+            available_players: Available players data (for bank validation)
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
+        errors = []
         
-        if json_start == -1 or json_end == 0:
-            errors.append("No JSON found in response")
+        try:
+            # Extract JSON from response
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            
+            if json_start == -1 or json_end == 0:
+                errors.append("No JSON found in response")
+                return errors
+            
+            json_str = response[json_start:json_end]
+            team_data = json.loads(json_str)
+            
+            # Validate team data
+            validator = FPLValidator()
+            errors.extend(validator.validate_team_data(team_data, gameweek))
+            
+            # Validate bank if available players provided
+            if available_players and 'transfers' in team_data:
+                bank_errors = validator.validate_bank_calculation(
+                    team_data, gameweek, team_data.get('transfers', []), available_players
+                )
+                errors.extend(bank_errors)
+            
+        except json.JSONDecodeError as e:
+            errors.append(f"Invalid JSON in response: {str(e)}")
+        except Exception as e:
+            errors.append(f"Validation failed: {str(e)}")
+        
             return errors
-        
-        json_str = response[json_start:json_end]
-        team_data = json.loads(json_str)
-        
-        # Validate team data
-        validator = FPLValidator()
-        errors.extend(validator.validate_team_data(team_data, gameweek))
-        
-        # Validate bank if available players provided
-        if available_players and 'transfers' in team_data:
-            bank_errors = validator.validate_bank_calculation(
-                team_data, gameweek, team_data.get('transfers', []), available_players
-            )
-            errors.extend(bank_errors)
-        
-    except json.JSONDecodeError as e:
-        errors.append(f"Invalid JSON in response: {str(e)}")
-    except Exception as e:
-        errors.append(f"Validation failed: {str(e)}")
     
-    return errors 
-
     def parse_team_response(self, response: str) -> Dict[str, Any]:
         """Parse the LLM response into team data"""
         try:

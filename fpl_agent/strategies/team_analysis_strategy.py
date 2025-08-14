@@ -9,7 +9,6 @@ from typing import Dict, List, Any, Optional
 
 from ..core.config import Config
 from ..core.models import FPLTeam
-from ..data.data_service import DataService
 from ..utils.validator import FPLValidator
 from .base_strategy import BaseLLMStrategy
 
