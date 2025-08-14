@@ -18,7 +18,7 @@ try:
     from .core.models import Player, Position, FPLTeam
     from .strategies import TeamBuildingStrategy
     from .strategies.team_analysis_strategy import TeamAnalysisStrategy
-    from .utils.data_transformers import calculate_chance_of_playing
+    from .data import DataService
 except ImportError:
     # When run directly (python fpl_agent/main.py)
     # Add the parent directory to the path
@@ -27,7 +27,7 @@ except ImportError:
     from fpl_agent.core.models import Player, Position, FPLTeam
     from fpl_agent.strategies import TeamBuildingStrategy
     from fpl_agent.strategies.team_analysis_strategy import TeamAnalysisStrategy
-    from fpl_agent.utils.data_transformers import calculate_chance_of_playing
+    from fpl_agent.data import DataService
 
 
 # Configure logging
@@ -74,20 +74,18 @@ class FPLAgent:
         try:
             logger.info("Starting FPL API data fetch...")
             
-            # Import here to avoid circular imports
-            from .ingestion.fetch_fpl import FPLDataFetcher
-            from .utils.data_transformers import transform_fpl_data_to_teams
-            from .core.models import Position
+            # Use our new consolidated data pipeline
+            from .data import DataService
             
-            # Initialize FPL fetcher
-            fpl_fetcher = FPLDataFetcher(self.config)
+            # Initialize data service
+            data_service = DataService(self.config)
             
-            # Get FPL static data
-            logger.info("Fetching FPL static data...")
-            bootstrap_data = fpl_fetcher.get_fpl_static_data()
+            # Get processed player data
+            logger.info("Getting processed player data...")
+            player_data = data_service.get_players(force_refresh=force_refresh)
             
-            # Use data transformer to get rich player data
-            logger.info("Transforming data with rich player information...")
+            # Transform to team structure using our processor
+            logger.info("Transforming data to team structure...")
             filters = {
                 'exclude_injured': False,      # Include all players for display
                 'exclude_unavailable': False,  # Include all players for display
@@ -95,10 +93,12 @@ class FPLAgent:
                 'min_minutes': 0,              # Include all players
                 'max_price': float('inf'),     # No price limit
                 'min_form': float('-inf'),     # No form minimum
-                'positions': [Position.GK, Position.DEF, Position.MID, Position.FWD]
+                'positions': ['GK', 'DEF', 'MID', 'FWD']
             }
             
-            teams = transform_fpl_data_to_teams(bootstrap_data, filters)
+            teams = data_service.processor.transform_fpl_data_to_teams(
+                data_service.fetcher.get_fpl_static_data(), filters
+            )
             
             # Extract all players from teams
             all_players = []

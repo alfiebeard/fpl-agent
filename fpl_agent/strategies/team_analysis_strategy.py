@@ -26,32 +26,33 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
     def __init__(self, config: Config):
         super().__init__(config, model_name="lightweight")
         
-        # Cache for FPL data to avoid repeated API calls
-        self._cached_bootstrap_data = None
-        self._cached_fixtures_data = None
-        self._cached_current_gameweek = None
+        # Use new clean data pipeline instead of manual caching
+        from ..data import DataService
+        self.data_service = DataService(config)
     
     def get_strategy_name(self) -> str:
         """Return the name of this strategy."""
         return "Team Analysis Strategy"
     
     def initialize_fpl_data(self):
-        """Initialize FPL data cache to avoid repeated API calls during team processing"""
-        if self._cached_bootstrap_data is None:
-            logger.info("Initializing FPL data cache for lightweight LLM strategy...")
-            from ..ingestion.fetch_fpl import FPLDataFetcher
-            fetcher = FPLDataFetcher(self.config)
+        """Initialize FPL data using new data pipeline"""
+        logger.info("Initializing FPL data using new data pipeline...")
+        
+        # Get fresh data from our data service
+        players = self.data_service.get_players(force_refresh=False)
+        fixtures = self.data_service.fetcher.get_fixtures()
+        current_gameweek = self.data_service.fetcher.get_current_gameweek()
+        
+        if current_gameweek is None:
+            current_gameweek = 1  # Fallback to GW1
             
-            self._cached_bootstrap_data = fetcher.get_fpl_static_data()
-            self._cached_fixtures_data = fetcher.get_fixtures()
-            self._cached_current_gameweek = fetcher.get_current_gameweek()
-            
-            if self._cached_current_gameweek is None:
-                self._cached_current_gameweek = 1  # Fallback to GW1
-                
-            logger.info(f"FPL data cache initialized: GW{self._cached_current_gameweek}, "
-                       f"{len(self._cached_fixtures_data)} fixtures, "
-                       f"{len(self._cached_bootstrap_data.get('teams', []))} teams")
+        logger.info(f"FPL data initialized: GW{current_gameweek}, "
+                   f"{len(fixtures)} fixtures, "
+                   f"{len(players)} players")
+        
+        # Store for use in other methods
+        self._current_gameweek = current_gameweek
+        self._fixtures_data = fixtures
     
     def _get_fixture_info(self, team_name: str, current_gameweek: int) -> dict:
         """
@@ -64,12 +65,21 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Returns:
             Dictionary containing fixture string, double gameweek status, and fixture difficulty
         """
-        # Ensure FPL data is cached
+        # Ensure FPL data is initialized
         self.initialize_fpl_data()
         
-        # Use cached data instead of making API calls
-        fixtures_data = self._cached_fixtures_data
-        teams_data = self._cached_bootstrap_data.get('teams', [])
+        # Use data from our data service
+        fixtures_data = self._fixtures_data
+        players = self.data_service.get_players(force_refresh=False)
+        
+        # Extract team data from players
+        teams_data = []
+        team_names = set()
+        for player in players.values():
+            team_name = player.get('team_name')
+            if team_name and team_name not in team_names:
+                team_names.add(team_name)
+                teams_data.append({'name': team_name, 'id': len(teams_data) + 1})
         
         # Create team name to ID mapping with error handling
         team_id_map = {}
@@ -171,11 +181,11 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Returns:
             String containing injury news for each player
         """
-        # Ensure FPL data is cached
+        # Ensure FPL data is initialized
         self.initialize_fpl_data()
         
-        # Use cached current gameweek
-        current_gameweek = self._cached_current_gameweek
+        # Use current gameweek from data service
+        current_gameweek = self._current_gameweek
         
         # Get fixture information
         fixture_info = self._get_fixture_info(team_name, current_gameweek)
@@ -200,11 +210,11 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Returns:
             String containing hints, tips, and recommendations for each player
         """
-        # Ensure FPL data is cached
+        # Ensure FPL data is initialized
         self.initialize_fpl_data()
         
-        # Use cached current gameweek
-        current_gameweek = self._cached_current_gameweek
+        # Use current gameweek from data service
+        current_gameweek = self._current_gameweek
         
         # Get fixture information
         fixture_info = self._get_fixture_info(team_name, current_gameweek)
