@@ -3,12 +3,16 @@ Base class for all LLM strategies.
 This provides common functionality shared between different strategy implementations.
 """
 
+import json
 import logging
+import re
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from ..core.config import Config
 from .llm_engine import LLMEngine
+from ..data import DataService
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +23,8 @@ class BaseLLMStrategy(ABC):
     
     This class provides common functionality that all LLM strategies share:
     - LLM engine initialization and management
-    - Common prompt creation utilities
-    - Shared response processing methods
+    - Data service access
+    - Common response processing methods
     - Configuration management
     """
     
@@ -38,39 +42,10 @@ class BaseLLMStrategy(ABC):
         # Initialize LLM engine with specified model
         self.llm_engine = LLMEngine(config, model_name)
         
+        # Initialize data service for all strategies
+        self.data_service = DataService(config)
+        
         logger.info(f"Initialized {self.__class__.__name__} with model: {model_name}")
-    
-    @abstractmethod
-    def get_strategy_name(self) -> str:
-        """
-        Return the name of this strategy.
-        
-        Returns:
-            String identifier for the strategy
-        """
-        pass
-    
-    def _create_prompt(self, template: str, **kwargs) -> str:
-        """
-        Create a prompt by formatting a template with provided arguments.
-        
-        Args:
-            template: Prompt template string with placeholders
-            kwargs: Values to substitute into the template
-            
-        Returns:
-            Formatted prompt string
-        """
-        try:
-            return template.format(**kwargs)
-        except KeyError as e:
-            logger.error(f"Missing required prompt argument: {e}")
-            logger.error(f"Template: {template}")
-            logger.error(f"Provided kwargs: {kwargs}")
-            raise ValueError(f"Prompt template missing required argument: {e}")
-        except Exception as e:
-            logger.error(f"Failed to create prompt: {e}")
-            raise
     
     def _extract_json_response(self, response: str, context: str = "LLM response") -> Dict[str, Any]:
         """
@@ -93,15 +68,10 @@ class BaseLLMStrategy(ABC):
                 extracted = self.llm_engine._extract_json_from_response(response)
                 if extracted != response:  # JSON was extracted
                     try:
-                        import json
                         return json.loads(extracted)
                     except json.JSONDecodeError:
                         pass
-            
-            # Fallback to manual JSON extraction
-            import json
-            import re
-            
+                        
             # Look for JSON object in the response
             json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
             if json_match:
@@ -128,98 +98,27 @@ class BaseLLMStrategy(ABC):
             logger.error(f"Unexpected error extracting JSON from {context}: {e}")
             return {}
     
-    def _validate_llm_response(self, response: str, context: str = "LLM response") -> bool:
+    def get_current_gameweek(self) -> int:
         """
-        Validate that an LLM response is usable.
+        Get current gameweek from data pipeline with fallback.
+        
+        Returns:
+            Current gameweek number or 1 as fallback
+        """
+        return self.data_service.fetcher.get_current_gameweek() or 1
+    
+    def get_fixture_info(self, team_name: str, current_gameweek: int) -> Dict[str, Any]:
+        """
+        Get fixture information for a team in a specific gameweek.
         
         Args:
-            response: Response string from LLM
-            context: Context for error messages
+            team_name: Name of the team
+            current_gameweek: Current gameweek number
             
         Returns:
-            True if response is valid, False otherwise
+            Dictionary containing fixture string, double gameweek status, and fixture difficulty
         """
-        if not response:
-            logger.warning(f"Empty {context}")
-            return False
-        
-        if response.startswith("Error:"):
-            logger.warning(f"LLM returned error in {context}: {response}")
-            return False
-        
-        if len(response.strip()) < 10:
-            logger.warning(f"Very short {context}: {response}")
-            return False
-        
-        return True
-    
-    def _log_llm_interaction(self, prompt: str, response: str, context: str = "LLM query") -> None:
-        """
-        Log LLM interaction details for debugging.
-        
-        Args:
-            prompt: Prompt sent to LLM
-            response: Response received from LLM
-            context: Context for the interaction
-        """
-        logger.debug(f"=== {context} ===")
-        logger.debug(f"Prompt (length: {len(prompt)}): {prompt[:200]}...")
-        logger.debug(f"Response (length: {len(response)}): {response[:200]}...")
-        
-        # Log response quality indicators
-        if response.startswith("Error:"):
-            logger.warning(f"LLM error in {context}: {response}")
-        elif len(response.strip()) < 50:
-            logger.warning(f"Very short response in {context}: {response}")
-    
-    def get_config_value(self, key: str, default: Any = None) -> Any:
-        """
-        Get configuration value with fallback to default.
-        
-        Args:
-            key: Configuration key (supports dot notation)
-            default: Default value if key not found
-            
-        Returns:
-            Configuration value or default
-        """
-        return self.config.get(key, default)
-    
-    def get_model_config(self) -> Dict[str, Any]:
-        """
-        Get the current model configuration.
-        
-        Returns:
-            Dictionary containing model configuration
-        """
-        return self.config.get_llm_model_config(self.model_name)
-    
-    def refresh_model(self) -> None:
-        """
-        Refresh the LLM model configuration.
-        
-        This can be useful if model settings change during runtime.
-        """
-        logger.info(f"Refreshing LLM model configuration for {self.model_name}")
-        
-        # Reinitialize LLM engine with current config
-        self.llm_engine = LLMEngine(self.config, self.model_name)
-        
-        logger.info(f"LLM model refreshed: {self.model_name}")
-    
-    def get_strategy_info(self) -> Dict[str, Any]:
-        """
-        Get information about this strategy instance.
-        
-        Returns:
-            Dictionary containing strategy information
-        """
-        return {
-            "strategy_name": self.get_strategy_name(),
-            "model_name": self.model_name,
-            "config_source": self.config.config_path,
-            "llm_engine_type": self.llm_engine.__class__.__name__
-        }
+        return self.data_service.get_fixture_info(team_name, current_gameweek)
     
     def __str__(self) -> str:
         """String representation of the strategy."""

@@ -255,3 +255,19 @@ class DataService:
             info['last_updated'] = (datetime.now() - timedelta(hours=age_hours)).isoformat()
         
         return info
+    
+    def get_fixture_info(self, team_name: str, current_gameweek: int) -> Dict[str, Any]:
+        """
+        Get fixture information for a team in a specific gameweek.
+        
+        Args:
+            team_name: Name of the team
+            current_gameweek: Current gameweek number
+            
+        Returns:
+            Dictionary containing fixture string, double gameweek status, and fixture difficulty
+        """
+        fixtures = self.fetcher.get_fixtures()
+        players = self.get_players(force_refresh=False)
+        
+        return self.processor.get_fixture_info(team_name, current_gameweek, fixtures, players)
