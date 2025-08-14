@@ -15,7 +15,7 @@ from pathlib import Path
 try:
     # When run as module (python -m fpl_agent.main)
     from .core.config import Config
-    from .core.models import Player, Position, FPLTeam
+    from .core.models import Position, FPLTeam
     from .strategies import TeamBuildingStrategy
     from .strategies.team_analysis_strategy import TeamAnalysisStrategy
     from .data import DataService
@@ -24,7 +24,7 @@ except ImportError:
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from fpl_agent.core.config import Config
-    from fpl_agent.core.models import Player, Position, FPLTeam
+    from fpl_agent.core.models import Position, FPLTeam
     from fpl_agent.strategies import TeamBuildingStrategy
     from fpl_agent.strategies.team_analysis_strategy import TeamAnalysisStrategy
     from fpl_agent.data import DataService
@@ -119,15 +119,16 @@ class FPLAgent:
             
             for player in players:
                 # Position distribution
-                pos = player.position.value
+                pos = player.get('position', 'UNK')
                 position_distribution[pos] = position_distribution.get(pos, 0) + 1
                 
                 # Price range distribution
-                if player.price <= 5.0:
+                price = player.get('now_cost', 0) / 10.0
+                if price <= 5.0:
                     price_range = "£0-5m"
-                elif player.price <= 7.5:
+                elif price <= 7.5:
                     price_range = "£5-7.5m"
-                elif player.price <= 10.0:
+                elif price <= 10.0:
                     price_range = "£7.5-10m"
                 else:
                     price_range = "£10m+"
@@ -151,36 +152,36 @@ class FPLAgent:
                 
                 for player in players:
                     # Get additional stats if available (for other fields like fixture difficulty)
-                    additional_stats = player.custom_data if hasattr(player, 'custom_data') else {}
+                    additional_stats = player.get('custom_data', {})
                     
                     player_data = {
                         "data": {
-                            "name": player.name,
-                            "team": player.team_name,
-                            "position": player.position.value,
-                            "price": player.price,
-                            "chance_of_playing_next_round": player.chance_of_playing_next_round if player.chance_of_playing_next_round is not None else 100,
-                            "chance_of_playing_this_round": player.chance_of_playing_this_round if player.chance_of_playing_this_round is not None else 100,
-                            "ppg": additional_stats.get('ppg', player.points_per_game),
-                            "form": additional_stats.get('form', player.form),
-                            "minutes_played": additional_stats.get('minutes_played', player.minutes),
+                            "name": player.get('full_name', 'Unknown'),
+                            "team": player.get('team_name', 'Unknown'),
+                            "position": player.get('position', 'UNK'),
+                            "price": player.get('now_cost', 0) / 10.0,
+                            "chance_of_playing_next_round": player.get('chance_of_playing_next_round', 100),
+                            "chance_of_playing_this_round": player.get('chance_of_playing_this_round', 100),
+                            "ppg": additional_stats.get('ppg', player.get('points_per_game', '0.0')),
+                            "form": additional_stats.get('form', player.get('form', 0.0)),
+                            "minutes_played": additional_stats.get('minutes_played', player.get('minutes', 0)),
                             "fixture_difficulty": additional_stats.get('upcoming_fixture_difficulty', 3.0),
-                            "ownership_percent": additional_stats.get('ownership_percent', float(player.selected_by_percent)),
-                            "total_points": player.total_points,
-                            "points_per_game": player.points_per_game,
-                            "selected_by_pct": float(player.selected_by_percent),
-                            "is_injured": player.is_injured,
-                            "injury_type": player.news or "",
-                            "price_change": player.price_change,
-                            "team_id": player.team_id,
-                            "team_short_name": player.team_short_name,
-                            "xG": player.xG,
-                            "xA": player.xA,
-                            "xGC": player.xGC,
-                            "xMins_pct": player.xMins_pct
+                            "ownership_percent": additional_stats.get('ownership_percent', float(player.get('selected_by_percent', '0.0'))),
+                            "total_points": player.get('total_points', 0),
+                            "points_per_game": player.get('points_per_game', '0.0'),
+                            "selected_by_pct": float(player.get('selected_by_percent', '0.0')),
+                            "is_injured": player.get('is_injured', False),
+                            "injury_type": player.get('news', ''),
+                            "price_change": player.get('cost_change_start', 0) / 10.0,
+                            "team_id": player.get('team_id', 0),
+                            "team_short_name": player.get('team_short_name', 'UNK'),
+                            "xG": player.get('xG', '0.00'),
+                            "xA": player.get('xA', '0.00'),
+                            "xGC": player.get('xGC', '0.00'),
+                            "xMins_pct": player.get('xMins_pct', 1.0)
                         }
                     }
-                    structured_data[player.name] = player_data
+                    structured_data[player.get('full_name', 'Unknown')] = player_data
                 
                 # Save to cache
                 self.llm_strategy._save_player_data_cache(structured_data)
@@ -305,8 +306,8 @@ class FPLAgent:
             return "Unknown"
         
         for player in team.players:
-            if player.id == player_id:
-                return player.name
+            if player.get('id') == player_id:
+                return player.get('full_name', 'Unknown')
         
         return f"Player {player_id}"
     
@@ -334,7 +335,7 @@ class FPLAgent:
             
             if team_name:
                 # Get specific team
-                team_players = [p for p in players if p.team_name == team_name]
+                team_players = [p for p in players if p.get('team_name') == team_name]
                 if not team_players:
                     raise ValueError(f"No players found for team: {team_name}")
                 
@@ -350,9 +351,10 @@ class FPLAgent:
                 # Get all teams
                 teams = {}
                 for player in players:
-                    if player.team_name not in teams:
-                        teams[player.team_name] = []
-                    teams[player.team_name].append(player)
+                    team_name = player.get('team_name')
+                    if team_name not in teams:
+                        teams[team_name] = []
+                    teams[team_name].append(player)
                 
                 results = {}
                 for team_name, team_players in teams.items():
@@ -397,7 +399,7 @@ class FPLAgent:
             
             if team_name:
                 # Get specific team
-                team_players = [p for p in players if p.team_name == team_name]
+                team_players = [p for p in players if p.get('team_name') == team_name]
                 if not team_players:
                     raise ValueError(f"No players found for team: {team_name}")
                 
@@ -413,9 +415,10 @@ class FPLAgent:
                 # Get all teams
                 teams = {}
                 for player in players:
-                    if player.team_name not in teams:
-                        teams[player.team_name] = []
-                    teams[player.team_name].append(player)
+                    team_name = player.get('team_name')
+                    if team_name not in teams:
+                        teams[team_name] = []
+                    teams[team_name].append(player)
                 
                 results = {}
                 for team_name, team_players in teams.items():
@@ -1148,17 +1151,17 @@ def display_player_data(result):
     # Sort players: club alphabetically, then position (GK, DEF, MID, FWD), then player name alphabetically
     position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
     sorted_players = sorted(result['players'], 
-                          key=lambda p: (p.team_name, position_order[p.position.value], p.name))
+                          key=lambda p: (p.get('team_name', 'Unknown'), position_order.get(p.get('position', 'UNK'), 4), p.get('full_name', 'Unknown')))
     
     for player in sorted_players:
         # Calculate chance of playing as minimum of this round and next round
         chance_of_playing = calculate_chance_of_playing(
-            player.chance_of_playing_this_round,
-            player.chance_of_playing_next_round
+            player.get('chance_of_playing_this_round'),
+            player.get('chance_of_playing_next_round')
         )
         chance_str = f"{chance_of_playing}%"
         
-        print(f"{player.name:<25} {player.team_name:<15} {player.position.value:<4} £{player.price:<5.1f} {chance_str:<6} {player.form:<6} {player.total_points:<10} {player.points_per_game:<8} {player.selected_by_percent:<10}")
+        print(f"{player.get('full_name', 'Unknown'):<25} {player.get('team_name', 'Unknown'):<15} {player.get('position', 'UNK'):<4} £{player.get('now_cost', 0)/10.0:<5.1f} {chance_str:<6} {player.get('form', 0):<6} {player.get('total_points', 0):<10} {player.get('points_per_game', '0.0'):<8} {player.get('selected_by_percent', '0.0'):<10}")
     
     print(f"\nData fetch completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -1738,54 +1741,70 @@ def load_team_from_file(file_path: str) -> FPLTeam:
         team_data = load_team_from_json(file_path)
         
         # Convert to FPLTeam object
-        from .models import Player, Position
-        
         players = []
         
         # Process starting 11
         for player_data in team_data.get('squad', {}).get('starting_11', []):
-            player = Player(
-                id=len(players) + 1,  # Generate temporary ID
-                name=player_data['name'],
-                team_id=1,  # Will need to map team names to IDs
-                position=Position[player_data['position']],
-                price=player_data['price'],
-                team_name=player_data['team']
-            )
+            player = {
+                'id': len(players) + 1,  # Generate temporary ID
+                'first_name': player_data['name'].split(' ', 1)[0] if ' ' in player_data['name'] else player_data['name'],
+                'second_name': player_data['name'].split(' ', 1)[1] if ' ' in player_data['name'] else '',
+                'full_name': player_data['name'],
+                'position': player_data['position'],
+                'team_name': player_data['team'],
+                'now_cost': int(player_data['price'] * 10),  # Convert to tenths
+                'total_points': 0,
+                'form': 0.0,
+                'status': 'a'
+            }
             players.append(player)
         
         # Process substitutes
         for player_data in team_data.get('squad', {}).get('substitutes', []):
-            player = Player(
-                id=len(players) + 1,  # Generate temporary ID
-                name=player_data['name'],
-                team_id=1,  # Will need to map team names to IDs
-                position=Position[player_data['position']],
-                price=player_data['price'],
-                team_name=player_data['team']
-            )
+            player = {
+                'id': len(players) + 1,  # Generate temporary ID
+                'first_name': player_data['name'].split(' ', 1)[0] if ' ' in player_data['name'] else player_data['name'],
+                'second_name': player_data['name'].split(' ', 1)[1] if ' ' in player_data['name'] else '',
+                'full_name': player_data['name'],
+                'position': player_data['position'],
+                'team_name': player_data['team'],
+                'now_cost': int(player_data['price'] * 10),  # Convert to tenths
+                'total_points': 0,
+                'form': 0.0,
+                'status': 'a'
+            }
             players.append(player)
         
         # Get captain and vice captain IDs
         captain_id = None
         vice_captain_id = None
         for player in players:
-            if player.name == team_data.get('team_info', {}).get('captain'):
-                captain_id = player.id
-            elif player.name == team_data.get('team_info', {}).get('vice_captain'):
-                vice_captain_id = player.id
+            if player['full_name'] == team_data.get('team_info', {}).get('captain'):
+                captain_id = player['id']
+            elif player['full_name'] == team_data.get('team_info', {}).get('vice_captain'):
+                vice_captain_id = player['id']
         
-        return FPLTeam(
+        # Create team
+        team = FPLTeam(
             team_id=1,  # Default team ID
             team_name="Loaded Team",
-            manager_name="Manager",
-            players=players,
-            captain_id=captain_id,
-            vice_captain_id=vice_captain_id,
-            total_value=team_data.get('team_info', {}).get('total_cost', 100.0),
-            bank=team_data.get('team_info', {}).get('bank', 0.0),
-            free_transfers=team_data.get('transfers', {}).get('free_transfers', 1)
+            manager_name="Manager"
         )
+        
+        # Add players
+        for player in players:
+            team.add_player(player)
+        
+        # Set captain and vice captain
+        team.captain_id = captain_id
+        team.vice_captain_id = vice_captain_id
+        
+        # Set budget info
+        team.total_value = team_data.get('team_info', {}).get('total_cost', 100.0)
+        team.bank = team_data.get('team_info', {}).get('bank', 0.0)
+        team.free_transfers = team_data.get('transfers', {}).get('free_transfers', 1)
+        
+        return team
         
     except Exception as e:
         logger.error(f"Failed to load team from {file_path}: {e}")
@@ -1795,25 +1814,99 @@ def load_team_from_file(file_path: str) -> FPLTeam:
 
 def create_sample_team() -> FPLTeam:
     """Create a sample team for testing"""
-    from .models import Player, Position
     
+    # Sample players data (using dictionaries instead of Player objects)
     sample_players = [
-        Player(1, "Sample Goalkeeper", 1, Position.GK, 4.5, total_points=50, form=3.2, team_name="Team A"),
-        Player(2, "Sample Defender 1", 2, Position.DEF, 5.0, total_points=60, form=4.1, team_name="Team B"),
-        Player(3, "Sample Defender 2", 3, Position.DEF, 4.5, total_points=45, form=3.8, team_name="Team C"),
-        Player(4, "Sample Midfielder 1", 4, Position.MID, 8.5, total_points=120, form=6.2, team_name="Team D"),
-        Player(5, "Sample Midfielder 2", 5, Position.MID, 7.0, total_points=90, form=5.1, team_name="Team E"),
-        Player(6, "Sample Forward", 6, Position.FWD, 9.5, total_points=140, form=7.3, team_name="Team F"),
+        {
+            'id': 1,
+            'first_name': 'Sample',
+            'second_name': 'Goalkeeper',
+            'full_name': 'Sample Goalkeeper',
+            'position': 'GK',
+            'team_name': 'Team A',
+            'now_cost': 45,  # £4.5m
+            'total_points': 50,
+            'form': 3.2,
+            'status': 'a'
+        },
+        {
+            'id': 2,
+            'first_name': 'Sample',
+            'second_name': 'Defender 1',
+            'full_name': 'Sample Defender 1',
+            'position': 'DEF',
+            'team_name': 'Team B',
+            'now_cost': 50,  # £5.0m
+            'total_points': 60,
+            'form': 4.1,
+            'status': 'a'
+        },
+        {
+            'id': 3,
+            'first_name': 'Sample',
+            'second_name': 'Defender 2',
+            'full_name': 'Sample Defender 2',
+            'position': 'DEF',
+            'team_name': 'Team C',
+            'now_cost': 45,  # £4.5m
+            'total_points': 45,
+            'form': 3.8,
+            'status': 'a'
+        },
+        {
+            'id': 4,
+            'first_name': 'Sample',
+            'second_name': 'Midfielder 1',
+            'full_name': 'Sample Midfielder 1',
+            'position': 'MID',
+            'team_name': 'Team D',
+            'now_cost': 85,  # £8.5m
+            'total_points': 120,
+            'form': 6.2,
+            'status': 'a'
+        },
+        {
+            'id': 5,
+            'first_name': 'Sample',
+            'second_name': 'Midfielder 2',
+            'full_name': 'Sample Midfielder 2',
+            'position': 'MID',
+            'team_name': 'Team E',
+            'now_cost': 70,  # £7.0m
+            'total_points': 90,
+            'form': 5.1,
+            'status': 'a'
+        },
+        {
+            'id': 6,
+            'first_name': 'Sample',
+            'second_name': 'Forward',
+            'full_name': 'Sample Forward',
+            'position': 'FWD',
+            'team_name': 'Team F',
+            'now_cost': 95,  # £9.5m
+            'total_points': 140,
+            'form': 7.3,
+            'status': 'a'
+        }
     ]
     
-    return FPLTeam(
+    # Create team
+    team = FPLTeam(
         team_id=123,
         team_name="Sample Team",
-        manager_name="Sample Manager",
-        players=sample_players,
-        total_value=95.0,
-        bank=5.0
+        manager_name="Sample Manager"
     )
+    
+    # Add players
+    for player in sample_players:
+        team.add_player(player)
+    
+    # Set budget info
+    team.total_value = 95.0
+    team.bank = 5.0
+    
+    return team
 
 def list_saved_teams() -> List[str]:
     """

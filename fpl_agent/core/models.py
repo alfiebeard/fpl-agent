@@ -25,111 +25,6 @@ class ChipType(Enum):
 
 
 @dataclass
-class Player:
-    """Player model with all relevant FPL data - aligned with FPL API structure"""
-    
-    # Basic info (FPL API fields)
-    id: int
-    first_name: str
-    second_name: str
-    team_id: int
-    element_type: int  # 1=GK, 2=DEF, 3=MID, 4=FWD
-    now_cost: int  # Price in tenths (e.g., 55 = £5.5m)
-    
-    # Stats (FPL API fields)
-    total_points: int = 0
-    form: str = "0.0"  # Form over last 5 gameweeks
-    points_per_game: str = "0.0"
-    minutes: int = 0
-    selected_by_percent: str = "0.0"
-    
-    # Expected stats (FPL API fields)
-    xG: str = "0.00"
-    xA: str = "0.00"
-    xGC: str = "0.00"  # Expected goals conceded (for defenders/GKs)
-    xMins_pct: float = 1.0  # Expected playing time percentage
-    
-    # Injury status (FPL API fields)
-    status: str = "a"  # a=available, i=injured, s=suspended, u=unavailable
-    news: str = ""  # Injury/news information
-    news_added: Optional[str] = None  # When news was last updated
-    chance_of_playing_next_round: Optional[int] = None  # Chance of playing next gameweek (%)
-    chance_of_playing_this_round: Optional[int] = None  # Chance of playing this gameweek (%)
-    
-    # Price changes (FPL API fields)
-    cost_change_start: int = 0  # Price change since start of season (in tenths)
-    cost_change_event: int = 0  # Price change this gameweek (in tenths)
-    
-    # Team info (derived from team_id)
-    team_name: str = ""
-    team_short_name: str = ""
-    
-    # Position enum (derived from element_type)
-    position: Optional[Position] = None
-    
-    # Custom fields for additional data
-    custom_data: Dict[str, Any] = field(default_factory=dict)
-    
-    # Computed properties
-    @property
-    def name(self) -> str:
-        """Full player name"""
-        return f"{self.first_name} {self.second_name}"
-    
-    @property
-    def price(self) -> float:
-        """Current price in millions"""
-        return self.now_cost / 10.0
-    
-    @property
-    def price_change(self) -> float:
-        """Price change since start of season in millions"""
-        return self.cost_change_start / 10.0
-    
-    @property
-    def is_injured(self) -> bool:
-        """Check if player is injured"""
-        return self.status == 'i'
-    
-    @property
-    def is_available(self) -> bool:
-        """Check if player is available to play"""
-        return self.status == 'a'
-    
-    @property
-    def value_for_money(self) -> float:
-        """Calculate value for money (points per million)"""
-        if self.price <= 0:
-            return 0.0
-        return float(self.points_per_game) / self.price
-
-    def __post_init__(self):
-        """Set derived fields after initialization"""
-        # Set position enum from element_type
-        position_map = {1: Position.GK, 2: Position.DEF, 3: Position.MID, 4: Position.FWD}
-        self.position = position_map.get(self.element_type, Position.MID)
-
-
-@dataclass
-class Team:
-    """Team model"""
-    
-    id: int
-    name: str
-    short_name: str
-    strength: int = 0  # Team strength rating
-    form: float = 0.0  # Recent form
-    xG: float = 0.0  # Expected goals scored
-    xGA: float = 0.0  # Expected goals conceded
-    
-    # Custom fields
-    custom_data: Dict[str, Any] = field(default_factory=dict)
-
-
-
-
-
-@dataclass
 class FPLTeam:
     """User's FPL team model"""
     
@@ -139,7 +34,7 @@ class FPLTeam:
     manager_name: str
     
     # Current squad
-    players: List[Player] = field(default_factory=list)
+    players: List[Dict[str, Any]] = field(default_factory=list)
     captain_id: Optional[int] = None
     vice_captain_id: Optional[int] = None
     
@@ -175,23 +70,23 @@ class FPLTeam:
                 ChipType.BENCH_BOOST
             ]
     
-    def get_players_by_position(self, position: Position) -> List[Player]:
+    def get_players_by_position(self, position: str) -> List[Dict[str, Any]]:
         """Get all players of a specific position"""
-        return [p for p in self.players if p.position == position]
+        return [p for p in self.players if p.get('position') == position]
     
-    def get_starting_11(self) -> List[Player]:
+    def get_starting_11(self) -> List[Dict[str, Any]]:
         """Get the starting 11 based on current formation"""
         if len(self.formation) != 3:
             raise ValueError("Formation must have 3 elements [def, mid, fwd]")
         
-        def_players = self.get_players_by_position(Position.DEF)
-        mid_players = self.get_players_by_position(Position.MID)
-        fwd_players = self.get_players_by_position(Position.FWD)
+        def_players = self.get_players_by_position('DEF')
+        mid_players = self.get_players_by_position('MID')
+        fwd_players = self.get_players_by_position('FWD')
         
         # Sort by form/points and take top players for each position
-        def_players.sort(key=lambda p: p.form, reverse=True)
-        mid_players.sort(key=lambda p: p.form, reverse=True)
-        fwd_players.sort(key=lambda p: p.form, reverse=True)
+        def_players.sort(key=lambda p: float(p.get('form', 0)), reverse=True)
+        mid_players.sort(key=lambda p: float(p.get('form', 0)), reverse=True)
+        fwd_players.sort(key=lambda p: float(p.get('form', 0)), reverse=True)
         
         starting_11 = []
         starting_11.extend(def_players[:self.formation[0]])
@@ -200,88 +95,85 @@ class FPLTeam:
         
         return starting_11
     
-    def get_bench(self) -> List[Player]:
-        """Get bench players"""
+    def get_bench(self) -> List[Dict[str, Any]]:
+        """Get bench players (all players not in starting 11)"""
         starting_11 = self.get_starting_11()
-        return [p for p in self.players if p not in starting_11]
+        starting_ids = {p.get('id') for p in starting_11}
+        return [p for p in self.players if p.get('id') not in starting_ids]
     
-    def get_captain(self) -> Optional[Player]:
-        """Get captain player"""
+    def get_captain(self) -> Optional[Dict[str, Any]]:
+        """Get the captain player"""
         if self.captain_id is None:
             return None
-        return next((p for p in self.players if p.id == self.captain_id), None)
+        return next((p for p in self.players if p.get('id') == self.captain_id), None)
     
-    def get_vice_captain(self) -> Optional[Player]:
-        """Get vice captain player"""
+    def get_vice_captain(self) -> Optional[Dict[str, Any]]:
+        """Get the vice captain player"""
         if self.vice_captain_id is None:
             return None
-        return next((p for p in self.players if p.id == self.vice_captain_id), None)
+        return next((p for p in self.players if p.get('id') == self.vice_captain_id), None)
     
-    @classmethod
-    def get_default_formation(cls) -> List[int]:
-        """Get default formation from config or fallback to [3, 4, 3]"""
-        try:
-            config = Config()
-            formation_constraints = config.get_formation_constraints()
-            return [
-                formation_constraints['DEF'][0],  # Min defenders
-                formation_constraints['MID'][0],  # Min midfielders  
-                formation_constraints['FWD'][0]   # Min forwards
-            ]
-        except Exception:
-            return [3, 4, 3]  # Fallback
+    def add_player(self, player: Dict[str, Any]) -> None:
+        """Add a player to the team"""
+        self.players.append(player)
     
-    @classmethod
-    def get_default_budget(cls) -> float:
-        """Get default budget from config or fallback to 100.0"""
-        try:
-            config = Config()
-            return config.get_team_config().get('budget', 100.0)
-        except Exception:
-            return 100.0  # Fallback
-
-
-@dataclass
-class Transfer:
-    """Transfer model"""
+    def remove_player(self, player_id: int) -> bool:
+        """Remove a player from the team by ID"""
+        for i, player in enumerate(self.players):
+            if player.get('id') == player_id:
+                del self.players[i]
+                return True
+        return False
     
-    player_out: Player
-    player_in: Player
-    gameweek: int
-    cost: int = 0  # Transfer hit cost
-    reason: str = ""
+    def get_total_cost(self) -> float:
+        """Calculate total team cost"""
+        return sum(float(p.get('price', 0)) for p in self.players)
     
-    # Custom fields
-    custom_data: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class OptimizationResult:
-    """Result of team optimization"""
+    def get_remaining_budget(self) -> float:
+        """Calculate remaining budget"""
+        return self.total_value - self.get_total_cost()
     
-    # Selected players
-    selected_players: List[Player] = field(default_factory=list)
+    def is_valid_formation(self) -> bool:
+        """Check if the current formation is valid"""
+        if len(self.formation) != 3:
+            return False
+        
+        def_count, mid_count, fwd_count = self.formation
+        
+        # Check if we have enough players for this formation
+        def_players = self.get_players_by_position('DEF')
+        mid_players = self.get_players_by_position('MID')
+        fwd_players = self.get_players_by_position('FWD')
+        
+        return (len(def_players) >= def_count and 
+                len(mid_players) >= mid_count and 
+                len(fwd_players) >= fwd_count)
     
-    # Team changes
-    transfers: List[Transfer] = field(default_factory=list)
-    captain_id: Optional[int] = None
-    vice_captain_id: Optional[int] = None
-    formation: List[int] = field(default_factory=lambda: [3, 4, 3])
+    def get_team_summary(self) -> Dict[str, Any]:
+        """Get a summary of the team"""
+        return {
+            'team_id': self.team_id,
+            'team_name': self.team_name,
+            'manager_name': self.manager_name,
+            'total_players': len(self.players),
+            'total_value': self.get_total_cost(),
+            'bank': self.bank,
+            'formation': self.formation,
+            'captain': self.get_captain(),
+            'vice_captain': self.get_vice_captain(),
+            'chips_used': [chip.value for chip in self.chips_used],
+            'chips_remaining': [chip.value for chip in self.chips_remaining],
+            'free_transfers': self.free_transfers,
+            'total_points': self.total_points,
+            'overall_rank': self.overall_rank
+        }
     
-    # Team financial info
-    team_value: float = 100.0
-    bank_balance: float = 0.0
+    @staticmethod
+    def get_default_formation() -> List[int]:
+        """Get default formation [def, mid, fwd]"""
+        return [4, 4, 2]
     
-    # Expected performance
-    expected_points: float = 0.0
-    expected_points_next_5: float = 0.0
-    
-    # Confidence
-    confidence: float = 0.0  # 0-1 scale
-    
-    # Reasoning
-    reasoning: str = ""
-    llm_insights: str = ""
-    
-    # Custom fields
-    custom_data: Dict[str, Any] = field(default_factory=dict) 
+    @staticmethod
+    def get_default_budget() -> float:
+        """Get default budget"""
+        return 100.0 
