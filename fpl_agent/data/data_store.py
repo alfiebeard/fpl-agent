@@ -82,42 +82,38 @@ class DataStore:
         Args:
             data: Loaded data dictionary
         """
-        cache_timestamp = data.get('cache_timestamp')
-        if not cache_timestamp:
+        age_hours = self._calculate_data_age_hours(data)
+        if age_hours is None:
             warning_msg = "⚠️  Using player data with unknown age. Consider refreshing for fresh data."
             logger.warning(warning_msg)
             print(f"\n{warning_msg}")
             return
         
-        try:
-            cache_time = datetime.fromisoformat(cache_timestamp)
-            age_hours = (datetime.now() - cache_time).total_seconds() / 3600
-            
-            if age_hours > 168:  # 7 days
-                warning_msg = f"⚠️  CRITICAL: Using player data that is {age_hours:.1f} hours old ({age_hours/24:.1f} days). Data is very outdated!"
-                logger.warning(warning_msg)
-                print(f"\n{warning_msg}")
-            elif age_hours > 24:  # 24 hours
-                warning_msg = f"⚠️  Using player data that is {age_hours:.1f} hours old. Consider refreshing for fresh data."
-                logger.warning(warning_msg)
-                print(f"\n{warning_msg}")
-            else:
-                logger.info(f"Using player data ({age_hours:.1f} hours old)")
-                
-        except Exception as e:
-            logger.warning(f"Could not determine data age: {e}")
-    
-    def get_data_age_hours(self) -> Optional[float]:
-        """
-        Get the age of stored data in hours.
+        # Age thresholds
+        CRITICAL_AGE_HOURS = 168  # 7 days
+        WARNING_AGE_HOURS = 24    # 1 day
         
+        if age_hours > CRITICAL_AGE_HOURS:
+            warning_msg = f"⚠️  CRITICAL: Using player data that is {age_hours:.1f} hours old ({age_hours/24:.1f} days). Data is very outdated!"
+            logger.warning(warning_msg)
+            print(f"\n{warning_msg}")
+        elif age_hours > WARNING_AGE_HOURS:
+            warning_msg = f"⚠️  Using player data that is {age_hours:.1f} hours old. Consider refreshing for fresh data."
+            logger.warning(warning_msg)
+            print(f"\n{warning_msg}")
+        else:
+            logger.info(f"Using player data ({age_hours:.1f} hours old)")
+    
+    def _calculate_data_age_hours(self, data: Dict[str, Any]) -> Optional[float]:
+        """
+        Calculate the age of stored data in hours.
+        
+        Args:
+            data: Loaded data dictionary
+            
         Returns:
             Age in hours or None if no data or timestamp
         """
-        data = self.load_player_data()
-        if not data:
-            return None
-        
         cache_timestamp = data.get('cache_timestamp')
         if not cache_timestamp:
             return None
@@ -127,11 +123,3 @@ class DataStore:
             return (datetime.now() - cache_time).total_seconds() / 3600
         except Exception:
             return None
-    
-    def data_exists(self) -> bool:
-        """Check if player data file exists."""
-        return self.player_data_file.exists()
-    
-    def get_file_path(self) -> Path:
-        """Get the path to the player data file."""
-        return self.player_data_file
