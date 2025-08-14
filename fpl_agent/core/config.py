@@ -4,7 +4,7 @@ Configuration management for FPL Optimizer
 
 import os
 import yaml
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -72,39 +72,9 @@ class Config:
         """Get environment variable"""
         return os.getenv(var_name)
     
-    def get_fpl_config(self) -> Dict[str, Any]:
-        """Get FPL API configuration"""
-        return self._config.get('fpl', {})
-    
-    def get_data_sources_config(self) -> Dict[str, Any]:
-        """Get data sources configuration"""
-        return self._config.get('data_sources', {})
-    
     def get_team_config(self) -> Dict[str, Any]:
         """Get team configuration"""
         return self._config.get('team', {})
-    
-    def get_optimization_config(self) -> Dict[str, Any]:
-        """Get optimization configuration"""
-        return self._config.get('optimization', {})
-    
-    def get_xpts_config(self) -> Dict[str, Any]:
-        """Get expected points configuration"""
-        return self._config.get('xpts', {})
-    
-    def get_llm_config(self) -> Dict[str, Any]:
-        """Get LLM configuration"""
-        return self._config.get('llm', {})
-    
-    def get_main_llm_config(self) -> Dict[str, Any]:
-        """Get main LLM configuration for complex team optimization"""
-        llm_config = self._config.get('llm', {})
-        return llm_config.get('main', {})
-    
-    def get_lightweight_llm_config(self) -> Dict[str, Any]:
-        """Get lightweight LLM configuration for team-specific analysis"""
-        llm_config = self._config.get('llm', {})
-        return llm_config.get('lightweight', {})
     
     def get_llm_model_config(self, model_name: str) -> Dict[str, Any]:
         """Get LLM configuration for a specific model by name"""
@@ -125,10 +95,6 @@ class Config:
         """Get embeddings configuration"""
         return self._config.get('embeddings', {})
     
-    def get_team_config(self) -> Dict[str, Any]:
-        """Get team configuration"""
-        return self._config.get('team', {})
-    
     def get_position_limits(self) -> Dict[str, int]:
         """Get squad position limits"""
         team_config = self.get_team_config()
@@ -136,54 +102,9 @@ class Config:
             'GK': 2, 'DEF': 5, 'MID': 5, 'FWD': 3
         })
     
-    def get_formation_constraints(self) -> Dict[str, List[int]]:
+    def get_formation_constraints(self) -> Dict[str, list]:
         """Get starting 11 formation constraints"""
         team_config = self.get_team_config()
         return team_config.get('formation_constraints', {}).get('starting_11', {
             'DEF': [3, 5], 'MID': [2, 5], 'FWD': [1, 3]
-        })
-    
-
-    
-    def get_logging_config(self) -> Dict[str, Any]:
-        """Get logging configuration"""
-        return self._config.get('logging', {})
-    
-    def set(self, key: str, value: Any) -> None:
-        """Set configuration value by key"""
-        keys = key.split('.')
-        current = self._config
-        
-        for k in keys[:-1]:
-            if k not in current:
-                current[k] = {}
-            current = current[k]
-        
-        current[keys[-1]] = value
-    
-    def save(self, path: Optional[str] = None) -> None:
-        """Save configuration to file"""
-        save_path = Path(path) if path else self.config_path
-        
-        with open(save_path, 'w') as f:
-            yaml.safe_dump(self._config, f, default_flow_style=False, indent=2)
-    
-    def reload(self) -> None:
-        """Reload configuration from file"""
-        self._config = self._load_config()
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Return configuration as dictionary"""
-        return self._config.copy()
-    
-    def __getitem__(self, key: str) -> Any:
-        """Allow dictionary-style access"""
-        return self.get(key)
-    
-    def __setitem__(self, key: str, value: Any) -> None:
-        """Allow dictionary-style setting"""
-        self.set(key, value)
-    
-    def __contains__(self, key: str) -> bool:
-        """Check if key exists in configuration"""
-        return self.get(key) is not None 
+        }) 
