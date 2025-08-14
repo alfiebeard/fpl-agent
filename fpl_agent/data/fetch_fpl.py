@@ -88,15 +88,3 @@ class FPLDataFetcher:
             logger.error(f"Failed to get current gameweek: {e}")
             return None
     
-    def get_team_data(self, team_id: int) -> Optional[Dict[str, Any]]:
-        """Get data for a specific team"""
-        try:
-            endpoint = f"entry/{team_id}/event/1/picks/"
-            return self._make_request(endpoint)
-        except Exception as e:
-            logger.error(f"Failed to get team data for team {team_id}: {e}")
-            return None
-    
-
-    
-
