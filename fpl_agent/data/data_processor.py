@@ -7,10 +7,8 @@ data_transformers.py and data_enrichment.py files.
 
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
 
 from ..core.config import Config
-from ..core.models import Position
 from .fetch_fpl import FPLDataFetcher
 
 logger = logging.getLogger(__name__)
@@ -271,28 +269,6 @@ class DataProcessor:
             return False
         
         return True
-    
-    def get_teams_data(self, player_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Extract team data from player data.
-        
-        Args:
-            player_data: Dictionary of all player data
-            
-        Returns:
-            List of team data dictionaries
-        """
-        team_names = set()
-        teams_data = []
-        
-        # Extract team data from players
-        for player in player_data.values():
-            team_name_from_player = player.get('team_name')
-            if team_name_from_player and team_name_from_player not in team_names:
-                team_names.add(team_name_from_player)
-                teams_data.append({'name': team_name_from_player, 'id': len(teams_data) + 1})
-        
-        return teams_data
     
     def get_fixture_info(self, team_name: str, current_gameweek: int, fixtures: List[Dict[str, Any]], players: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """

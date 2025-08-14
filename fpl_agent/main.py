@@ -84,26 +84,9 @@ class FPLAgent:
             logger.info("Getting processed player data...")
             player_data = data_service.get_players(force_refresh=force_refresh)
             
-            # Transform to team structure using our processor
-            logger.info("Transforming data to team structure...")
-            filters = {
-                'exclude_injured': False,      # Include all players for display
-                'exclude_unavailable': False,  # Include all players for display
-                'min_chance_of_playing': 0,    # Include all players
-                'min_minutes': 0,              # Include all players
-                'max_price': float('inf'),     # No price limit
-                'min_form': float('-inf'),     # No form minimum
-                'positions': ['GK', 'DEF', 'MID', 'FWD']
-            }
-            
-            teams = data_service.processor.transform_fpl_data_to_teams(
-                data_service.fetcher.get_fpl_static_data(), filters
-            )
-            
-            # Extract all players from teams
-            all_players = []
-            for team_summary in teams.values():
-                all_players.extend(team_summary.players)
+            # Get processed player data directly
+            logger.info("Using processed player data directly...")
+            all_players = list(player_data.values())
             
             # Apply limit if specified
             if limit and limit > 0:
@@ -134,9 +117,12 @@ class FPLAgent:
                     price_range = "£10m+"
                 price_range_distribution[price_range] = price_range_distribution.get(price_range, 0) + 1
             
+            # Count unique teams from player data
+            unique_teams = len(set(player.get('team_name') for player in players))
+            
             summary = {
                 'total_players': len(players),
-                'total_teams': len(teams),
+                'total_teams': unique_teams,
                 'position_distribution': position_distribution,
                 'price_range_distribution': price_range_distribution,
                 'data_source': 'FPL API (with rich data)',
