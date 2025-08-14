@@ -148,14 +148,18 @@ class DataService:
         logger.info("Fetching and formatting available players data...")
         
         try:
-            # Get available players
-            players = self.get_available_players()
+            # Get available players using the new filtering system
+            players_data = self.get_players(force_refresh=force_refresh)
             
-            # Import here to avoid circular imports
-            from ..utils.prompt_formatter import PromptFormatter
+            # Use the new filtering system from DataProcessor
+            filtered_players = self.processor.filter_players_for_team_building(
+                players_data, use_embeddings=use_embeddings
+            )
             
-            # Format the data for LLM prompts
-            return PromptFormatter.format_players_for_llm(players)
+            # Format using the new formatting method
+            return self.processor.format_players_for_llm_prompt(
+                filtered_players, use_embeddings=use_embeddings
+            )
             
         except Exception as e:
             logger.error(f"Failed to get available players data: {e}")

@@ -32,7 +32,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         """Return the name of this strategy."""
         return "Team Building Strategy"
     
-    def create_team(self, budget: float = 100.0, gameweek: int = 1, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
+    def create_team(self, budget: float = 100.0, gameweek: int = 1, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> Dict[str, Any]:
         """
         Create a new FPL team for Gameweek 1 using LLM analysis.
         
@@ -47,7 +47,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         logger.info(f"Creating new FPL team with budget £{budget}m for Gameweek {gameweek}")
         
         # Create the team creation prompt
-        prompt = self._create_team_creation_prompt(budget, gameweek, use_semantic_filtering, force_refresh, use_embeddings)
+        prompt = self._create_team_creation_prompt(budget, gameweek, use_semantic_filtering, force_refresh, use_embeddings, available_players)
         
         # Query LLM for team creation
         logger.info("Querying LLM for team creation...")
@@ -96,7 +96,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         team_data['raw_llm_response'] = response
         return team_data
     
-    def update_team_weekly(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
+    def update_team_weekly(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> Dict[str, Any]:
         """
         Update the current FPL team for the specified gameweek.
         
@@ -140,7 +140,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
-                current_team, gameweek, chips_data, transfers_data, use_semantic_filtering, force_refresh, use_embeddings
+                current_team, gameweek, chips_data, transfers_data, use_semantic_filtering, force_refresh, use_embeddings, available_players
             )
             
             # Get LLM response
@@ -188,11 +188,14 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             logger.error(f"Failed to update team for Gameweek {gameweek}: {e}")
             raise
     
-    def _create_team_creation_prompt(self, budget: float, gameweek: int, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
+    def _create_team_creation_prompt(self, budget: float, gameweek: int, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> str:
         """Create the team creation prompt"""
         
-        # Get available players data using data service
-        players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
+        # Use provided available_players or fall back to data service
+        if available_players is not None:
+            players_data = available_players
+        else:
+            players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
         
         # Get team constraints from prompt formatter
         team_constraints = PromptFormatter.get_team_constraints_prompt(self.config)
@@ -297,7 +300,7 @@ Each player must have a detailed, informative reason for their selection.
 REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure."""
     
     def _create_weekly_update_prompt(self, current_team: Dict, gameweek: int, 
-                                   chips_data: Dict, transfers_data: Dict, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
+                                   chips_data: Dict, transfers_data: Dict, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> str:
         """Create the weekly update prompt"""
         
         # Format current team for prompt using prompt formatter
@@ -306,8 +309,11 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
         # Format available chips using prompt formatter
         chips_str = PromptFormatter.format_chips_for_prompt(chips_data)
         
-        # Get available players data using data service
-        players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
+        # Use provided available_players or fall back to data service
+        if available_players is not None:
+            players_data = available_players
+        else:
+            players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {team_str}

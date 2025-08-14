@@ -206,36 +206,26 @@ class EmbeddingFilter:
             logger.error(f"Failed to encode queries: {e}")
             raise
     
-    def _get_player_positions(self, enriched_data: Dict[str, str]) -> Dict[str, str]:
+    def _get_player_positions(self, enriched_data: Dict[str, str], players_data: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
         """Extract player positions from enriched data"""
         player_positions = {}
         
-        # Get structured data for position extraction
-        from .llm_strategy import LLMStrategy
-        from ..core.config import Config
-        
-        # Create a minimal config and strategy to access cached data
-        config = Config()
-        strategy = LLMStrategy(config)
-        structured_data = strategy.get_enriched_player_data(force_refresh=False)
-        
-        # Use structured data for position extraction
+        # Extract positions from the players_data passed in
         for player_name in enriched_data.keys():
-            position = structured_data[player_name]["data"]["position"]
-            player_positions[player_name] = position
+            if player_name in players_data:
+                position = players_data[player_name].get('position', 'UNK')
+                player_positions[player_name] = position
         
         return player_positions
     
-    def _get_structured_data_for_hybrid_scoring(self, enriched_data: Dict[str, str]) -> Dict[str, Any]:
+    def _get_structured_data_for_hybrid_scoring(self, enriched_data: Dict[str, str], players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Get structured data needed for hybrid scoring"""
         try:
-            # Get structured data for keyword extraction
-            from .llm_strategy import LLMStrategy
-            from ..core.config import Config
-            
-            config = Config()
-            strategy = LLMStrategy(config)
-            structured_data = strategy.get_enriched_player_data(force_refresh=False)
+            # Extract structured data from the players_data passed in
+            structured_data = {}
+            for player_name in enriched_data.keys():
+                if player_name in players_data:
+                    structured_data[player_name] = players_data[player_name]
             
             return structured_data
             
@@ -371,6 +361,7 @@ class EmbeddingFilter:
         return selected_players
     
     def filter_players_by_position(self, enriched_data: Dict[str, str], 
+                                 players_data: Dict[str, Dict[str, Any]],
                                  force_refresh: bool = False) -> Dict[str, str]:
         """
         Filter players using embedding-based similarity scoring.
@@ -427,13 +418,13 @@ class EmbeddingFilter:
         query_embeddings = self._encode_queries()
         
         # Get player positions
-        player_positions = self._get_player_positions(enriched_data)
+        player_positions = self._get_player_positions(enriched_data, players_data)
         
         # Calculate similarities
         similarities = self._calculate_similarities(player_embeddings, query_embeddings, player_positions)
         
         # Get structured data for hybrid scoring
-        structured_data = self._get_structured_data_for_hybrid_scoring(enriched_data)
+        structured_data = self._get_structured_data_for_hybrid_scoring(enriched_data, players_data)
         
         # Select top players using hybrid scoring
         selected_player_names = self._select_top_players(similarities, structured_data)

@@ -42,7 +42,7 @@ team:
 # Embedding Configuration
 # Controls the embedding-based player filtering system
 embeddings:
-  # Sentence transformer model to use for embeddings
+  use_embeddings: false
   model: "BAAI/bge-base-en-v1.5"
   
   # Caching configuration

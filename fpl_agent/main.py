@@ -261,13 +261,30 @@ class FPLAgent:
             else:
                 print(f"\n🧠 Using cached enriched data ({enrich_age:.1f} hours old)")
             
-            # Step 3: Update team for gameweek
+            # Step 3: Filter players based on config
+            use_embeddings = self.config.get('embeddings', {}).get('use_embeddings', False)
+            print(f"\n🔍 Filtering players (embeddings: {'enabled' if use_embeddings else 'disabled'})...")
+            
+            # Get filtered players using DataProcessor
+            filtered_players = self.data_service.processor.filter_players_for_team_building(
+                players_data, use_embeddings=use_embeddings
+            )
+            
+            # Format players for LLM prompt
+            formatted_players = self.data_service.processor.format_players_for_llm_prompt(
+                filtered_players, use_embeddings=use_embeddings
+            )
+            
+            print(f"✅ Filtered to {len(filtered_players)} players")
+            
+            # Step 4: Update team for gameweek
             print(f"\n⚽ Updating team for gameweek {gameweek or 'current'}...")
             team_result = self.llm_strategy.update_team_weekly(
                 gameweek=gameweek,
                 use_semantic_filtering=True,
                 force_refresh=False,  # Use cached enriched data
-                use_embeddings=False
+                use_embeddings=use_embeddings,
+                available_players=formatted_players
             )
             
             print("✅ Weekly update complete!")
@@ -386,14 +403,31 @@ class FPLAgent:
             else:
                 print(f"\n🧠 Using cached enriched data ({enrich_age:.1f} hours old)")
             
-            # Step 3: Build team
+            # Step 3: Filter players based on config
+            use_embeddings = self.config.get('embeddings', {}).get('use_embeddings', False)
+            print(f"\n🔍 Filtering players (embeddings: {'enabled' if use_embeddings else 'disabled'})...")
+            
+            # Get filtered players using DataProcessor
+            filtered_players = self.data_service.processor.filter_players_for_team_building(
+                players_data, use_embeddings=use_embeddings
+            )
+            
+            # Format players for LLM prompt
+            formatted_players = self.data_service.processor.format_players_for_llm_prompt(
+                filtered_players, use_embeddings=use_embeddings
+            )
+            
+            print(f"✅ Filtered to {len(filtered_players)} players")
+            
+            # Step 4: Build team
             print(f"\n⚽ Building team with £{budget}m budget...")
             team_result = self.llm_strategy.create_team(
                 budget=budget,
                 gameweek=gameweek or 1,
                 use_semantic_filtering=True,
                 force_refresh=False,  # Use cached enriched data
-                use_embeddings=False
+                use_embeddings=use_embeddings,
+                available_players=formatted_players
             )
             
             print("✅ Team building complete!")

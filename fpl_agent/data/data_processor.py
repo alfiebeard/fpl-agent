@@ -7,6 +7,7 @@ from typing import Dict, List, Any, Optional
 
 from ..core.config import Config
 from .fetch_fpl import FPLDataFetcher
+from .embedding_filter import EmbeddingFilter
 
 logger = logging.getLogger(__name__)
 
@@ -446,5 +447,146 @@ class DataProcessor:
                 f"PPG: {ppg_float:.1f}, Form: {form_float:.1f}, "
                 f"Ownership: {ownership_float:.1f}%)"
             )
+        
+        return "\n".join(formatted_players)
+    
+    def filter_players_for_team_building(self, players_data: Dict[str, Dict[str, Any]], 
+                                       use_embeddings: bool = False) -> Dict[str, Dict[str, Any]]:
+        """
+        Filter players for team building based on availability and optionally embeddings.
+        
+        Args:
+            players_data: Dictionary of player data
+            use_embeddings: Whether to use embedding-based filtering
+            
+        Returns:
+            Filtered player data
+        """
+        logger.info("Starting player filtering for team building...")
+        
+        # Step 1: Basic filtering - remove players who can't play
+        available_players = self._filter_available_players(players_data)
+        logger.info(f"Basic filtering: {len(available_players)} players available from {len(players_data)} total")
+        
+        if not use_embeddings:
+            logger.info("Embedding filtering disabled, returning all available players")
+            return available_players
+        
+        # Step 2: Check if enrichments exist
+        enriched_players = self._get_enriched_players(available_players)
+        if not enriched_players:
+            logger.info("No enrichments found, returning all available players")
+            return available_players
+        
+        # Step 3: Apply embedding filtering
+        try:
+            embedding_filter = EmbeddingFilter(self.config)
+            filtered_players = embedding_filter.filter_players_by_position(enriched_players, available_players)
+            
+            # Get the filtered player names and return their full data
+            filtered_player_names = list(filtered_players.keys())
+            final_filtered_data = {
+                name: available_players[name] 
+                for name in filtered_player_names 
+                if name in available_players
+            }
+            
+            logger.info(f"Embedding filtering: {len(final_filtered_data)} players selected from {len(available_players)} available")
+            return final_filtered_data
+            
+        except Exception as e:
+            logger.error(f"Embedding filtering failed: {e}")
+            logger.info("Falling back to all available players")
+            return available_players
+    
+    def _filter_available_players(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Filter out players who can't play (injured, suspended, etc.)"""
+        available_players = {}
+        
+        for player_name, player_data in players_data.items():
+            # Check chance of playing (25% threshold)
+            chance_of_playing = player_data.get('chance_of_playing', 100)
+            if chance_of_playing is not None and chance_of_playing < 25:
+                continue
+            
+            # Check if player has any minutes (basic availability)
+            minutes = player_data.get('minutes', 0)
+            if minutes == 0:
+                continue
+            
+            available_players[player_name] = player_data
+        
+        return available_players
+    
+    def _get_enriched_players(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+        """Extract enriched data for embedding filtering"""
+        enriched_data = {}
+        
+        for player_name, player_data in players_data.items():
+            # Combine expert insights and injury news
+            expert_insights = player_data.get('expert_insights', '')
+            injury_news = player_data.get('injury_news', '')
+            
+            if expert_insights or injury_news:
+                enriched_text = f"{expert_insights} {injury_news}".strip()
+                enriched_data[player_name] = enriched_text
+        
+        return enriched_data
+    
+    def format_players_for_llm_prompt(self, players_data: Dict[str, Dict[str, Any]], 
+                                    use_embeddings: bool = False) -> str:
+        """
+        Format players for LLM prompts with different formats based on enrichment availability.
+        
+        Args:
+            players_data: Dictionary of player data
+            use_embeddings: Whether embedding filtering was used
+            
+        Returns:
+            Formatted string for LLM prompt
+        """
+        formatted_players = []
+        
+        for player_name, player_data in players_data.items():
+            # Basic player info
+            position = player_data.get('position', 'UNK')
+            price = player_data.get('now_cost', 0) / 10.0
+            ppg = player_data.get('points_per_game', 0)
+            form = player_data.get('form', 0)
+            ownership = player_data.get('selected_by_percent', 0)
+            
+            # Convert to float for formatting
+            try:
+                ppg_float = float(ppg) if ppg is not None else 0.0
+            except (ValueError, TypeError):
+                ppg_float = 0.0
+            
+            try:
+                form_float = float(form) if form is not None else 0.0
+            except (ValueError, TypeError):
+                form_float = 0.0
+            
+            try:
+                ownership_float = float(ownership) if ownership is not None else 0.0
+            except (ValueError, TypeError):
+                ownership_float = 0.0
+            
+            # Format: Player Name (Position, £Price, PPG: X.X, Form: X.X, Ownership: X.X%)
+            player_line = f"{player_name} ({position}, £{price:.1f}m, PPG: {ppg_float:.1f}, Form: {form_float:.1f}, Ownership: {ownership_float:.1f}%)"
+            formatted_players.append(player_line)
+            
+            # Add expert insights and injury news if available and using embeddings
+            if use_embeddings:
+                expert_insights = player_data.get('expert_insights', '')
+                injury_news = player_data.get('injury_news', '')
+                
+                if expert_insights:
+                    formatted_players.append(f"Expert Insights: {expert_insights}")
+                
+                if injury_news:
+                    formatted_players.append(f"Injury News: {injury_news}")
+                
+                # Add empty line between players
+                formatted_players.append("")
         
         return "\n".join(formatted_players)
