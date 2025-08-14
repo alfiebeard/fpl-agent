@@ -328,7 +328,7 @@ class FPLAgent:
             lightweight_llm = LightweightLLMStrategy(self.config)
             
             # Fetch FPL data with additional stats
-            from fpl_agent.ingestion.fetch_fpl import FPLDataFetcher
+            from fpl_agent.data import FPLDataFetcher
             fetcher = FPLDataFetcher(self.config)
             all_data = fetcher.get_all_data_with_additional_stats()
             players = all_data['players']
@@ -392,7 +392,7 @@ class FPLAgent:
             lightweight_llm = LightweightLLMStrategy(self.config)
             
             # Fetch FPL data with additional stats
-            from fpl_agent.ingestion.fetch_fpl import FPLDataFetcher
+            from fpl_agent.data import FPLDataFetcher
             fetcher = FPLDataFetcher(self.config)
             all_data = fetcher.get_all_data_with_additional_stats()
             players = all_data['players']

@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from ..core.config import Config
-from ..ingestion.fetch_fpl import FPLDataFetcher
+from .fetch_fpl import FPLDataFetcher
 from .data_store import DataStore
 from .data_processor import DataProcessor
 

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from ..core.config import Config
 from ..core.models import Position
-from ..ingestion.fetch_fpl import FPLDataFetcher
+from .fetch_fpl import FPLDataFetcher
 
 logger = logging.getLogger(__name__)
 
