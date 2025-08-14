@@ -333,8 +333,48 @@ class TeamManager:
         }
     
     def get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Get available transfers information from meta data"""
+        """Get available transfer information from meta data"""
+        current_gw = meta_data.get('current_gw', 1)
+        free_transfers = meta_data.get('free_transfers', 1)
+        
         return {
-            'free_transfers': meta_data.get('free_transfers', 1),
-            'bank': meta_data.get('bank', 0.0)
-        } 
+            'current_gw': current_gw,
+            'free_transfers': free_transfers,
+            'can_make_transfers': free_transfers > 0
+        }
+    
+    def list_saved_teams(self) -> List[Dict[str, Any]]:
+        """List all saved team files with metadata"""
+        team_files = self._scan_team_files()
+        teams = []
+        
+        for team_file in team_files:
+            try:
+                # Extract gameweek from filename
+                gameweek = int(team_file.stem[2:])
+                
+                # Load team data to get basic info
+                team_data = self.load_team(gameweek)
+                if team_data:
+                    teams.append({
+                        'gameweek': gameweek,
+                        'filename': team_file.name,
+                        'path': str(team_file),
+                        'captain': team_data.get('captain', 'Unknown'),
+                        'vice_captain': team_data.get('vice_captain', 'Unknown'),
+                        'total_cost': team_data.get('total_cost', 0.0),
+                        'bank': team_data.get('bank', 0.0),
+                        'modified': team_file.stat().st_mtime
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to process team file {team_file}: {e}")
+                continue
+        
+        return teams
+    
+    def get_latest_team_file(self) -> Optional[str]:
+        """Get the filename of the most recent team file"""
+        latest_gw = self.get_latest_gameweek()
+        if latest_gw:
+            return f"gw{latest_gw:02d}.json"
+        return None 

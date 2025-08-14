@@ -15,17 +15,22 @@ from pathlib import Path
 try:
     # When run as module (python -m fpl_agent.main)
     from .core.config import Config
-    from .core.models import Position, FPLTeam
+    from .core.models import FPLTeam
     from .data import DataService
     from .data.data_store import DataStore
+    from .strategies import TeamBuildingStrategy
+    from .utils.display import display_comprehensive_team_result
+
 except ImportError:
     # When run directly (python fpl_agent/main.py)
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from fpl_agent.core.config import Config
-    from fpl_agent.core.models import Position, FPLTeam
+    from fpl_agent.core.models import FPLTeam
     from fpl_agent.data import DataService
     from fpl_agent.data.data_store import DataStore
+    from fpl_agent.strategies import TeamBuildingStrategy
+    from fpl_agent.utils.display import display_comprehensive_team_result
 
 
 # Configure logging
@@ -60,65 +65,10 @@ class FPLAgent:
     def llm_strategy(self):
         """Lazy initialization of LLM strategy"""
         if self._llm_strategy is None:
-            from .strategies import TeamBuildingStrategy
-            from .strategies.team_analysis_strategy import TeamAnalysisStrategy
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
-    def check_data_freshness(self) -> Dict[str, Any]:
-        """
-        Check the freshness of all cached data.
-        
-        Returns:
-            Dictionary containing freshness status for all data types
-        """
-        status = {
-            'fpl_data': {'fresh': False, 'age_hours': None, 'available': False},
-            'enriched_data': {'fresh': False, 'age_hours': None, 'available': False},
-            'embeddings': {'fresh': False, 'age_hours': None, 'available': False},
-            'overall_status': 'unknown'
-        }
-        
-        # Check FPL data freshness
-        fpl_data = self.data_store.load_player_data()
-        if fpl_data and 'cache_timestamp' in fpl_data:
-            age_hours = self.data_store._calculate_data_age_hours(fpl_data)
-            status['fpl_data']['available'] = True
-            status['fpl_data']['age_hours'] = age_hours
-            status['fpl_data']['fresh'] = age_hours is not None and age_hours < 1.0
-        
-        # Check enriched data freshness (from LLM strategy cache)
-        try:
-            # For now, we'll assume enriched data is not available
-            # This can be enhanced when the enrichment functionality is implemented
-            status['enriched_data']['available'] = False
-            status['enriched_data']['age_hours'] = None
-        except Exception as e:
-            logger.debug(f"Could not check enriched data freshness: {e}")
-        
-        # Check embeddings freshness
-        embeddings_file = Path("team_data/player_embeddings.json")
-        if embeddings_file.exists():
-            file_stat = embeddings_file.stat()
-            age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
-            status['embeddings']['available'] = True
-            status['embeddings']['age_hours'] = age_hours
-            status['embeddings']['fresh'] = age_hours < 1.0
-        
-        # Determine overall status
-        if status['fpl_data']['available'] and status['enriched_data']['available']:
-            if status['fpl_data']['fresh'] and status['enriched_data']['fresh']:
-                status['overall_status'] = 'fresh'
-            elif status['fpl_data']['available'] and status['enriched_data']['available']:
-                status['overall_status'] = 'stale'
-            else:
-                status['overall_status'] = 'partial'
-        elif status['fpl_data']['available']:
-            status['overall_status'] = 'fpl_only'
-        else:
-            status['overall_status'] = 'none'
-        
-        return status
+    # ... existing code ...
     
     def should_fetch_data(self, force_fetch: bool, cached_only: bool, data_fresh: bool) -> bool:
         """Determine if we should fetch fresh FPL data"""
@@ -192,8 +142,50 @@ class FPLAgent:
         try:
             print("🔄 Starting weekly FPL update...")
             
-            # Check data freshness
-            data_status = self.check_data_freshness()
+            # Check data freshness using DataStore
+            fpl_data = self.data_store.load_player_data()
+            fpl_age_hours = None
+            if fpl_data and 'cache_timestamp' in fpl_data:
+                fpl_age_hours = self.data_store._calculate_data_age_hours(fpl_data)
+            
+            # Check embeddings freshness
+            embeddings_file = Path("team_data/player_embeddings.json")
+            embeddings_age_hours = None
+            if embeddings_file.exists():
+                file_stat = embeddings_file.stat()
+                embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
+            
+            data_status = {
+                'fpl_data': {
+                    'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
+                    'age_hours': fpl_age_hours,
+                    'available': fpl_data is not None
+                },
+                'enriched_data': {
+                    'fresh': False,
+                    'age_hours': None,
+                    'available': False
+                },
+                'embeddings': {
+                    'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
+                    'age_hours': embeddings_age_hours,
+                    'available': embeddings_age_hours is not None
+                },
+                'overall_status': 'unknown'
+            }
+            
+            # Determine overall status
+            if data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
+                if data_status['fpl_data']['fresh'] and data_status['enriched_data']['fresh']:
+                    data_status['overall_status'] = 'fresh'
+                elif data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
+                    data_status['overall_status'] = 'partial'
+                else:
+                    data_status['overall_status'] = 'stale'
+            elif data_status['fpl_data']['available']:
+                data_status['overall_status'] = 'fpl_only'
+            else:
+                data_status['overall_status'] = 'none'
             
             # Determine what to do based on flags and data freshness
             should_fetch = self.should_fetch_data(
@@ -270,8 +262,50 @@ class FPLAgent:
         try:
             print("⚽ Building new FPL team...")
             
-            # Check data freshness
-            data_status = self.check_data_freshness()
+            # Check data freshness using DataStore
+            fpl_data = self.data_store.load_player_data()
+            fpl_age_hours = None
+            if fpl_data and 'cache_timestamp' in fpl_data:
+                fpl_age_hours = self.data_store._calculate_data_age_hours(fpl_data)
+            
+            # Check embeddings freshness
+            embeddings_file = Path("team_data/player_embeddings.json")
+            embeddings_age_hours = None
+            if embeddings_file.exists():
+                file_stat = embeddings_file.stat()
+                embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
+            
+            data_status = {
+                'fpl_data': {
+                    'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
+                    'age_hours': fpl_age_hours,
+                    'available': fpl_data is not None
+                },
+                'enriched_data': {
+                    'fresh': False,
+                    'age_hours': None,
+                    'available': False
+                },
+                'embeddings': {
+                    'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
+                    'age_hours': embeddings_age_hours,
+                    'available': embeddings_age_hours is not None
+                },
+                'overall_status': 'unknown'
+            }
+            
+            # Determine overall status
+            if data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
+                if data_status['fpl_data']['fresh'] and data_status['enriched_data']['fresh']:
+                    data_status['overall_status'] = 'fresh'
+                elif data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
+                    data_status['overall_status'] = 'partial'
+                else:
+                    data_status['overall_status'] = 'stale'
+            elif data_status['fpl_data']['available']:
+                data_status['overall_status'] = 'fpl_only'
+            else:
+                data_status['overall_status'] = 'none'
             
             # Determine what to do based on flags and data freshness
             should_fetch = self.should_fetch_data(
@@ -348,7 +382,50 @@ class FPLAgent:
             print("📊 FPL Data Status")
             print("=" * 50)
             
-            data_status = self.check_data_freshness()
+            # Check data freshness using DataStore
+            fpl_data = self.data_store.load_player_data()
+            fpl_age_hours = None
+            if fpl_data and 'cache_timestamp' in fpl_data:
+                fpl_age_hours = self.data_store._calculate_data_age_hours(fpl_data)
+            
+            # Check embeddings freshness
+            embeddings_file = Path("team_data/player_embeddings.json")
+            embeddings_age_hours = None
+            if embeddings_file.exists():
+                file_stat = embeddings_file.stat()
+                embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
+            
+            data_status = {
+                'fpl_data': {
+                    'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
+                    'age_hours': fpl_age_hours,
+                    'available': fpl_data is not None
+                },
+                'enriched_data': {
+                    'fresh': False,
+                    'age_hours': None,
+                    'available': False
+                },
+                'embeddings': {
+                    'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
+                    'age_hours': embeddings_age_hours,
+                    'available': embeddings_age_hours is not None
+                },
+                'overall_status': 'unknown'
+            }
+            
+            # Determine overall status
+            if data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
+                if data_status['fpl_data']['fresh'] and data_status['enriched_data']['fresh']:
+                    data_status['overall_status'] = 'fresh'
+                elif data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
+                    data_status['overall_status'] = 'partial'
+                else:
+                    data_status['overall_status'] = 'stale'
+            elif data_status['fpl_data']['available']:
+                data_status['overall_status'] = 'fpl_only'
+            else:
+                data_status['overall_status'] = 'none'
             
             # FPL Data Status
             print(f"\n🔄 FPL Data:")
@@ -537,144 +614,7 @@ def main():
         sys.exit(1)
 
 
-def calculate_chance_of_playing(chance_this_round: Optional[int], chance_next_round: Optional[int]) -> int:
-    """Calculate the effective chance of playing based on this round and next round"""
-    if chance_this_round is None and chance_next_round is None:
-        return 100  # Default to 100% if no data
-    
-    if chance_this_round is None:
-        return chance_next_round or 100
-    
-    if chance_next_round is None:
-        return chance_this_round or 100
-    
-    # Return the minimum of the two (more conservative)
-    return min(chance_this_round, chance_next_round)
-
-
-def display_comprehensive_team_result(result):
-    """Display comprehensive team creation/update results"""
-    print("\n" + "="*80)
-    print("FPL COMPREHENSIVE TEAM RESULT")
-    print("="*80)
-    
-    # Check if this is a team_data result (from create-team-llm) or a direct result
-    if isinstance(result, dict) and 'team_data' in result:
-        # This is from create-team-llm, show the LLM response
-        print(f"\n" + "="*80)
-        print("LLM RESPONSE")
-        print("="*80)
-        print("Method: " + result.get('method', 'Unknown'))
-        
-        team_data = result['team_data']
-        
-        # Display basic team info
-        print(f"\nCaptain: {team_data.get('captain', 'Not set')}")
-        print(f"Vice Captain: {team_data.get('vice_captain', 'Not set')}")
-        print(f"Total Cost: £{team_data.get('total_cost', 0):.1f}m")
-        print(f"Bank: £{team_data.get('bank', 0):.1f}m")
-        print(f"Expected Points: {team_data.get('expected_points', 0):.1f}")
-        
-        # Display team reasoning summary
-        print(f"\n" + "="*80)
-        print("TEAM SELECTION REASONING")
-        print("="*80)
-        
-        # Show raw LLM response if available
-        if 'raw_llm_response' in team_data:
-            print(f"\n" + "="*80)
-            print("RAW LLM RESPONSE")
-            print("="*80)
-            print(team_data['raw_llm_response'])
-            print("="*80)
-    else:
-        # Direct result (from update-team)
-        print(f"\nCaptain: {result.get('captain', 'Not set')}")
-        print(f"Vice Captain: {result.get('vice_captain', 'Not set')}")
-        print(f"Total Cost: £{result.get('total_cost', 0):.1f}m")
-        print(f"Bank: £{result.get('bank', 0):.1f}m")
-        print(f"Expected Points: {result.get('expected_points', 0):.1f}")
-    
-    # Display chip/wildcard usage if present
-    if 'wildcard_or_chip' in result and result['wildcard_or_chip']:
-        print(f"\n" + "="*80)
-        print("CHIP/WILDCARD USAGE")
-        print("="*80)
-        print(f"Chip Used: {result['wildcard_or_chip']}")
-        if 'chip_reason' in result:
-            print(f"Reason: {result['chip_reason']}")
-        print("="*80)
-    
-    # Display transfers if present
-    if 'transfers' in result and result['transfers']:
-        print(f"\n" + "="*80)
-        print("TRANSFERS")
-        print("="*80)
-        for transfer in result['transfers']:
-            print(f"OUT: {transfer.get('out', 'Unknown')}")
-            print(f"IN:  {transfer.get('in', 'Unknown')}")
-            if 'reason' in transfer:
-                print(f"Reason: {transfer['reason']}")
-            print("-" * 80)
-    
-    # Display captaincy reasoning if present
-    if 'captain_reason' in result or 'vice_captain_reason' in result:
-        print(f"\n" + "="*80)
-        print("CAPTAINCY REASONING")
-        print("="*80)
-        if 'captain_reason' in result:
-            print(f"Captain ({result.get('captain', 'Unknown')}): {result['captain_reason']}")
-        if 'vice_captain_reason' in result:
-            print(f"Vice Captain ({result.get('vice_captain', 'Unknown')}): {result['vice_captain_reason']}")
-        print("="*80)
-    
-    # Get the correct team data structure
-    team_data_to_display = None
-    if isinstance(result, dict) and 'team_data' in result:
-        team_data_to_display = result['team_data']
-    else:
-        team_data_to_display = result
-    
-    # Display starting 11
-    if 'team' in team_data_to_display and 'starting' in team_data_to_display['team']:
-        print(f"\n" + "="*80)
-        print("STARTING 11")
-        print("="*80)
-        print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6}")
-        print("-" * 80)
-        
-        for player in team_data_to_display['team']['starting']:
-            captain_marker = " (C)" if player.get('name') == team_data_to_display.get('captain') else ""
-            vice_marker = " (VC)" if player.get('name') == team_data_to_display.get('vice_captain') else ""
-            markers = captain_marker + vice_marker
-            print(f"{player.get('name', 'Unknown') + markers:<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f}")
-            
-            # Display reasoning if available
-            if 'reason' in player:
-                print(f"  └─ {player['reason']}")
-        
-        print("-" * 80)
-    
-    # Display substitutes
-    if 'team' in team_data_to_display and 'substitutes' in team_data_to_display['team']:
-        print(f"\n" + "="*80)
-        print("SUBSTITUTES")
-        print("="*80)
-        print(f"{'Name':<25} {'Team':<15} {'Pos':<4} {'Price':<6} {'Sub Order':<10}")
-        print("-" * 80)
-        
-        for player in team_data_to_display['team']['substitutes']:
-            sub_order = player.get('sub_order', 'GK')
-            sub_order_str = str(sub_order) if sub_order is not None else 'GK'
-            print(f"{player.get('name', 'Unknown'):<25} {player.get('team', 'Unknown'):<15} {player.get('position', 'Unknown'):<4} £{player.get('price', 0):<5.1f} {sub_order_str:<10}")
-            
-            # Display reasoning if available
-            if 'reason' in player:
-                print(f"  └─ {player['reason']}")
-        
-        print("-" * 80)
-    
-    print(f"\nComprehensive team operation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# ... existing code ...
 
 
 def save_team_to_json(team_data: Dict[str, Any], file_path: Optional[str] = None) -> str:

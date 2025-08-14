@@ -56,7 +56,7 @@ class LLMEngine:
 
             # Configure generation settings from model config
             generation_config = types.GenerateContentConfig(
-                tools=[grounding_tool],
+                tools=[grounding_tool],  # Re-enabled as requested
                 temperature=self.llm_config.get('temperature', 0.3),
                 max_output_tokens=self.llm_config.get('max_output_tokens', 8192),
                 top_p=self.llm_config.get('top_p', 0.8),
@@ -98,18 +98,27 @@ class LLMEngine:
             # Check if response has text content
             if not hasattr(response, 'candidates') or not response.candidates:
                 logger.warning(f"LLM response has no candidates. Response type: {type(response)}")
+                logger.debug(f"Response attributes: {dir(response)}")
                 return "Error: Empty response from LLM"
             
             # Extract text from the first candidate
             candidate = response.candidates[0]
             if not hasattr(candidate, 'content') or not candidate.content:
                 logger.warning(f"LLM response candidate has no content. Candidate: {candidate}")
+                logger.debug(f"Candidate attributes: {dir(candidate)}")
                 return "Error: Empty response content from LLM"
             
             # Extract text from content parts
             content_parts = candidate.content.parts
             if not content_parts:
                 logger.warning(f"LLM response content has no parts. Content: {candidate.content}")
+                logger.debug(f"Content attributes: {dir(candidate.content)}")
+                # Try alternative ways to get text
+                if hasattr(candidate.content, 'text'):
+                    response_text = candidate.content.text.strip()
+                    if response_text:
+                        logger.info("Found text in content.text")
+                        return response_text
                 return "Error: Empty response parts from LLM"
             
             # Get text from the first part

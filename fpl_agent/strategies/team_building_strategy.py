@@ -49,14 +49,20 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         # Create the team creation prompt
         prompt = self._create_team_creation_prompt(budget, gameweek, use_semantic_filtering, force_refresh, use_embeddings)
         
-        # Get LLM response
+        # Query LLM for team creation
         logger.info("Querying LLM for team creation...")
+        
+        # Debug: Log the prompt being sent
+        logger.debug(f"Prompt length: {len(prompt)} characters")
+        logger.debug(f"Prompt preview (first 500 chars): {prompt[:500]}...")
+        logger.debug(f"Prompt ending (last 500 chars): ...{prompt[-500:]}")
+        
         try:
             response = self.llm_engine.query(prompt)
             logger.info(f"LLM Response received (length: {len(response)})")
             logger.debug(f"LLM Response preview: {response[:500]}...")
         except Exception as e:
-            logger.error(f"Failed to get LLM response: {e}")
+            logger.error(f"LLM query failed: {e}")
             raise
         
         # Parse and validate the response
@@ -191,7 +197,11 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         # Get team constraints from prompt formatter
         team_constraints = PromptFormatter.get_team_constraints_prompt(self.config)
         
-        return f"""You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
+        return f"""You are a Fantasy Premier League (FPL) team building expert. Your task is to create the optimal FPL team for Gameweek {gameweek}.
+
+CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure. Your entire response must be a single, valid JSON object.
+
+You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
 You must strictly follow all official FPL rules and constraints when building the team:
 * The total budget must not exceed £{budget} million.
@@ -220,7 +230,7 @@ IMPORTANT: For each player selection, provide a clear, detailed reason explainin
 
 Base your reasoning on the latest expert tips, community insights, and statistical analysis you've researched.
 
-Return the team in the following JSON format:
+FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No other text, no markdown, no explanations outside the JSON:
 
 {{
   "captain": "CAPTAIN NAME",
@@ -276,7 +286,15 @@ Return the team in the following JSON format:
   }}
 }}
 
-Ensure the team meets all FPL rules and constraints before returning the output. Each player must have a detailed, informative reason for their selection."""
+Ensure the final team meets all FPL constraints before submitting:
+* Total cost ≤ £100.0 million
+* {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
+* Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
+* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)
+
+Each player must have a detailed, informative reason for their selection.
+
+REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure."""
     
     def _create_weekly_update_prompt(self, current_team: Dict, gameweek: int, 
                                    chips_data: Dict, transfers_data: Dict, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
@@ -296,6 +314,8 @@ Ensure the team meets all FPL rules and constraints before returning the output.
 
 It is now Gameweek {gameweek}.
 
+CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure. Your entire response must be a single, valid JSON object.
+
 IMPORTANT: If you used a Free Hit chip in the previous gameweek, your team will automatically revert to the team you had before using the Free Hit. The system will handle this revert automatically, so you should proceed with normal transfer planning for this gameweek.
 
 Evaluate your team using the latest information available. Consider:
@@ -306,6 +326,8 @@ Evaluate your team using the latest information available. Consider:
 * Injury or suspension status
 * Transfer rumours, international absences, or tactical shifts
 * Insights from expert sources, fantasy blogs, forums, news sites, and tipsters
+
+You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
 Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
 
@@ -360,7 +382,7 @@ Base your reasoning on the latest expert tips, community insights, and statistic
 
 Remember your team must be built from the current team with only transfers on top, unless you are using a wildcard or chip.
 
-Return your updated squad in this JSON format:
+FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No other text, no markdown, no explanations outside the JSON:
 
 {{
   "wildcard_or_chip": null,  // or "wildcard", "bench_boost", "free_hit", "triple_captain"
@@ -432,4 +454,8 @@ Ensure the final team meets all FPL constraints before submitting:
 * Total cost ≤ £100.0 million
 * {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
 * Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
-* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)""" 
+* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)
+
+Each player must have a detailed, informative reason for their selection.
+
+REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure.""" 
