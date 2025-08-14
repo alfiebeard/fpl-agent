@@ -33,7 +33,7 @@ class DataStore:
         Load player data from JSON file.
         
         Returns:
-            Player data dictionary or None if file doesn't exist
+            Full data dictionary (including metadata) or None if file doesn't exist
         """
         if not self.player_data_file.exists():
             logger.info("No player data file found")
@@ -51,25 +51,56 @@ class DataStore:
             logger.error(f"Failed to load player data: {e}")
             return None
     
+    def get_players_data(self) -> Optional[Dict[str, Dict[str, Any]]]:
+        """
+        Get just the players data from the stored file.
+        
+        Returns:
+            Dictionary of players keyed by full name, or None if no data
+        """
+        full_data = self.load_player_data()
+        if not full_data:
+            return None
+        
+        # Handle both old and new data formats
+        if 'players' in full_data:
+            return full_data['players']
+        elif 'player_data' in full_data:
+            # Legacy format - convert to new format
+            return full_data['player_data']
+        else:
+            # Assume the data itself is the players data
+            return full_data
+    
     def save_player_data(self, player_data: Dict[str, Any]) -> None:
         """
         Save player data to JSON file.
         
         Args:
-            player_data: Player data to save
+            player_data: Player data to save (can be either raw player data or enriched data structure)
         """
         try:
-            # Add timestamp for age tracking
-            data_to_save = {
-                'cache_timestamp': datetime.now().isoformat(),
-                'player_data': player_data,
-                'total_players': len(player_data)
-            }
+            # Check if this is already an enriched data structure
+            if 'players' in player_data:
+                # This is already the right format, just add/update cache timestamp
+                data_to_save = player_data.copy()
+                data_to_save['cache_timestamp'] = datetime.now().isoformat()
+                # Calculate total players from the players dictionary
+                total_players = len(data_to_save['players'])
+                data_to_save['total_players'] = total_players
+            else:
+                # This is raw player data, wrap it in the enriched structure
+                data_to_save = {
+                    'cache_timestamp': datetime.now().isoformat(),
+                    'players': player_data,
+                    'total_players': len(player_data)
+                }
+                total_players = len(player_data)
             
             with open(self.player_data_file, 'w', encoding='utf-8') as f:
                 json.dump(data_to_save, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"Saved player data with {len(player_data)} players to {self.player_data_file}")
+            logger.info(f"Saved player data with {total_players} players to {self.player_data_file}")
             
         except Exception as e:
             logger.error(f"Failed to save player data: {e}")
@@ -104,22 +135,23 @@ class DataStore:
         else:
             logger.info(f"Using player data ({age_hours:.1f} hours old)")
     
-    def _calculate_data_age_hours(self, data: Dict[str, Any]) -> Optional[float]:
+    def _calculate_data_age_hours(self, data: Dict[str, Any], timestamp_field: str = 'cache_timestamp') -> Optional[float]:
         """
         Calculate the age of stored data in hours.
         
         Args:
             data: Loaded data dictionary
+            timestamp_field: Field name containing the timestamp (default: 'cache_timestamp')
             
         Returns:
             Age in hours or None if no data or timestamp
         """
-        cache_timestamp = data.get('cache_timestamp')
-        if not cache_timestamp:
+        timestamp = data.get(timestamp_field)
+        if not timestamp:
             return None
         
         try:
-            cache_time = datetime.fromisoformat(cache_timestamp)
+            cache_time = datetime.fromisoformat(timestamp)
             return (datetime.now() - cache_time).total_seconds() / 3600
         except Exception:
             return None

@@ -1,8 +1,5 @@
 """
 Data processor for transforming and enriching FPL API data.
-
-This class consolidates all data processing logic from the existing
-data_transformers.py and data_enrichment.py files.
 """
 
 import logging
@@ -35,7 +32,7 @@ class DataProcessor:
             bootstrap_data: Raw data from FPL bootstrap-static endpoint
             
         Returns:
-            Dictionary of processed player data keyed by player ID
+            Dictionary of processed player data keyed by full name
         """
         logger.info("Processing FPL bootstrap data...")
         
@@ -46,8 +43,8 @@ class DataProcessor:
         processed_players = {}
         for player_data in bootstrap_data.get('elements', []):
             try:
-                player_id = str(player_data['id'])
-                processed_players[player_id] = self._process_player(player_data, team_mapping)
+                full_name = f"{player_data['first_name']} {player_data['second_name']}"
+                processed_players[full_name] = self._process_player(player_data, team_mapping)
             except Exception as e:
                 logger.warning(f"Failed to process player {player_data.get('id', 'unknown')}: {e}")
                 continue
@@ -103,254 +100,351 @@ class DataProcessor:
             'team_name': team_info['name'],
             'team_short_name': team_info['short_name'],
             'position': position,
-            'element_type': player_data['element_type'],
             'now_cost': player_data['now_cost'],
             'total_points': player_data['total_points'],
+            'points_per_game': player_data['points_per_game'],
             'form': form,
-            'points_per_game': player_data.get('points_per_game', '0.0'),
-            'minutes': player_data.get('minutes', 0),
-            'selected_by_percent': player_data.get('selected_by_percent', '0.0'),
+            'minutes': player_data['minutes'],
+            'goals_scored': player_data['goals_scored'],
+            'assists': player_data['assists'],
+            'clean_sheets': player_data['clean_sheets'],
+            'goals_conceded': player_data['goals_conceded'],
+            'own_goals': player_data['own_goals'],
+            'penalties_saved': player_data['penalties_saved'],
+            'penalties_missed': player_data['penalties_missed'],
+            'yellow_cards': player_data['yellow_cards'],
+            'red_cards': player_data['red_cards'],
+            'saves': player_data['saves'],
+            'bonus': player_data['bonus'],
+            'bps': player_data['bps'],
+            'influence': player_data['influence'],
+            'creativity': player_data['creativity'],
+            'threat': player_data['threat'],
+            'ict_index': player_data['ict_index'],
+            'status': player_data['status'],
             'chance_of_playing': chance_of_playing,
-            'xG': player_data.get('xG', '0.00'),
-            'xA': player_data.get('xA', '0.00'),
-            'xGC': player_data.get('xGC', '0.00'),
-            'xMins_pct': player_data.get('xMins_pct', 1.0),
-            'is_injured': player_data.get('is_injured', False),
             'news': player_data.get('news', ''),
-            'status': player_data.get('status', 'a'),
-            'transfers_in': player_data.get('transfers_in', 0),
-            'transfers_out': player_data.get('transfers_out', 0),
-            'transfers_balance': player_data.get('transfers_balance', 0),
-            'ict_index': player_data.get('ict_index', '0.0'),
-            'influence': player_data.get('influence', '0.0'),
-            'creativity': player_data.get('creativity', '0.0'),
-            'threat': player_data.get('threat', '0.0'),
-            'starts': player_data.get('starts', 0),
-            'expected_goals': player_data.get('expected_goals', '0.00'),
-            'expected_assists': player_data.get('expected_assists', '0.00'),
-            'expected_goal_involvements': player_data.get('expected_goal_involvements', '0.00'),
-            'expected_goals_conceded': player_data.get('expected_goals_conceded', '0.00'),
-            'expected_clean_sheets': player_data.get('expected_clean_sheets', '0.00'),
-            'expected_saves': player_data.get('expected_saves', '0.00'),
-            'goals_scored': player_data.get('goals_scored', 0),
-            'assists': player_data.get('assists', 0),
-            'clean_sheets': player_data.get('clean_sheets', 0),
-            'goals_conceded': player_data.get('goals_conceded', 0),
-            'own_goals': player_data.get('own_goals', 0),
-            'penalties_saved': player_data.get('penalties_saved', 0),
-            'penalties_missed': player_data.get('penalties_missed', 0),
-            'yellow_cards': player_data.get('yellow_cards', 0),
-            'red_cards': player_data.get('red_cards', 0),
-            'saves': player_data.get('saves', 0),
-            'bonus': player_data.get('bonus', 0),
-            'bps': player_data.get('bps', 0),
-            'influence_rank': player_data.get('influence_rank', 0),
-            'influence_rank_type': player_data.get('influence_rank_type', 0),
-            'creativity_rank': player_data.get('creativity_rank', 0),
-            'creativity_rank_type': player_data.get('creativity_rank_type', 0),
-            'threat_rank': player_data.get('threat_rank', 0),
-            'threat_rank_type': player_data.get('threat_rank_type', 0),
-            'ict_index_rank': player_data.get('ict_index_rank', 0),
-            'ict_index_rank_type': player_data.get('ict_index_rank_type', 0),
-            'corners_and_indirect_freekicks_order': player_data.get('corners_and_indirect_freekicks_order', 0),
-            'corners_and_indirect_freekicks_text': player_data.get('corners_and_indirect_freekicks_text', ''),
-            'direct_freekicks_order': player_data.get('direct_freekicks_order', 0),
-            'direct_freekicks_text': player_data.get('direct_freekicks_text', ''),
-            'penalties_order': player_data.get('penalties_order', 0),
-            'penalties_text': player_data.get('penalties_text', ''),
-            'raw_data': player_data  # Keep original data for reference
+            'transfers_in': player_data['transfers_in'],
+            'transfers_out': player_data['transfers_out'],
+            'transfers_in_event': player_data['transfers_in_event'],
+            'transfers_out_event': player_data['transfers_out_event'],
+            'value_form': player_data['value_form'],
+            'value_season': player_data['value_season'],
+            'selected_by_percent': player_data['selected_by_percent']
         }
         
         return processed_player
     
-    def _calculate_chance_of_playing(self, chance_this_round: Optional[int], chance_next_round: Optional[int]) -> int:
+    def _calculate_chance_of_playing(self, this_round: Optional[Any], next_round: Optional[Any]) -> float:
         """
-        Calculate chance of playing as minimum of this round and next round.
+        Calculate chance of playing based on FPL data.
         
         Args:
-            chance_this_round: Chance of playing this round
-            chance_next_round: Chance of playing next round
+            this_round: Chance of playing this round
+            next_round: Chance of playing next round
             
         Returns:
-            Minimum chance of playing (0-100)
+            Chance of playing as a percentage (0-100)
         """
-        if chance_this_round is None and chance_next_round is None:
-            return 100
-        
-        if chance_this_round is None:
-            return chance_next_round or 100
-        
-        if chance_next_round is None:
-            return chance_this_round or 100
-        
-        return min(chance_this_round, chance_next_round)
+        # Use this round if available, otherwise next round, otherwise 100%
+        if this_round is not None and this_round != '':
+            return float(this_round)
+        elif next_round is not None and next_round != '':
+            return float(next_round)
+        else:
+            return 100.0
     
-    def _process_form(self, form_data: Any) -> float:
+    def _process_form(self, form_str: str) -> float:
         """
-        Process form data to ensure it's a valid float.
+        Process form string to float.
         
         Args:
-            form_data: Raw form data from FPL API
+            form_str: Form string from FPL API
             
         Returns:
-            Processed form as float
+            Form as float
         """
         try:
-            if form_data is None or form_data == '':
-                return 0.0
-            return float(form_data)
+            return float(form_str)
         except (ValueError, TypeError):
             return 0.0
     
-    def get_available_players(self, player_data: Dict[str, Dict[str, Any]], filters: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
+    def get_available_players(self, players_data: Dict[str, Dict[str, Any]], 
+                            min_minutes: int = 0, 
+                            max_price: Optional[float] = None,
+                            positions: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
         """
-        Filter players based on availability criteria.
+        Get available players based on criteria.
         
         Args:
-            player_data: Dictionary of all player data
-            filters: Optional filters to apply
+            players_data: Dictionary of player data
+            min_minutes: Minimum minutes played
+            max_price: Maximum price in millions
+            positions: List of positions to include
             
         Returns:
             Filtered dictionary of available players
         """
-        if filters is None:
-            filters = {
-                'exclude_injured': True,
-                'exclude_unavailable': True,
-                'min_chance_of_playing': 25,
-                'min_minutes': 0,
-                'max_price': float('inf'),
-                'min_form': float('-inf'),
-                'positions': ['GK', 'DEF', 'MID', 'FWD']
-            }
-        
         available_players = {}
         
-        for player_id, player in player_data.items():
-            try:
-                # Apply filters
-                if not self._player_meets_filters(player, filters):
-                    continue
-                
-                available_players[player_id] = player
-                
-            except Exception as e:
-                logger.warning(f"Failed to filter player {player_id}: {e}")
+        for player_name, player_data in players_data.items():
+            # Check minutes
+            if player_data.get('minutes', 0) < min_minutes:
                 continue
+            
+            # Check price
+            if max_price is not None:
+                player_price = player_data.get('now_cost', 0) / 10.0  # Convert to millions
+                if player_price > max_price:
+                    continue
+            
+            # Check position
+            if positions and player_data.get('position') not in positions:
+                continue
+            
+            available_players[player_name] = player_data
         
-        logger.info(f"Filtered to {len(available_players)} available players from {len(player_data)} total")
         return available_players
     
-    def _player_meets_filters(self, player: Dict[str, Any], filters: Dict[str, Any]) -> bool:
-        """Check if player meets filtering criteria."""
-        # Position filter
-        if player.get('position') not in filters.get('positions', ['GK', 'DEF', 'MID', 'FWD']):
-            return False
+    def enrich_player_data_by_teams(self, players_data: Dict[str, Dict[str, Any]], team_analysis_strategy=None) -> Dict[str, Dict[str, Any]]:
+        """
+        Enrich player data using team_analysis_strategy per-team approach.
         
-        # Injury filter
-        if filters.get('exclude_injured', True) and player.get('is_injured', False):
-            return False
+        Args:
+            players_data: Dictionary of player data keyed by full name
+            team_analysis_strategy: TeamAnalysisStrategy instance for LLM queries
+            
+        Returns:
+            Enriched player data with expert_insights and injury_news attributes
+        """
+        if not team_analysis_strategy:
+            raise ValueError("team_analysis_strategy is required for enrichment")
+            
+        logger.info("Starting team-based player enrichment...")
         
-        # Chance of playing filter
-        chance = player.get('chance_of_playing', 100)
-        if chance < filters.get('min_chance_of_playing', 25):
-            return False
+        # Group players by team
+        team_players = self._group_players_by_team(players_data)
         
-        # Minutes filter
-        if player.get('minutes', 0) < filters.get('min_minutes', 0):
-            return False
+        # Get list of Premier League teams
+        premier_league_teams = list(team_players.keys())
+        total_teams = len(premier_league_teams)
         
-        # Price filter
-        if player.get('now_cost', 0) / 10.0 > filters.get('max_price', float('inf')):
-            return False
+        logger.info(f"Processing {total_teams} Premier League teams for enrichment")
         
-        # Form filter
-        if player.get('form', 0) < filters.get('min_form', float('-inf')):
-            return False
+        # Get current gameweek
+        current_gameweek = self.fetcher.get_current_gameweek()
+        if current_gameweek is None:
+            current_gameweek = 1  # Fallback to GW1
         
-        return True
+        # Process each team sequentially
+        for i, team_name in enumerate(premier_league_teams, 1):
+            try:
+                logger.info(f"Processing team {i}/{total_teams}: {team_name}")
+                print(f"🔄 Processing {team_name}... ({i}/{total_teams} teams)")
+                
+                # Get players for this team
+                team_player_list = team_players[team_name]
+                
+                # Get fixture information for this team
+                fixture_info = self._get_fixture_info(team_name, current_gameweek)
+                
+                # Format players for prompts
+                formatted_players = self._format_players_for_prompt(team_player_list)
+                
+                # Get expert insights from strategy (LLM logic)
+                try:
+                    expert_insights = team_analysis_strategy.get_team_hints_tips(team_name, formatted_players, current_gameweek, fixture_info)
+                    print(f"   ✅ Expert insights added for {team_name}")
+                except Exception as e:
+                    logger.error(f"Failed to get expert insights for {team_name}: {e}")
+                    print(f"   ❌ Expert insights failed for {team_name}: {e}")
+                    expert_insights = {player['full_name']: "No expert insights available" for player in team_player_list}
+                
+                # Get injury news from strategy (LLM logic)
+                try:
+                    injury_news = team_analysis_strategy.get_team_injury_news(team_name, formatted_players, current_gameweek, fixture_info)
+                    print(f"   ✅ Injury news added for {team_name}")
+                except Exception as e:
+                    logger.error(f"Failed to get injury news for {team_name}: {e}")
+                    print(f"   ❌ Injury news failed for {team_name}: {e}")
+                    injury_news = {player['full_name']: "No injury news available" for player in team_player_list}
+                
+                # Apply enriched data to players (Data processing logic)
+                try:
+                    self._apply_enriched_data_to_players(players_data, team_player_list, expert_insights, injury_news)
+                    print(f"   ✅ Team data enriched for {team_name}")
+                except Exception as e:
+                    logger.error(f"Failed to apply enriched data for {team_name}: {e}")
+                    print(f"   ❌ Data application failed for {team_name}: {e}")
+                
+            except Exception as e:
+                logger.error(f"Failed to process team {team_name}: {e}")
+                print(f"   ❌ Team processing failed for {team_name}: {e}")
+                continue
+        
+        logger.info("Team-based player enrichment completed")
+        return players_data
     
-    def get_fixture_info(self, team_name: str, current_gameweek: int, fixtures: List[Dict[str, Any]], players: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def _group_players_by_team(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Group players by team name."""
+        team_players = {}
+        
+        for player_name, player_data in players_data.items():
+            team_name = player_data.get('team_name', 'Unknown Team')
+            if team_name not in team_players:
+                team_players[team_name] = []
+            team_players[team_name].append(player_data)
+        
+        return team_players
+    
+    def _apply_enriched_data_to_players(self, players_data: Dict[str, Dict[str, Any]], 
+                                      team_players: List[Dict[str, Any]], 
+                                      expert_insights: Dict[str, str],
+                                      injury_news: Dict[str, str]) -> None:
+        """
+        Apply enriched data (expert insights and injury news) to player data.
+        
+        Args:
+            players_data: Dictionary of all player data
+            team_players: List of players for this team
+            expert_insights: Dictionary mapping player names to expert insights
+            injury_news: Dictionary mapping player names to injury news
+        """
+        for player in team_players:
+            player_name = player['full_name']
+            if player_name in players_data:
+                # Add expert insights
+                players_data[player_name]['expert_insights'] = expert_insights.get(
+                    player_name, "No expert insights available"
+                )
+                # Add injury news
+                players_data[player_name]['injury_news'] = injury_news.get(
+                    player_name, "No injury news available"
+                )
+    
+    def _get_fixture_info(self, team_name: str, current_gameweek: int) -> dict:
         """
         Get fixture information for a team in a specific gameweek.
         
         Args:
             team_name: Name of the team
             current_gameweek: Current gameweek number
-            fixtures: List of all fixtures
-            players: Dictionary of all players
             
         Returns:
             Dictionary containing fixture string, double gameweek status, and fixture difficulty
         """
-        # Find team's fixtures for the current gameweek
-        team_fixtures = []
-        for fixture in fixtures:
-            if fixture.get('event') == current_gameweek:
-                # Check if this team is playing
-                home_team = fixture.get('team_h')
-                away_team = fixture.get('team_a')
-                
-                # Get team names from players data
-                home_team_name = None
-                away_team_name = None
-                
-                for player in players.values():
-                    if player.get('team_id') == home_team:
-                        home_team_name = player.get('team_name')
-                    elif player.get('team_id') == away_team:
-                        away_team_name = player.get('team_name')
-                    
-                    if home_team_name and away_team_name:
-                        break
-                
-                if home_team_name == team_name or away_team_name == team_name:
-                    team_fixtures.append(fixture)
+        # Get fixtures data from the fetcher
+        fixtures_data = self.fetcher.get_fixtures()
+        teams_data = self.fetcher.get_fpl_static_data().get('teams', [])
         
-        if not team_fixtures:
+        # Create team name to ID mapping
+        team_id_map = {}
+        for team in teams_data:
+            if isinstance(team, dict) and 'name' in team and 'id' in team:
+                team_id_map[team['name']] = team['id']
+        
+        team_id = team_id_map.get(team_name)
+        
+        if not team_id:
             return {
-                'fixture_str': 'not playing this gameweek',
+                'fixture_str': "no fixture scheduled",
                 'is_double_gameweek': False,
                 'fixture_difficulty': 3.0
             }
         
-        # Check if it's a double gameweek
-        is_double_gameweek = len(team_fixtures) > 1
+        # Find opponents for this gameweek
+        opponents = []
+        fixture_difficulties = []
         
-        # Calculate fixture difficulty (simplified - could be enhanced)
-        fixture_difficulty = 3.0  # Default medium difficulty
+        for fixture_data in fixtures_data:
+            if fixture_data.get('event') == current_gameweek:
+                home_team_id = fixture_data.get('team_h')
+                away_team_id = fixture_data.get('team_a')
+                
+                # Get fixture date and time
+                kickoff_time = fixture_data.get('kickoff_time')
+                if kickoff_time:
+                    try:
+                        from datetime import datetime
+                        # Parse the ISO format date from FPL API
+                        fixture_date = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
+                        # Format as "Sunday 22nd May 2025 at 14:00"
+                        day = fixture_date.day
+                        suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                        formatted_date = f"{fixture_date.strftime('%A')} {day}{suffix} {fixture_date.strftime('%B %Y')} at {fixture_date.strftime('%H:%M')}"
+                    except:
+                        formatted_date = "TBD"
+                else:
+                    formatted_date = "TBD"
+                
+                if home_team_id == team_id:
+                    # Team is playing home
+                    away_team_name = next((team['name'] for team in teams_data if isinstance(team, dict) and team.get('id') == away_team_id), 'Unknown')
+                    opponents.append(f"home to {away_team_name} on {formatted_date}")
+                    # Get home difficulty (for the home team)
+                    fixture_difficulties.append(fixture_data.get('team_h_difficulty', 3))
+                elif away_team_id == team_id:
+                    # Team is playing away
+                    home_team_name = next((team['name'] for team in teams_data if isinstance(team, dict) and team.get('id') == home_team_id), 'Unknown')
+                    opponents.append(f"away to {home_team_name} on {formatted_date}")
+                    # Get away difficulty (for the away team)
+                    fixture_difficulties.append(fixture_data.get('team_a_difficulty', 3))
         
-        # Create fixture string
-        if is_double_gameweek:
-            fixture_str = f"playing {len(team_fixtures)} matches this gameweek"
+        # Calculate average fixture difficulty
+        if fixture_difficulties:
+            avg_difficulty = sum(fixture_difficulties) / len(fixture_difficulties)
         else:
-            fixture = team_fixtures[0]
-            home_team = fixture.get('team_h')
-            away_team = fixture.get('team_a')
-            
-            # Determine if team is home or away
-            team_id = None
-            for player in players.values():
-                if player.get('team_name') == team_name:
-                    team_id = player.get('team_id')
-                    break
-            
-            if team_id == home_team:
-                opponent_id = away_team
-                fixture_str = f"at home vs {self._get_team_name_by_id(opponent_id, players)}"
+            avg_difficulty = 3.0
+        
+        # Format opponent string
+        is_double_gameweek = len(opponents) > 1
+        
+        if opponents:
+            if len(opponents) == 1:
+                fixture_str = opponents[0]
             else:
-                opponent_id = home_team
-                fixture_str = f"away vs {self._get_team_name_by_id(opponent_id, players)}"
+                # Double gameweek
+                fixture_str = f"double gameweek: {' and '.join(opponents)}"
+        else:
+            fixture_str = "no fixture scheduled"
         
         return {
             'fixture_str': fixture_str,
             'is_double_gameweek': is_double_gameweek,
-            'fixture_difficulty': fixture_difficulty
+            'fixture_difficulty': round(avg_difficulty, 1)
         }
     
-    def _get_team_name_by_id(self, team_id: int, players: Dict[str, Dict[str, Any]]) -> str:
-        """Get team name by team ID from players data."""
-        for player in players.values():
-            if player.get('team_id') == team_id:
-                return player.get('team_name', 'Unknown Team')
-        return 'Unknown Team'
+    def _format_players_for_prompt(self, team_players: List[Dict[str, Any]]) -> str:
+        """Format player list for LLM prompts"""
+        formatted_players = []
+        
+        for player in team_players:
+            # Get player stats
+            ppg = player.get('points_per_game', 0)
+            form = player.get('form', 0)
+            ownership = player.get('selected_by_percent', 0)
+            price = player.get('now_cost', 0) / 10.0  # Convert to millions
+            
+            # Convert to float for formatting, handling string values
+            try:
+                ppg_float = float(ppg) if ppg is not None else 0.0
+            except (ValueError, TypeError):
+                ppg_float = 0.0
+            
+            try:
+                form_float = float(form) if form is not None else 0.0
+            except (ValueError, TypeError):
+                form_float = 0.0
+            
+            try:
+                ownership_float = float(ownership) if ownership is not None else 0.0
+            except (ValueError, TypeError):
+                ownership_float = 0.0
+            
+            formatted_players.append(
+                f"- {player['full_name']} ({player['position']}, £{price:.1f}m, "
+                f"PPG: {ppg_float:.1f}, Form: {form_float:.1f}, "
+                f"Ownership: {ownership_float:.1f}%)"
+            )
+        
+        return "\n".join(formatted_players)

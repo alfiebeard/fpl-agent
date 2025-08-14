@@ -114,15 +114,40 @@ class FPLAgent:
                 print("🧠 Enriching player data with LLM insights...")
                 print("⏱️  This process takes 15-20 minutes but is cached for future use")
             
-            # TODO: Implement actual enrichment functionality
-            # For now, return a placeholder response
-            print("⚠️  Enrichment functionality not yet implemented")
-            print("   This is a placeholder for future development")
+            # Load current player data
+            players_data = self.data_store.get_players_data()
+            if not players_data:
+                raise ValueError("No player data available for enrichment")
+            
+            print(f"📊 Enriching {len(players_data)} players from {len(set(player.get('team_name') for player in players_data.values()))} teams...")
+            
+            # Use DataProcessor to enrich player data by teams
+            from .data.data_processor import DataProcessor
+            from .strategies.team_analysis_strategy import TeamAnalysisStrategy
+            
+            data_processor = DataProcessor(self.config)
+            team_analysis_strategy = TeamAnalysisStrategy(self.config)
+            
+            # Enrich the player data
+            enriched_players = data_processor.enrich_player_data_by_teams(players_data, team_analysis_strategy)
+            
+            # Add enrichment timestamp
+            enriched_data = {
+                'players': enriched_players,
+                'enrichment_timestamp': datetime.now().isoformat(),
+                'enrichment_status': 'completed',
+                'total_players_enriched': len(enriched_players)
+            }
+            
+            # Store enriched data back to data store
+            self.data_store.save_player_data(enriched_data)
+            
+            print(f"✅ Successfully enriched {len(enriched_players)} players")
             
             return {
-                'enriched_players': 0,
-                'status': 'not_implemented',
-                'message': 'Enrichment functionality not yet implemented',
+                'enriched_players': len(enriched_players),
+                'status': 'success',
+                'message': f'Successfully enriched {len(enriched_players)} players',
                 'enriched_at': datetime.now().isoformat()
             }
                 
@@ -155,6 +180,11 @@ class FPLAgent:
                 file_stat = embeddings_file.stat()
                 embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
             
+            # Check enriched data freshness
+            enriched_age_hours = None
+            if fpl_data and 'enrichment_timestamp' in fpl_data:
+                enriched_age_hours = self.data_store._calculate_data_age_hours(fpl_data, 'enrichment_timestamp')
+            
             data_status = {
                 'fpl_data': {
                     'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
@@ -162,9 +192,9 @@ class FPLAgent:
                     'available': fpl_data is not None
                 },
                 'enriched_data': {
-                    'fresh': False,
-                    'age_hours': None,
-                    'available': False
+                    'fresh': enriched_age_hours is not None and enriched_age_hours < 1.0,
+                    'age_hours': enriched_age_hours,
+                    'available': enriched_age_hours is not None
                 },
                 'embeddings': {
                     'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
@@ -275,6 +305,11 @@ class FPLAgent:
                 file_stat = embeddings_file.stat()
                 embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
             
+            # Check enriched data freshness
+            enriched_age_hours = None
+            if fpl_data and 'enrichment_timestamp' in fpl_data:
+                enriched_age_hours = self.data_store._calculate_data_age_hours(fpl_data, 'enrichment_timestamp')
+            
             data_status = {
                 'fpl_data': {
                     'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
@@ -282,9 +317,9 @@ class FPLAgent:
                     'available': fpl_data is not None
                 },
                 'enriched_data': {
-                    'fresh': False,
-                    'age_hours': None,
-                    'available': False
+                    'fresh': enriched_age_hours is not None and enriched_age_hours < 1.0,
+                    'age_hours': enriched_age_hours,
+                    'available': enriched_age_hours is not None
                 },
                 'embeddings': {
                     'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
@@ -395,6 +430,11 @@ class FPLAgent:
                 file_stat = embeddings_file.stat()
                 embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
             
+            # Check enriched data freshness
+            enriched_age_hours = None
+            if fpl_data and 'enrichment_timestamp' in fpl_data:
+                enriched_age_hours = self.data_store._calculate_data_age_hours(fpl_data, 'enrichment_timestamp')
+            
             data_status = {
                 'fpl_data': {
                     'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
@@ -402,9 +442,9 @@ class FPLAgent:
                     'available': fpl_data is not None
                 },
                 'enriched_data': {
-                    'fresh': False,
-                    'age_hours': None,
-                    'available': False
+                    'fresh': enriched_age_hours is not None and enriched_age_hours < 1.0,
+                    'age_hours': enriched_age_hours,
+                    'available': enriched_age_hours is not None
                 },
                 'embeddings': {
                     'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
@@ -547,17 +587,78 @@ def main():
             print(f"📅 Data timestamp: {result['fetched_at']}")
             
         elif args.command == 'enrich':
-            # Enrich player data with LLM insights
-            result = optimizer.enrich_player_data(force_refresh=args.force_enrich)
-            if result['status'] == 'success':
-                print(f"\n✅ Enriched {result['enriched_players']} players")
-                print(f"📅 Enriched at: {result['enriched_at']}")
-            elif result['status'] == 'not_implemented':
-                print(f"\n⚠️  {result['message']}")
-                print(f"📅 Status checked at: {result['enriched_at']}")
+            if args.show_prompt:
+                # Show the prompts that would be sent to the LLM
+                print("📝 FPL Player Enrichment Prompts")
+                print("=" * 80)
+                
+                # Generate prompts using real FPL data for the first team
+                try:
+                    # Get real FPL data for prompt generation
+                    from fpl_agent.data.data_processor import DataProcessor
+                    from fpl_agent.core.config import Config
+                    config = Config()
+                    processor = DataProcessor(config)
+                    
+                    # Get current gameweek
+                    current_gameweek = processor.fetcher.get_current_gameweek()
+                    if current_gameweek is None:
+                        current_gameweek = 1  # Fallback to GW1
+                    
+                    # Get real player data from the optimizer's data store
+                    players_data = optimizer.data_store.get_players_data()
+                    if not players_data:
+                        raise ValueError("No player data available")
+                    
+                    # Group players by team and get the first team alphabetically
+                    team_players = processor._group_players_by_team(players_data)
+                    first_team_name = sorted(team_players.keys())[0]
+                    first_team_players = team_players[first_team_name]
+                    
+                    # Get real fixture info for this team
+                    fixture_info = processor._get_fixture_info(first_team_name, current_gameweek)
+                    
+                    # Format real players for prompts
+                    formatted_players = processor._format_players_for_prompt(first_team_players)
+                    
+                    # Generate both prompts using real data
+                    from fpl_agent.strategies.team_analysis_strategy import TeamAnalysisStrategy
+                    strategy = TeamAnalysisStrategy(config)
+                    
+                    print(f"🔍 HINTS & TIPS PROMPT FOR {first_team_name.upper()}:")
+                    print("-" * 40)
+                    hints_prompt = strategy._create_hints_tips_prompt(first_team_name, formatted_players, current_gameweek, fixture_info)
+                    print(f"Prompt Length: {len(hints_prompt)} characters")
+                    print("=" * 80)
+                    print(hints_prompt)
+                    print("=" * 80)
+                    
+                    print(f"\n🏥 INJURY NEWS PROMPT FOR {first_team_name.upper()}:")
+                    print("-" * 40)
+                    injury_prompt = strategy._create_injury_news_prompt(first_team_name, formatted_players, current_gameweek, fixture_info)
+                    print(f"Prompt Length: {len(injury_prompt)} characters")
+                    print("=" * 80)
+                    print(injury_prompt)
+                    print("=" * 80)
+                    
+                    print(f"✅ Real prompts generated for {first_team_name} (Gameweek {current_gameweek}). Use --show-prompt to preview, remove flag to execute.")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to generate prompts: {e}")
+                    print(f"❌ Error generating prompts: {e}")
+                    sys.exit(1)
             else:
-                print(f"\n❌ Enrichment failed: {result.get('error', 'Unknown error')}")
-                sys.exit(1)
+                # Enrich player data with LLM insights
+                result = optimizer.enrich_player_data(force_refresh=args.force_enrich)
+                if result['status'] == 'success':
+                    print(f"\n✅ Enriched {result['enriched_players']} players")
+                    print(f"📅 Enriched at: {result['enriched_at']}")
+                elif result['status'] == 'not_implemented':
+                    print(f"\n⚠️  {result['message']}")
+                    print(f"📅 Status checked at: {result['enriched_at']}")
+                else:
+                    print(f"\n❌ Enrichment failed: {result.get('error', 'Unknown error')}")
+                    sys.exit(1)
                 
         elif args.command == 'gw-update':
             if args.show_prompt:
