@@ -58,6 +58,10 @@ class FPLAgent:
         self.data_service = DataService(config)
         self.data_store = DataStore()
         
+        # Initialize team manager
+        from .core.team_manager import TeamManager
+        self.team_manager = TeamManager()
+        
         # LLM strategy will be initialized lazily when needed
         self._llm_strategy = None
     
@@ -702,25 +706,76 @@ def main():
                 
                 # Generate the prompt without executing
                 try:
-                    # Create minimal data for prompt generation
-                    current_team = {
-                        "team": {
-                            "starting": [
-                                {"name": "Sample Player 1", "position": "GK", "price": 5.0, "team": "Sample Team"},
-                                {"name": "Sample Player 2", "position": "DEF", "price": 5.5, "team": "Sample Team"}
-                            ],
-                            "substitutes": [
-                                {"name": "Sample Sub 1", "position": "MID", "price": 5.0, "team": "Sample Team"}
-                            ]
-                        }
-                    }
+                    # Get real team data for prompt generation
+                    gameweek = args.gameweek or 1
                     
-                    chips_data = {"wildcard": True, "bench_boost": True, "free_hit": True, "triple_captain": True}
-                    transfers_data = {"free_transfers": 1}
+                    # Try to get the latest available team for prompt generation
+                    try:
+                        # First try to get the previous team for the specified gameweek
+                        previous_team = optimizer.team_manager.get_previous_team(gameweek)
+                        if previous_team:
+                            current_team = previous_team
+                            print(f"📋 Using real team data from Gameweek {gameweek - 1}")
+                        else:
+                            # If no previous team for this gameweek, try to get the latest available team
+                            latest_gw = optimizer.team_manager.get_latest_gameweek()
+                            if latest_gw and latest_gw >= 1:
+                                latest_team = optimizer.team_manager.load_team(latest_gw)
+                                if latest_team:
+                                    current_team = latest_team
+                                    print(f"📋 Using real team data from latest available Gameweek {latest_gw}")
+                                else:
+                                    raise ValueError("Could not load latest team")
+                            else:
+                                raise ValueError("No teams available")
+                        
+                        # Ensure the team data has the correct structure for the prompt formatter
+                        # The PromptFormatter expects either direct team data or team.team structure
+                        if current_team and 'team' in current_team:
+                            # If we have team.team structure, extract the inner team data
+                            if 'team' in current_team['team']:
+                                # Handle double-nested structure: team.team.team
+                                current_team = {
+                                    'starting': current_team['team']['team']['starting'],
+                                    'substitutes': current_team['team']['team']['substitutes'],
+                                    'captain': current_team['team'].get('captain'),
+                                    'vice_captain': current_team['team'].get('vice_captain'),
+                                    'total_cost': current_team['team'].get('total_cost'),
+                                    'bank': current_team['team'].get('bank')
+                                }
+                            else:
+                                # Handle single-nested structure: team.team
+                                current_team = current_team['team']
+                    except Exception as e:
+                        logger.warning(f"Could not load real team data: {e}, using sample data")
+                        # Fallback to sample data if no real team exists
+                        current_team = {
+                            "team": {
+                                "starting": [
+                                    {"name": "Sample Player 1", "position": "GK", "price": 5.0, "team": "Sample Team"},
+                                    {"name": "Sample Player 2", "position": "DEF", "price": 5.5, "team": "Sample Team"}
+                                ],
+                                "substitutes": [
+                                    {"name": "Sample Sub 1", "position": "MID", "price": 5.0, "team": "Sample Team"}
+                                ]
+                            }
+                        }
+                        print(f"⚠️  No real team data available, using sample data")
+                    
+                    # Get real chips and transfers data from meta
+                    try:
+                        meta_data = optimizer.team_manager.get_meta()
+                        chips_data = optimizer.team_manager.get_available_chips_from_meta(meta_data)
+                        transfers_data = optimizer.team_manager.get_available_transfers_from_meta(meta_data)
+                        print(f"🎯 Using real chips and transfers data")
+                    except Exception as e:
+                        logger.warning(f"Could not load meta data: {e}, using sample data")
+                        chips_data = {"wildcard": True, "bench_boost": True, "free_hit": True, "triple_captain": True}
+                        transfers_data = {"free_transfers": 1}
                     
                     # Generate the prompt
                     prompt = optimizer.llm_strategy._create_weekly_update_prompt(
-                        current_team, args.gameweek or 1, chips_data, transfers_data
+                        current_team, gameweek, chips_data, transfers_data
                     )
                     
                     print(f"Prompt Length: {len(prompt)} characters")
