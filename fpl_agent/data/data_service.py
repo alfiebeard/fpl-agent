@@ -271,3 +271,58 @@ class DataService:
         players = self.get_players(force_refresh=False)
         
         return self.processor.get_fixture_info(team_name, current_gameweek, fixtures, players)
+    
+    def get_available_players_formatted(self, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
+        """
+        Get available players data formatted for LLM prompts.
+        
+        Args:
+            use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
+            force_refresh: If True, ignore cache and fetch fresh data
+            use_embeddings: If True, use embedding filtering (placeholder for future implementation)
+            
+        Returns:
+            String containing all available players organized by team
+        """
+        logger.info("Fetching and formatting available players data...")
+        
+        try:
+            # Get available players
+            players = self.get_available_players()
+            
+            # Import here to avoid circular imports
+            from ..utils.prompt_formatter import PromptFormatter
+            
+            # Format the data for LLM prompts
+            return PromptFormatter.format_players_for_llm(players)
+            
+        except Exception as e:
+            logger.error(f"Failed to get available players data: {e}")
+            return "Error: Could not fetch player data"
+    
+    def get_available_players_dict(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get available players data as a dictionary for validation.
+        
+        Returns:
+            Dictionary of players with their data
+        """
+        try:
+            # Get available players
+            players = self.get_available_players()
+            
+            # Convert to the expected format
+            players_dict = {}
+            for player_id, player in players.items():
+                players_dict[player.get('full_name', 'Unknown')] = {
+                    'name': player.get('full_name', 'Unknown'),
+                    'position': player.get('position', 'UNK'),
+                    'price': player.get('now_cost', 0) / 10.0,  # Convert from FPL price format
+                    'team': player.get('team_name', 'Unknown')
+                }
+            
+            return players_dict
+            
+        except Exception as e:
+            logger.error(f"Failed to get available players dict: {e}")
+            return {}

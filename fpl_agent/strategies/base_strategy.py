@@ -46,6 +46,11 @@ class BaseLLMStrategy(ABC):
         self.data_service = DataService(config)
         
         logger.info(f"Initialized {self.__class__.__name__} with model: {model_name}")
+
+    @abstractmethod
+    def get_strategy_name(self) -> str:
+        """Return the name of this strategy."""
+        pass
     
     def _extract_json_response(self, response: str, context: str = "LLM response") -> Dict[str, Any]:
         """

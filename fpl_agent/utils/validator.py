@@ -475,3 +475,88 @@ def validate_llm_response(response: str, gameweek: int, available_players: Dict[
         errors.append(f"Validation failed: {str(e)}")
     
     return errors 
+
+    def parse_team_response(self, response: str) -> Dict[str, Any]:
+        """Parse the LLM response into team data"""
+        try:
+            # Extract JSON from the response
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            
+            if json_start == -1 or json_end == 0:
+                logger.error(f"No JSON found in response. Response: {response}")
+                raise ValueError("No JSON found in response")
+            
+            json_str = response[json_start:json_end]
+            logger.debug(f"Extracted JSON: {json_str}")
+            
+            team_data = json.loads(json_str)
+            logger.debug(f"Parsed team data: {team_data}")
+            
+            return team_data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error(f"JSON string: {json_str if 'json_str' in locals() else 'Not available'}")
+            raise ValueError(f"Invalid JSON response: {e}")
+        except Exception as e:
+            logger.error(f"Failed to parse team response: {e}")
+            logger.error(f"Response: {response}")
+            raise
+    
+    def validate_team_data_comprehensive(self, team_data: Dict[str, Any], config) -> List[str]:
+        """Validate that the team data meets FPL constraints"""
+        errors = []
+        
+        # Basic structure validation
+        required_keys = ['captain', 'vice_captain', 'total_cost', 'bank', 'team']
+        for key in required_keys:
+            if key not in team_data:
+                errors.append(f"Missing required key: {key}")
+        
+        team = team_data.get('team', {})
+        if 'starting' not in team or 'substitutes' not in team:
+            errors.append("Team must have 'starting' and 'substitutes' sections")
+            return errors
+        
+        # Count players
+        starting = team['starting']
+        substitutes = team['substitutes']
+        
+        if len(starting) != 11:
+            errors.append(f"Must have exactly 11 starting players, got {len(starting)}")
+        
+        if len(substitutes) != 4:
+            errors.append(f"Must have exactly 4 substitutes, got {len(substitutes)}")
+        
+        # Check budget
+        total_cost = team_data.get('total_cost', 0)
+        if total_cost > 100.0:
+            errors.append(f"Total cost £{total_cost}m exceeds budget of £100.0m")
+        
+        # Check team composition (basic validation)
+        all_players = starting + substitutes
+        
+        # Get constraints from config
+        position_limits = config.get_position_limits()
+        
+        # Count positions
+        gk_count = sum(1 for p in all_players if p.get('position') == 'GK')
+        def_count = sum(1 for p in all_players if p.get('position') == 'DEF')
+        mid_count = sum(1 for p in all_players if p.get('position') == 'MID')
+        fwd_count = sum(1 for p in all_players if p.get('position') == 'FWD')
+        
+        # Validate against config
+        if gk_count != position_limits['GK']:
+            errors.append(f"Must have exactly {position_limits['GK']} goalkeepers, got {gk_count}")
+        if def_count != position_limits['DEF']:
+            errors.append(f"Must have exactly {position_limits['DEF']} defenders, got {def_count}")
+        if mid_count != position_limits['MID']:
+            errors.append(f"Must have exactly {position_limits['MID']} midfielders, got {mid_count}")
+        if fwd_count != position_limits['FWD']:
+            errors.append(f"Must have exactly {position_limits['FWD']} forwards, got {fwd_count}")
+        
+        if not errors:
+            logger.info("Team data validation passed")
+        
+        return errors 

@@ -3,21 +3,13 @@ FPL team manager using LLM for comprehensive team management
 """
 
 import logging
-import json
 from typing import Dict, Optional, Any
-from pathlib import Path
-from datetime import datetime
 
 from ..core.config import Config
 from ..core.team_manager import TeamManager
 from .base_strategy import BaseLLMStrategy
-from .embedding_filter import EmbeddingFilter
-
 from ..utils.validator import FPLValidator
-
-
-
-from ..core.models import Position
+from ..utils.prompt_formatter import PromptFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -30,191 +22,15 @@ class TeamBuildingStrategy(BaseLLMStrategy):
     - Team creation for Gameweek 1 using LLM analysis
     - Weekly team updates and transfers using LLM insights
     - Chip and wildcard management with LLM recommendations
-    - Integration with FPL API for current team data
     """
     
     def __init__(self, config: Config):
         super().__init__(config, model_name="main")
         self.team_manager = TeamManager()
-        self.embedding_filter = None  # Lazy initialization
-        
-        # New clean data pipeline
-        from ..data import DataService
-        self.data_service = DataService(config)
     
     def get_strategy_name(self) -> str:
         """Return the name of this strategy."""
         return "Team Building Strategy"
-    
-    def _get_team_constraints_prompt(self) -> str:
-        """Generate team constraints prompt from config"""
-        position_limits = self.config.get_position_limits()
-        formation_constraints = self.config.get_formation_constraints()
-        
-        return f"""* The squad must include exactly 15 players:
-    * {position_limits['GK']} goalkeepers
-    * {position_limits['DEF']} defenders
-    * {position_limits['MID']} midfielders
-    * {position_limits['FWD']} forwards
-* The starting 11 must follow valid FPL formations:
-    * 1 goalkeeper
-    * {formation_constraints['DEF'][0]} to {formation_constraints['DEF'][1]} defenders
-    * {formation_constraints['MID'][0]} to {formation_constraints['MID'][1]} midfielders
-    * {formation_constraints['FWD'][0]} to {formation_constraints['FWD'][1]} forwards"""
-    
-    def _get_player_data_cache_path(self) -> Path:
-        """Get the path to the player data cache file"""
-        # Use new data service instead of manual cache management
-        return self.data_service.store.get_file_path()
-    
-    def _load_cached_player_data(self) -> Optional[Dict[str, Any]]:
-        """
-        Load cached player data from JSON file.
-        
-        Returns:
-            Cached player data or None if not available
-        """
-        # Use new data service instead of manual cache management
-        return self.data_service.store.load_player_data()
-    
-    def _save_player_data_cache(self, player_data: Dict[str, Dict[str, Any]]) -> None:
-        """
-        Save player data to cache file.
-        
-        Args:
-            player_data: Dictionary of structured enriched player data
-        """
-        # Use new data service instead of manual cache management
-        self.data_service.store.save_player_data(player_data)
-    
-    def _get_cached_enriched_player_data(self) -> Optional[Dict[str, Dict[str, Any]]]:
-        """
-        Get enriched player data from cache if available.
-        
-        Returns:
-            Cached enriched player data or None if not available
-        """
-        # Use new data service instead of manual cache management
-        return self.data_service.get_players(force_refresh=False)
-
-    def _get_available_players_data(self, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
-        """
-        Get available players data formatted for LLM prompts.
-        
-        Args:
-            use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
-            force_refresh: If True, ignore cache and fetch fresh data (only applies when use_semantic_filtering=True)
-            
-        Returns:
-            String containing all available players organized by team
-        """
-        logger.info("Fetching and formatting available players data...")
-        
-        if use_semantic_filtering:
-            if use_embeddings:
-                logger.info("Using semantic filtering with enriched player data AND embedding filtering")
-                return self._get_available_players_data_enriched_filtered(force_refresh=force_refresh)
-            else:
-                logger.info("Using semantic filtering with enriched player data (no embedding filtering)")
-                return self._get_available_players_data_enriched(force_refresh=force_refresh)
-        
-        try:
-            # Use new data service instead of manual data management
-            players = self.data_service.get_available_players()
-            
-            # Format the data for LLM prompts
-            return self._format_players_for_llm(players)
-            
-        except Exception as e:
-            logger.error(f"Failed to get available players data: {e}")
-            return "Error: Could not fetch player data"
-    
-    def _format_players_for_llm(self, players: Dict[str, Dict[str, Any]]) -> str:
-        """
-        Format player data for LLM prompts.
-        
-        Args:
-            players: Dictionary of player data from data service
-            
-        Returns:
-            Formatted string for LLM prompts
-        """
-        try:
-            # Group players by team
-            teams = {}
-            for player_id, player in players.items():
-                team_name = player.get('team_name', 'Unknown')
-                if team_name not in teams:
-                    teams[team_name] = []
-                teams[team_name].append(player)
-            
-            # Format the data
-            formatted_data = []
-            
-            for team_name, team_players in sorted(teams.items()):
-                formatted_data.append(team_name.upper())
-                
-                # Sort players by position (GK, DEF, MID, FWD) then by total points
-                position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
-                sorted_players = sorted(
-                    team_players, 
-                    key=lambda p: (position_order.get(p.get('position', 'UNK'), 4), -p.get('total_points', 0))
-                )
-                
-                for player in sorted_players:
-                    # Get player stats
-                    name = player.get('full_name', 'Unknown')
-                    position = player.get('position', 'UNK')
-                    price = player.get('now_cost', 0) / 10.0  # Convert from FPL price format
-                    chance = player.get('chance_of_playing', 100)
-                    ppg = float(player.get('points_per_game', '0.0'))
-                    form = float(player.get('form', '0.0'))
-                    minutes = player.get('minutes', 0)
-                    ownership = float(player.get('selected_by_percent', '0.0'))
-                    
-                    formatted_data.append(
-                        f"{name}, {position}, £{price:.1f}, {chance}%, "
-                        f"PPG: {ppg:.1f}, Form: {form:.1f}, Mins: {minutes}, "
-                        f"Ownership: {ownership:.1f}%"
-                    )
-                
-                formatted_data.append("")  # Empty line between teams
-            
-            return "\n".join(formatted_data)
-            
-        except Exception as e:
-            logger.error(f"Failed to format players for LLM: {e}")
-            return "Error: Could not format player data"
-    
-    def _get_available_players_dict(self, bootstrap_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """
-        Get available players data as a dictionary for validation.
-        
-        Args:
-            bootstrap_data: Raw FPL bootstrap data (kept for compatibility)
-            
-        Returns:
-            Dictionary of players with their data
-        """
-        try:
-            # Use new data service instead of manual data management
-            players = self.data_service.get_available_players()
-            
-            # Convert to the expected format
-            players_dict = {}
-            for player_id, player in players.items():
-                players_dict[player.get('full_name', 'Unknown')] = {
-                    'name': player.get('full_name', 'Unknown'),
-                    'position': player.get('position', 'UNK'),
-                    'price': player.get('now_cost', 0) / 10.0,  # Convert from FPL price format
-                    'team': player.get('team_name', 'Unknown')
-                }
-            
-            return players_dict
-            
-        except Exception as e:
-            logger.error(f"Failed to get available players dict: {e}")
-            return {}
     
     def create_team(self, budget: float = 100.0, gameweek: int = 1, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> Dict[str, Any]:
         """
@@ -246,7 +62,8 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         # Parse and validate the response
         logger.info("Parsing LLM response...")
         try:
-            team_data = self._parse_team_response(response)
+            validator = FPLValidator()
+            team_data = validator.parse_team_response(response)
         except Exception as e:
             logger.error(f"Failed to parse LLM response: {e}")
             logger.error(f"Full LLM response: {response}")
@@ -254,8 +71,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         
         # Validate the team data
         logger.info("Validating team data...")
-        validator = FPLValidator()
-        validation_errors = validator.validate_team_data(team_data, gameweek)
+        validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
         
         if validation_errors:
             error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
@@ -295,10 +111,10 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         current_meta = self.team_manager.get_meta()
         
         # Check if this is a free hit revert scenario and handle it first
-        if self._is_free_hit_revert_scenario(gameweek, current_meta):
+        if self.team_manager.is_free_hit_revert_scenario(gameweek, current_meta):
             logger.info(f"Free hit revert scenario detected for Gameweek {gameweek}")
             # Handle the revert and get the reverted team
-            reverted_team_data = self._handle_free_hit_revert(gameweek, current_meta)
+            reverted_team_data = self.team_manager.handle_free_hit_revert(gameweek, current_meta)
             # Get updated meta after revert
             current_meta = self.team_manager.get_meta()
             # Use the reverted team for the prompt
@@ -312,10 +128,9 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             current_team = previous_team['team']
         
         try:
-            
             # Get available chips and transfers from meta data
-            chips_data = self._get_available_chips_from_meta(current_meta)
-            transfers_data = self._get_available_transfers_from_meta(current_meta)
+            chips_data = self.team_manager.get_available_chips_from_meta(current_meta)
+            transfers_data = self.team_manager.get_available_transfers_from_meta(current_meta)
             
             # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
@@ -326,23 +141,23 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             response = self.llm_engine.query(prompt, use_web_search=True)
             
             # Parse and validate the response
-            team_data = self._parse_team_response(response)
+            validator = FPLValidator()
+            team_data = validator.parse_team_response(response)
             
             # Check if wildcard or free hit is being used
             chip_used = team_data.get('wildcard_or_chip')
             if chip_used in ['wildcard', 'free_hit']:
                 logger.info(f"{chip_used.title()} chip detected - creating new team from scratch")
-                return self._handle_chip_team_creation(gameweek, chip_used, team_data)
+                return self.team_manager.handle_chip_team_creation(gameweek, chip_used, team_data, self.create_team)
             
             # Validate the team data
             logger.info("Validating team data...")
-            validator = FPLValidator()
-            validation_errors = validator.validate_team_data(team_data, gameweek)
+            validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
             
             # Validate bank calculation if transfers were made
             if team_data.get('transfers'):
                 # Get available players data for bank validation
-                available_players = self._get_available_players_dict({})
+                available_players = self.data_service.get_available_players_dict()
                 
                 bank_errors = validator.validate_bank_calculation(
                     team_data, gameweek, team_data.get('transfers', []), available_players
@@ -358,7 +173,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             self.team_manager.save_team(gameweek, team_data)
             
             # Automatically update meta.json based on the response
-            self._update_meta_from_response(gameweek, team_data, current_meta)
+            self.team_manager.update_meta_from_response(gameweek, team_data, current_meta)
             
             logger.info(f"Team updated successfully for Gameweek {gameweek}")
             return team_data
@@ -370,14 +185,17 @@ class TeamBuildingStrategy(BaseLLMStrategy):
     def _create_team_creation_prompt(self, budget: float, gameweek: int, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
         """Create the team creation prompt"""
         
-        # Get available players data
-        players_data = self._get_available_players_data(use_semantic_filtering, force_refresh, use_embeddings)
+        # Get available players data using data service
+        players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
+        
+        # Get team constraints from prompt formatter
+        team_constraints = PromptFormatter.get_team_constraints_prompt(self.config)
         
         return f"""You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
 You must strictly follow all official FPL rules and constraints when building the team:
 * The total budget must not exceed £{budget} million.
-{self._get_team_constraints_prompt()}
+{team_constraints}
 * A maximum of 3 players are allowed from any single Premier League club.
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
@@ -464,14 +282,14 @@ Ensure the team meets all FPL rules and constraints before returning the output.
                                    chips_data: Dict, transfers_data: Dict, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
         """Create the weekly update prompt"""
         
-        # Format current team for prompt
-        team_str = self._format_current_team_for_prompt(current_team)
+        # Format current team for prompt using prompt formatter
+        team_str = PromptFormatter.format_current_team_for_prompt(current_team)
         
-        # Format available chips
-        chips_str = self._format_chips_for_prompt(chips_data)
+        # Format available chips using prompt formatter
+        chips_str = PromptFormatter.format_chips_for_prompt(chips_data)
         
-        # Get available players data
-        players_data = self._get_available_players_data(use_semantic_filtering, force_refresh, use_embeddings)
+        # Get available players data using data service
+        players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {team_str}
@@ -614,945 +432,4 @@ Ensure the final team meets all FPL constraints before submitting:
 * Total cost ≤ £100.0 million
 * {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
 * Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
-* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)"""
-    
-    def _format_current_team_for_prompt(self, team_data: Dict) -> str:
-        """Format current team data for the prompt"""
-        if not team_data:
-            return "No current team data available"
-        
-        formatted = []
-        
-        # Handle the actual team data structure from saved teams
-        if 'team' in team_data:
-            team = team_data['team']
-            # Captain and vice-captain are at the top level of the team data
-            captain = team_data.get('captain', 'Unknown')
-            vice_captain = team_data.get('vice_captain', 'Unknown')
-        else:
-            team = team_data
-            captain = team.get('captain', 'Unknown')
-            vice_captain = team.get('vice_captain', 'Unknown')
-        
-        # Add starting players section
-        formatted.append("Starting 11")
-        if 'starting' in team:
-            for player in team['starting']:
-                player_name = player.get('name', 'Unknown')
-                position = player.get('position', 'Unknown')
-                price = player.get('price', 0.0)
-                
-                captain_str = ""
-                if player_name == captain:
-                    captain_str = ", Captain"
-                elif player_name == vice_captain:
-                    captain_str = ", Vice captain"
-                
-                formatted.append(f"{player_name}, {position}, £{price}{captain_str}")
-        
-        # Add substitutes section
-        formatted.append("")
-        formatted.append("Subs")
-        if 'substitutes' in team:
-            sub_count = 1
-            for player in team['substitutes']:
-                player_name = player.get('name', 'Unknown')
-                position = player.get('position', 'Unknown')
-                price = player.get('price', 0.0)
-                sub_order = player.get('sub_order')
-                
-                if position == 'GK':
-                    formatted.append(f"GK. {player_name}, {position}, £{price}")
-                else:
-                    formatted.append(f"{sub_count}. {player_name}, {position}, £{price}")
-                    sub_count += 1
-        
-        return "\n".join(formatted)
-    
-    def _format_chips_for_prompt(self, chips_data: Dict) -> str:
-        """Format available chips for the prompt"""
-        available_chips = []
-        used_chips = chips_data.get('used', [])
-        
-        all_chips = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
-        for chip in all_chips:
-            if chip not in [c.get('name') for c in used_chips]:
-                available_chips.append(chip)
-        
-        return ", ".join(available_chips) if available_chips else "none"
-    
-    def _format_transfers_for_prompt(self, transfers_data: Dict) -> str:
-        """Format available transfers for the prompt"""
-        free_transfers = transfers_data.get('free_transfers', 1)
-        return f"{free_transfers} free transfer{'s' if free_transfers != 1 else ''}"
-    
-
-    
-    def _get_available_chips_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Get available chips information from meta data"""
-        chips_used = meta_data.get('chips_used', {})
-        available_chips = []
-        used_chips = []
-        
-        all_chips = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
-        for chip in all_chips:
-            if chips_used.get(chip, False):
-                used_chips.append({'name': chip})
-            else:
-                # Special case: Free hit cannot be used in consecutive gameweeks
-                if chip == 'free_hit' and chips_used.get('free_hit', False):
-                    # Free hit was used, so it's not available
-                    used_chips.append({'name': chip})
-                else:
-                    available_chips.append(chip)
-        
-        return {
-            'used': used_chips,
-            'available': available_chips
-        }
-    
-    def _get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Get available transfers information from meta data"""
-        return {
-            'free_transfers': meta_data.get('free_transfers', 1),
-            'bank': meta_data.get('bank', 0.0)
-        }
-    
-    def _update_meta_from_response(self, gameweek: int, team_data: Dict[str, Any], 
-                                 current_meta: Dict[str, Any]) -> None:
-        """Update meta.json based on the LLM response"""
-        
-        # Check if a chip was used
-        chip_used = team_data.get('wildcard_or_chip')
-        
-        # Check for consecutive free hit usage (not allowed in FPL)
-        if chip_used == 'free_hit':
-            chips_used = current_meta.get('chips_used', {})
-            if chips_used.get('free_hit', False):
-                logger.warning("Free hit cannot be used in consecutive gameweeks")
-                # Don't mark free hit as used again
-                chip_used = None
-        
-        # Calculate new free transfers
-        current_transfers = current_meta.get('free_transfers', 1)
-        transfers_made = len(team_data.get('transfers', []))
-        
-        if chip_used == 'wildcard':
-            # Wildcard doesn't affect transfers - they remain unchanged
-            new_transfers = current_transfers
-        elif chip_used == 'free_hit':
-            # Free hit doesn't affect transfers
-            new_transfers = current_transfers
-        else:
-            # Normal transfers
-            if transfers_made == 0:
-                # No transfers made, carry over 1 (max 2)
-                new_transfers = min(current_transfers + 1, 2)
-            else:
-                # Transfers made, calculate remaining
-                new_transfers = max(0, current_transfers - transfers_made)
-        
-        # Handle chip usage and reset on Gameweek 20
-        chips_used = None
-        if chip_used and chip_used != 'null':
-            chips_used = {chip_used: True}
-        
-        # Reset all chips on Gameweek 20 (second half of season)
-        if gameweek == 20:
-            chips_used = {
-                "wildcard": False,
-                "bench_boost": False,
-                "free_hit": False,
-                "triple_captain": False
-            }
-            logger.info("Gameweek 20: All chips reset for second half of season")
-        
-        # Update meta.json
-        self.team_manager.update_meta(
-            gameweek=gameweek,
-            team_data=team_data,
-            chips_used=chips_used,
-            free_transfers=new_transfers
-        )
-        
-        logger.info(f"Meta updated: transfers={new_transfers}, chip_used={chip_used}")
-    
-    def _get_available_chips_local(self, previous_team: Dict[str, Any]) -> Dict[str, Any]:
-        """Get available chips information from local team data"""
-        # For now, assume all chips are available
-        # In a more sophisticated implementation, you could track chip usage
-        return {
-            'used': [],
-            'available': ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
-        }
-    
-    def _get_available_transfers_local(self, previous_team: Dict[str, Any]) -> Dict[str, Any]:
-        """Get available transfers information from local team data"""
-        # For now, assume 1 free transfer per week
-        # In a more sophisticated implementation, you could track transfer usage
-        return {
-            'free_transfers': 1,
-            'bank': previous_team['team'].get('bank', 0.0)
-        }
-    
-    def _parse_team_response(self, response: str) -> Dict[str, Any]:
-        """Parse the LLM response into team data"""
-        try:
-            # Extract JSON from the response
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            
-            if json_start == -1 or json_end == 0:
-                logger.error(f"No JSON found in response. Response: {response}")
-                raise ValueError("No JSON found in response")
-            
-            json_str = response[json_start:json_end]
-            logger.debug(f"Extracted JSON: {json_str}")
-            
-            team_data = json.loads(json_str)
-            logger.debug(f"Parsed team data: {team_data}")
-            
-            # Validate the team data
-            self._validate_team_data(team_data)
-            
-            return team_data
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.error(f"JSON string: {json_str if 'json_str' in locals() else 'Not available'}")
-            raise ValueError(f"Invalid JSON response: {e}")
-        except Exception as e:
-            logger.error(f"Failed to parse team response: {e}")
-            logger.error(f"Response: {response}")
-            raise
-    
-    def _validate_team_data(self, team_data: Dict[str, Any]) -> None:
-        """Validate that the team data meets FPL constraints"""
-        # Basic structure validation
-        required_keys = ['captain', 'vice_captain', 'total_cost', 'bank', 'team']
-        for key in required_keys:
-            if key not in team_data:
-                raise ValueError(f"Missing required key: {key}")
-        
-        team = team_data['team']
-        if 'starting' not in team or 'substitutes' not in team:
-            raise ValueError("Team must have 'starting' and 'substitutes' sections")
-        
-        # Count players
-        starting = team['starting']
-        substitutes = team['substitutes']
-        
-        if len(starting) != 11:
-            raise ValueError(f"Must have exactly 11 starting players, got {len(starting)}")
-        
-        if len(substitutes) != 4:
-            raise ValueError(f"Must have exactly 4 substitutes, got {len(substitutes)}")
-        
-        # Check budget
-        total_cost = team_data['total_cost']
-        if total_cost > 100.0:
-            raise ValueError(f"Total cost £{total_cost}m exceeds budget of £100.0m")
-        
-        # Check team composition (basic validation)
-        all_players = starting + substitutes
-        
-        # Get constraints from config
-        position_limits = self.config.get_position_limits()
-        
-        # Count positions
-        gk_count = sum(1 for p in all_players if p.get('position') == 'GK')
-        def_count = sum(1 for p in all_players if p.get('position') == 'DEF')
-        mid_count = sum(1 for p in all_players if p.get('position') == 'MID')
-        fwd_count = sum(1 for p in all_players if p.get('position') == 'FWD')
-        
-        # Validate against config
-        if gk_count != position_limits['GK']:
-            raise ValueError(f"Must have exactly {position_limits['GK']} goalkeepers, got {gk_count}")
-        if def_count != position_limits['DEF']:
-            raise ValueError(f"Must have exactly {position_limits['DEF']} defenders, got {def_count}")
-        if mid_count != position_limits['MID']:
-            raise ValueError(f"Must have exactly {position_limits['MID']} midfielders, got {mid_count}")
-        if fwd_count != position_limits['FWD']:
-            raise ValueError(f"Must have exactly {position_limits['FWD']} forwards, got {fwd_count}")
-        
-        logger.info("Team data validation passed")
-    
-    def _is_free_hit_revert_scenario(self, gameweek: int, current_meta: Dict[str, Any]) -> bool:
-        """
-        Check if this is a free hit revert scenario (next gameweek after free hit was used)
-        
-        Args:
-            gameweek: Current gameweek
-            current_meta: Current meta data
-            
-        Returns:
-            True if this is a free hit revert scenario
-        """
-        # Check if free hit was used in the previous gameweek
-        chips_used = current_meta.get('chips_used', {})
-        if chips_used.get('free_hit', False):
-            # Check if we have a team from before the free hit
-            pre_free_hit_gw = gameweek - 2  # The gameweek before the free hit
-            if pre_free_hit_gw >= 1:
-                pre_free_hit_team = self.team_manager.load_team(pre_free_hit_gw)
-                if pre_free_hit_team:
-                    return True
-        return False
-    
-    def _handle_free_hit_revert(self, gameweek: int, current_meta: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle free hit revert scenario - revert to team before free hit was used
-        
-        Args:
-            gameweek: Current gameweek
-            current_meta: Current meta data
-            
-        Returns:
-            Reverted team data
-        """
-        # Find the team from before the free hit
-        pre_free_hit_gw = gameweek - 2
-        pre_free_hit_team_data = self.team_manager.load_team(pre_free_hit_gw)
-        
-        if not pre_free_hit_team_data:
-            raise ValueError(f"No team found from Gameweek {pre_free_hit_gw} to revert to after free hit")
-        
-        # Get the team data from before free hit
-        pre_free_hit_team = pre_free_hit_team_data['team']
-        
-        # Create a new team entry for current gameweek with the reverted team
-        reverted_team = {
-            'captain': pre_free_hit_team.get('captain'),
-            'vice_captain': pre_free_hit_team.get('vice_captain'),
-            'total_cost': pre_free_hit_team.get('total_cost'),
-            'bank': pre_free_hit_team.get('bank'),
-            'expected_points': pre_free_hit_team.get('expected_points'),
-            'wildcard_or_chip': None,
-            'transfers': [],
-            'team': pre_free_hit_team['team']
-        }
-        
-        # Save the reverted team
-        self.team_manager.save_team(gameweek, reverted_team)
-        
-        # Update meta.json to reflect the revert
-        # Bank should revert to pre-free-hit bank
-        # Free transfers should be 1 (normal weekly allocation)
-        # Free hit should remain marked as used
-        self.team_manager.update_meta(
-            gameweek=gameweek,
-            team_data=reverted_team,
-            free_transfers=1  # Normal weekly allocation after revert
-        )
-        
-        logger.info(f"Team reverted to pre-free-hit state for Gameweek {gameweek}")
-        return reverted_team
-    
-    def _handle_chip_team_creation(self, gameweek: int, chip_type: str, team_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle wildcard or free hit team creation from scratch
-        
-        Args:
-            gameweek: Current gameweek
-            chip_type: 'wildcard' or 'free_hit'
-            team_data: Initial team data from LLM response
-            
-        Returns:
-            Created team data
-        """
-        logger.info(f"Creating new team from scratch using {chip_type}")
-        
-        # TODO: Calculate actual budget based on current player values and money in bank
-        # For wildcard: Should use current team's total value + bank balance
-        # For free hit: Should use the team from before free hit's total value + bank balance
-        # This ensures budget reflects price changes (could be more or less than 100.0)
-        # Create a new team from scratch using the LLM
-        new_team_data = self.create_team(budget=100.0, gameweek=gameweek)
-        
-        # Override with chip information
-        new_team_data['wildcard_or_chip'] = chip_type
-        new_team_data['chip_reason'] = team_data.get('chip_reason', f'{chip_type.title()} chip used')
-        
-        # Save the new team
-        self.team_manager.save_team(gameweek, new_team_data)
-        
-        # Update meta.json
-        current_meta = self.team_manager.get_meta()
-        self._update_meta_from_response(gameweek, new_team_data, current_meta)
-        
-        logger.info(f"New team created successfully using {chip_type} for Gameweek {gameweek}")
-        return new_team_data
-    
-    def get_enriched_player_data(self, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-        """
-        Get enriched player data for all players with injury news and FPL suggestions.
-        Uses caching to avoid expensive LLM calls.
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            Dictionary mapping player names to structured player data
-        """
-        # Try to load from cache first (unless force refresh is requested)
-        if not force_refresh:
-            cached_data = self._load_cached_player_data()
-            if cached_data:
-                player_data = cached_data.get('player_data', {})
-                
-                # Check if data already has enrichments
-                has_enrichments = False
-                if player_data:
-                    # Check first player to see if enrichments exist
-                    first_player = next(iter(player_data.values()), None)
-                    if first_player and isinstance(first_player, dict):
-                        has_enrichments = 'injury_news' in first_player and 'hints_tips_news' in first_player
-                
-                # If enrichments exist, return the data
-                if has_enrichments:
-                    # Get cache age for warning
-                    cache_path = self._get_player_data_cache_path()
-                    if cache_path.exists():
-                        try:
-                            with open(cache_path, 'r', encoding='utf-8') as f:
-                                cache_info = json.load(f)
-                            cache_timestamp = cache_info.get('cache_timestamp')
-                            if cache_timestamp:
-                                cache_time = datetime.fromisoformat(cache_timestamp)
-                                age_hours = (datetime.now() - cache_time).total_seconds() / 3600
-                                if age_hours > 24:
-                                    warning_msg = f"⚠️  Using cached enriched player data that is {age_hours:.1f} hours old. Consider using --force-refresh for fresh data."
-                                    logger.warning(warning_msg)
-                                    print(f"\n{warning_msg}")
-                                else:
-                                    logger.info(f"Using cached enriched player data for {len(player_data)} players ({age_hours:.1f} hours old)")
-                            else:
-                                warning_msg = "⚠️  Using cached enriched player data with unknown age. Consider using --force-refresh for fresh data."
-                                logger.warning(warning_msg)
-                                print(f"\n{warning_msg}")
-                                logger.info(f"Using cached enriched player data for {len(player_data)} players")
-                        except Exception:
-                            logger.info(f"Using cached enriched player data for {len(player_data)} players")
-                    else:
-                        logger.info(f"Using cached enriched player data for {len(player_data)} players")
-                    return player_data
-                
-                # If basic data exists but no enrichments, we'll add enrichments below
-                if player_data:
-                    logger.info(f"Found basic player data for {len(player_data)} players, adding enrichments...")
-                else:
-                    logger.info("No cached player data found")
-                    return {}
-            else:
-                logger.info("No cached player data found")
-                return {}
-        
-        # At this point, we either need to fetch fresh data or add enrichments to existing data
-        try:
-            # Check if we have existing basic data
-            cached_data = self._load_cached_player_data()
-            existing_player_data = cached_data.get('player_data', {}) if cached_data else {}
-            
-            if existing_player_data and not force_refresh:
-                # We have basic data, just need to add enrichments
-                logger.info("Adding enrichments to existing basic player data...")
-                enriched_data = self._add_enrichments_to_existing_data(existing_player_data)
-            else:
-                # Need to fetch fresh data and add enrichments
-                logger.info("Fetching fresh enriched player data for all players...")
-                enriched_data = self._fetch_fresh_enriched_data()
-            
-            return enriched_data
-            
-        except Exception as e:
-            logger.error(f"Failed to get enriched player data: {e}")
-            return {}
-    
-    def _fetch_fresh_enriched_data(self) -> Dict[str, Dict[str, Any]]:
-        """Fetch fresh enriched data using our new utility"""
-        try:
-            logger.info("Using DataEnrichment utility to fetch fresh enriched data...")
-            
-            # Get basic FPL data from our data manager
-            all_data = self.data_service.fetcher.get_fpl_static_data()
-            players = all_data.get('elements', [])
-            
-            # Use our DataEnrichment utility instead of duplicating logic
-            
-            # Group players by team
-            players_by_team = {}
-            for player in players:
-                team_name = player.team_name
-                if team_name not in players_by_team:
-                    players_by_team[team_name] = []
-                players_by_team[team_name].append(player)
-            
-            # Use our data manager for gameweek and fixture info
-            current_gameweek = self.data_service.fetcher.get_current_gameweek()
-            if current_gameweek is None:
-                current_gameweek = 1  # Fallback to GW1 if not available
-            
-            logger.info(f"Using Gameweek {current_gameweek} for enrichment")
-            
-            # Use our DataEnrichment utility instead of duplicating logic
-            
-            # Convert FPL data to our expected format and enrich
-            player_data_dict = {}
-            for player in players:
-                try:
-                    # Get player's team injury news and hints
-                    team_name = player.team_name
-                    injury_news = all_injury_news.get(team_name, "{}")
-                    hints_tips = all_hints_tips.get(team_name, "{}")
-                    
-                    # Parse JSON responses
-                    injury_dict = {}
-                    hints_dict = {}
-                    
-                    try:
-                        injury_dict = json.loads(injury_news) if injury_news else {}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse injury news for {team_name}: {e}")
-                        injury_dict = {}
-                    
-                    try:
-                        hints_dict = json.loads(hints_tips) if hints_tips else {}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse hints for {team_name}: {e}")
-                        hints_dict = {}
-                    
-                    # Get player-specific data
-                    player_injury = injury_dict.get(player.name, "Fit - No recent injury news suggests he is available for selection.")
-                    player_hints = hints_dict.get(player.name, "Recommended - Player shows good potential for the upcoming gameweek.")
-                    
-                    # Get additional stats from custom_data (calculated fields)
-                    ppg = player.custom_data.get('ppg', float(player.points_per_game))
-                    form = player.custom_data.get('form', float(player.form))
-                    fixture_difficulty = player.custom_data.get('upcoming_fixture_difficulty', 3.0)
-                    ownership = player.custom_data.get('ownership_percent', float(player.selected_by_percent))
-                    
-                    # Create structured player data using exact FPL API field names
-                    player_data = {
-                        "data": {
-                            # Basic info
-                            "id": player.id,
-                            "first_name": player.first_name,
-                            "second_name": player.second_name,
-                            "name": player.name,
-                            "team_id": player.team_id,
-                            "team": player.team_name,
-                            "team_short_name": player.team_short_name,
-                            "element_type": player.element_type,
-                            "position": player.position.value,
-                            
-                            # Price info
-                            "now_cost": player.now_cost,
-                            "price": player.price,
-                            "cost_change_start": player.cost_change_start,
-                            "cost_change_event": player.cost_change_event,
-                            "price_change": player.price_change,
-                            
-                            # Stats
-                            "total_points": player.total_points,
-                            "points_per_game": player.points_per_game,
-                            "form": player.form,
-                            "minutes": player.minutes,
-                            "selected_by_percent": player.selected_by_percent,
-                            
-                            # Expected stats
-                            "xG": player.xG,
-                            "xA": player.xA,
-                            "xGC": player.xGC,
-                            "xMins_pct": player.xMins_pct,
-                            
-                            # Injury status
-                            "status": player.status,
-                            "news": player.news,
-                            "news_added": player.news_added,
-                            "chance_of_playing_next_round": player.chance_of_playing_next_round,
-                            "chance_of_playing_this_round": player.chance_of_playing_this_round,
-                            "is_injured": player.is_injured,
-                            
-                            # Calculated fields (for display)
-                            "ppg": ppg,
-                            "form_float": form,
-                            "minutes_played": player.minutes,
-                            "fixture_difficulty": fixture_difficulty,
-                            "ownership_percent": ownership
-                        },
-                        "injury_news": player_injury,
-                        "hints_tips_news": player_hints
-                    }
-                    
-                    enriched_data[player.name] = player_data
-                    
-                except Exception as e:
-                    logger.error(f"Failed to create enriched data for {player.name}: {e}")
-                    # Create fallback enriched data
-                    enriched_data[player.name] = {
-                        "data": {
-                            # Basic info
-                            "id": player.id,
-                            "first_name": player.first_name,
-                            "second_name": player.second_name,
-                            "name": player.name,
-                            "team_id": player.team_id,
-                            "team": player.team_name,
-                            "team_short_name": player.team_short_name,
-                            "element_type": player.element_type,
-                            "position": player.position.value,
-                            
-                            # Price info
-                            "now_cost": player.now_cost,
-                            "price": player.price,
-                            "cost_change_start": player.cost_change_start,
-                            "cost_change_event": player.cost_change_event,
-                            "price_change": player.price_change,
-                            
-                            # Stats
-                            "total_points": player.total_points,
-                            "points_per_game": player.points_per_game,
-                            "form": player.form,
-                            "minutes": player.minutes,
-                            "selected_by_percent": player.selected_by_percent,
-                            
-                            # Expected stats
-                            "xG": player.xG,
-                            "xA": player.xA,
-                            "xGC": player.xGC,
-                            "xMins_pct": player.xMins_pct,
-                            
-                            # Injury status
-                            "status": player.status,
-                            "news": player.news,
-                            "news_added": player.news_added,
-                            "chance_of_playing_next_round": player.chance_of_playing_next_round,
-                            "chance_of_playing_this_round": player.chance_of_playing_this_round,
-                            "is_injured": player.is_injured,
-                            
-                            # Calculated fields (for display)
-                            "ppg": float(player.points_per_game),
-                            "form_float": float(player.form),
-                            "minutes_played": player.minutes,
-                            "fixture_difficulty": 3.0,
-                            "ownership_percent": float(player.selected_by_percent)
-                        },
-                        "injury_news": "Fit - No recent injury news suggests he is available for selection.",
-                        "hints_tips_news": "Recommended - Player shows good potential for the upcoming gameweek."
-                    }
-            
-            # Save to cache
-            self._save_player_data_cache(enriched_data)
-            
-            logger.info(f"Created enriched data for {len(enriched_data)} players")
-            return enriched_data
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch fresh enriched data: {e}")
-            return {}
-    
-    def _add_enrichments_to_existing_data(self, existing_player_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Add enrichments to existing basic player data using our new utility"""
-        try:
-            logger.info("Using DataEnrichment utility to add enrichments...")
-            
-            # Use our new DataEnrichment utility instead of the massive inline implementation
-            enriched_data = self.data_enrichment.enrich_player_data(existing_player_data)
-            
-            # Save to cache
-            self._save_player_data_cache(enriched_data)
-            
-            logger.info(f"Added enrichments to {len(enriched_data)} players using utility")
-            return enriched_data
-            
-        except Exception as e:
-            logger.error(f"Failed to add enrichments to existing data: {e}")
-            return existing_player_data
-
-    def _generate_embedding_text(self, player_data: Dict[str, Any]) -> str:
-        """
-        Generate text for embeddings (without stats line).
-        
-        Args:
-            player_data: Structured player data dictionary from data service
-            
-        Returns:
-            Text string formatted for embeddings
-        """
-        # Handle both old and new data formats for compatibility
-        if "data" in player_data:
-            # Old format
-            data = player_data["data"]
-            name = data.get('name', 'Unknown')
-            team = data.get('team', 'Unknown')
-            position = data.get('position', 'Unknown')
-            price = data.get('price', 0)
-            injury_news = player_data.get('injury_news', 'No injury news')
-            hints_tips = player_data.get('hints_tips_news', 'No FPL suggestions')
-        else:
-            # New format from data service
-            name = player_data.get('full_name', 'Unknown')
-            team = player_data.get('team_name', 'Unknown')
-            position = player_data.get('position', 'Unknown')
-            price = player_data.get('now_cost', 0) / 10.0
-            injury_news = 'No injury news'  # TODO: Add injury news enrichment
-            hints_tips = 'No FPL suggestions'  # TODO: Add FPL hints enrichment
-        
-        return f"{name} ({team}, {position}, £{price:.1f})\n" \
-               f"Injury News: {injury_news}\n" \
-               f"FPL Suggestions: {hints_tips}"
-
-    def _generate_prompt_text(self, player_data: Dict[str, Any]) -> str:
-        """
-        Generate text for LLM prompts (with stats line).
-        
-        Args:
-            player_data: Structured player data dictionary from data service
-            
-        Returns:
-            Text string formatted for LLM prompts
-        """
-        # Handle both old and new data formats for compatibility
-        if "data" in player_data:
-            # Old format
-            data = player_data["data"]
-            name = data.get('name', 'Unknown')
-            team = data.get('team', 'Unknown')
-            position = data.get('position', 'Unknown')
-            price = data.get('price', 0)
-            chance = data.get('chance_of_playing', 100)
-            ppg = data.get('ppg', 0)
-            form = data.get('form', 0)
-            minutes = data.get('minutes_played', 0)
-            fixture_diff = data.get('fixture_difficulty', 3.0)
-            ownership = data.get('ownership_percent', 0)
-            injury_news = player_data.get('injury_news', 'No injury news')
-            hints_tips = player_data.get('hints_tips_news', 'No FPL suggestions')
-        else:
-            # New format from data service
-            name = player_data.get('full_name', 'Unknown')
-            team = player_data.get('team_name', 'Unknown')
-            position = player_data.get('position', 'Unknown')
-            price = player_data.get('now_cost', 0) / 10.0
-            chance = player_data.get('chance_of_playing', 100)
-            ppg = float(player_data.get('points_per_game', '0.0'))
-            form = float(player_data.get('form', '0.0'))
-            minutes = player_data.get('minutes', 0)
-            fixture_diff = 3.0  # TODO: Add fixture difficulty calculation
-            ownership = float(player_data.get('selected_by_percent', '0.0'))
-            injury_news = 'No injury news'  # TODO: Add injury news enrichment
-            hints_tips = 'No FPL suggestions'  # TODO: Add FPL hints enrichment
-        
-        return f"{name} ({team}, {position}, £{price:.1f})\n" \
-               f"Stats: Chance of Playing - {chance}%, PPG - {ppg:.1f}, " \
-               f"Form - {form:.1f}, Minutes - {minutes}, " \
-               f"Fixture Difficulty - {fixture_diff}, Ownership - {ownership:.1f}%.\n" \
-               f"Injury News: {injury_news}\n" \
-               f"FPL Suggestions: {hints_tips}"
-
-    def get_enriched_player_data_for_embeddings(self, force_refresh: bool = False) -> Dict[str, str]:
-        """
-        Get enriched player data formatted for embeddings (without stats line).
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            Dictionary mapping player names to embedding-friendly enriched data strings
-        """
-        logger.info("Getting enriched player data for embeddings...")
-        
-        try:
-            # Get structured enriched player data
-            structured_data = self.get_enriched_player_data(force_refresh=force_refresh)
-            
-            if not structured_data:
-                return {}
-            
-            # Create embedding-friendly versions (without stats line)
-            embedding_data = {}
-            
-            for player_name, player_data in structured_data.items():
-                embedding_text = self._generate_embedding_text(player_data)
-                embedding_data[player_name] = embedding_text
-            
-            logger.info(f"Created embedding-friendly data for {len(embedding_data)} players")
-            return embedding_data
-            
-        except Exception as e:
-            logger.error(f"Failed to get enriched player data for embeddings: {e}")
-            return {}
-
-    def get_enriched_player_data_for_prompt(self, force_refresh: bool = False) -> str:
-        """
-        Get enriched player data formatted for LLM prompt.
-        Currently returns all players (placeholder for future filtering).
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            String containing enriched player data for LLM prompt
-        """
-        logger.info("Getting enriched player data for prompt...")
-        
-        try:
-            structured_data = self.get_enriched_player_data(force_refresh=force_refresh)
-            
-            if not structured_data:
-                return "Error: Could not fetch enriched player data"
-            
-            # Format for prompt (all players for now)
-            formatted_data = []
-            
-            for player_name, player_data in structured_data.items():
-                prompt_text = self._generate_prompt_text(player_data)
-                formatted_data.append(prompt_text)
-                formatted_data.append("")  # Empty line between players
-            
-            return "\n".join(formatted_data)
-            
-        except Exception as e:
-            logger.error(f"Failed to get enriched player data for prompt: {e}")
-            return "Error: Could not format enriched player data"
-    
-    def _get_available_players_data_enriched(self, force_refresh: bool = False) -> str:
-        """
-        Get enriched available players data for semantic filtering.
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            String containing enriched player data for LLM prompts
-        """
-        logger.info("Fetching enriched available players data...")
-        
-        try:
-            # Use new data service instead of manual data management
-            players = self.data_service.get_available_players()
-            
-            # Format the data for LLM prompts
-            return self._format_players_for_llm(players)
-            
-        except Exception as e:
-            logger.error(f"Failed to get enriched available players data: {e}")
-            return "Error: Could not fetch enriched player data"
-    
-    def _get_viable_players_from_enriched(self, enriched_data: Dict[str, Dict[str, Any]], for_embeddings: bool = False) -> Dict[str, Any]:
-        """
-        Get viable players from enriched data using unified filtering.
-        
-        This method combines:
-        1. Basic availability filters (chance of playing, injured, etc.)
-        2. Rule-based filters (Out/Avoid players)
-        
-        Args:
-            enriched_data: Dictionary mapping player names to structured player data
-            for_embeddings: If True, return embedding-friendly text format
-            
-        Returns:
-            Dict containing filtered players organized by position
-        """
-        logger.info("Applying unified filtering to enriched player data...")
-        
-        try:
-            # Apply unified filtering
-            viable_players = {}
-            filtered_out_count = 0
-            
-            for player_name, player_data in enriched_data.items():
-                data = player_data["data"]
-                
-                # Basic availability filters using structured data
-                # Calculate chance of playing as minimum of this_round and next_round
-                chance_of_playing = self.data_service.processor.calculate_chance_of_playing(
-                    data.get('chance_of_playing_this_round'),
-                    data.get('chance_of_playing_next_round')
-                )
-                if chance_of_playing < 25:  # Manual filter: chance of playing
-                    filtered_out_count += 1
-                    continue
-                
-                if data.get('is_injured', False):  # Manual filter: injured players
-                    filtered_out_count += 1
-                    continue
-                
-                position = data.get('position')
-                if position not in ['GK', 'DEF', 'MID', 'FWD']:  # Manual filter: valid positions
-                    filtered_out_count += 1
-                    continue
-                
-                # Rule-based filters (Out/Avoid)
-                injury_news = player_data.get('injury_news', '')
-                hints_tips = player_data.get('hints_tips_news', '')
-                
-                # Check injury status
-                if injury_news.startswith("Out"):
-                    filtered_out_count += 1
-                    continue
-                
-                # Check FPL recommendations
-                if hints_tips.startswith("Avoid"):
-                    filtered_out_count += 1
-                    continue
-                
-                # Player passes all filters
-                viable_players[player_name] = player_data
-            
-            # Group by position
-            positions = {'GK': [], 'DEF': [], 'MID': [], 'FWD': []}
-            
-            for player_name, player_data in viable_players.items():
-                position_key = player_data["data"]["position"]
-                if position_key in positions:
-                    if for_embeddings:
-                        # Generate embedding-friendly text
-                        embedding_text = self._generate_embedding_text(player_data)
-                        positions[position_key].append((player_name, embedding_text))
-                    else:
-                        # Generate prompt-friendly text
-                        prompt_text = self._generate_prompt_text(player_data)
-                        positions[position_key].append((player_name, prompt_text))
-            
-            # Create result structure
-            result = {
-                'total_players_loaded': len(enriched_data),
-                'total_players_filtered': len(viable_players),
-                'filtered_out_count': filtered_out_count,
-                'reduction_percentage': ((len(enriched_data) - len(viable_players)) / len(enriched_data) * 100),
-                'positions': positions,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            logger.info(f"Unified filtering complete: {len(viable_players)} players selected from {len(enriched_data)} total (filtered out {filtered_out_count})")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to apply unified filtering: {e}")
-            raise
-
-    def _get_available_players_data_enriched_filtered(self, force_refresh: bool = False) -> str:
-        """
-        Get enriched available players data with embedding-based filtering.
-        
-        Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            
-        Returns:
-            String containing filtered enriched player data for LLM prompts
-        """
-        logger.info("Fetching enriched available players data with embedding filtering...")
-        
-        try:
-            # Use new data service instead of manual data management
-            players = self.data_service.get_available_players()
-            
-            # TODO: Add embedding filtering when needed
-            # For now, return the same as enriched data
-            return self._format_players_for_llm(players)
-            
-        except Exception as e:
-            logger.error(f"Failed to get filtered enriched available players data: {e}")
-            return "Error: Could not fetch filtered enriched player data"
- 
+* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)""" 

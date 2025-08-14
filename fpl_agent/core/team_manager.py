@@ -253,4 +253,195 @@ class TeamManager:
                 sub_order = player.get('sub_order', 'N/A')
                 result.append(f"  {i:2d}. {player.get('name', 'Unknown')} ({player.get('position', 'Unknown')}) - {player.get('team', 'Unknown')} - £{player.get('price', 0)}m (Sub {sub_order})")
         
-        return "\n".join(result) 
+        return "\n".join(result)
+    
+    def is_free_hit_revert_scenario(self, gameweek: int, current_meta: Dict[str, Any]) -> bool:
+        """
+        Check if this is a free hit revert scenario (next gameweek after free hit was used)
+        
+        Args:
+            gameweek: Current gameweek
+            current_meta: Current meta data
+            
+        Returns:
+            True if this is a free hit revert scenario
+        """
+        # Check if free hit was used in the previous gameweek
+        chips_used = current_meta.get('chips_used', {})
+        if chips_used.get('free_hit', False):
+            # Check if we have a team from before the free hit
+            pre_free_hit_gw = gameweek - 2  # The gameweek before the free hit
+            if pre_free_hit_gw >= 1:
+                pre_free_hit_team = self.load_team(pre_free_hit_gw)
+                if pre_free_hit_team:
+                    return True
+        return False
+    
+    def handle_free_hit_revert(self, gameweek: int, current_meta: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle free hit revert scenario - revert to team before free hit was used
+        
+        Args:
+            gameweek: Current gameweek
+            current_meta: Current meta data
+            
+        Returns:
+            Reverted team data
+        """
+        # Find the team from before the free hit
+        pre_free_hit_gw = gameweek - 2
+        pre_free_hit_team_data = self.load_team(pre_free_hit_gw)
+        
+        if not pre_free_hit_team_data:
+            raise ValueError(f"No team found from Gameweek {pre_free_hit_gw} to revert to after free hit")
+        
+        # Get the team data from before free hit
+        pre_free_hit_team = pre_free_hit_team_data['team']
+        
+        # Create a new team entry for current gameweek with the reverted team
+        reverted_team = {
+            'captain': pre_free_hit_team.get('captain'),
+            'vice_captain': pre_free_hit_team.get('vice_captain'),
+            'total_cost': pre_free_hit_team.get('total_cost'),
+            'bank': pre_free_hit_team.get('bank'),
+            'expected_points': pre_free_hit_team.get('expected_points'),
+            'wildcard_or_chip': None,
+            'transfers': [],
+            'team': pre_free_hit_team['team']
+        }
+        
+        # Save the reverted team
+        self.save_team(gameweek, reverted_team)
+        
+        # Update meta.json to reflect the revert
+        # Bank should revert to pre-free-hit bank
+        # Free transfers should be 1 (normal weekly allocation)
+        # Free hit should remain marked as used
+        self.update_meta(
+            gameweek=gameweek,
+            team_data=reverted_team,
+            free_transfers=1  # Normal weekly allocation after revert
+        )
+        
+        logger.info(f"Team reverted to pre-free-hit state for Gameweek {gameweek}")
+        return reverted_team
+    
+    def handle_chip_team_creation(self, gameweek: int, chip_type: str, team_data: Dict[str, Any], create_team_func) -> Dict[str, Any]:
+        """
+        Handle wildcard or free hit team creation from scratch
+        
+        Args:
+            gameweek: Current gameweek
+            chip_type: 'wildcard' or 'free_hit'
+            team_data: Initial team data from LLM response
+            create_team_func: Function to create a new team
+            
+        Returns:
+            Created team data
+        """
+        logger.info(f"Creating new team from scratch using {chip_type}")
+        
+        # Create a new team from scratch using the provided function
+        new_team_data = create_team_func(budget=100.0, gameweek=gameweek)
+        
+        # Override with chip information
+        new_team_data['wildcard_or_chip'] = chip_type
+        new_team_data['chip_reason'] = team_data.get('chip_reason', f'{chip_type.title()} chip used')
+        
+        # Save the new team
+        self.save_team(gameweek, new_team_data)
+        
+        # Update meta.json
+        current_meta = self.get_meta()
+        self.update_meta_from_response(gameweek, new_team_data, current_meta)
+        
+        logger.info(f"New team created successfully using {chip_type} for Gameweek {gameweek}")
+        return new_team_data
+    
+    def update_meta_from_response(self, gameweek: int, team_data: Dict[str, Any], current_meta: Dict[str, Any]) -> None:
+        """Update meta.json based on the LLM response"""
+        
+        # Check if a chip was used
+        chip_used = team_data.get('wildcard_or_chip')
+        
+        # Check for consecutive free hit usage (not allowed in FPL)
+        if chip_used == 'free_hit':
+            chips_used = current_meta.get('chips_used', {})
+            if chips_used.get('free_hit', False):
+                logger.warning("Free hit cannot be used in consecutive gameweeks")
+                # Don't mark free hit as used again
+                chip_used = None
+        
+        # Calculate new free transfers
+        current_transfers = current_meta.get('free_transfers', 1)
+        transfers_made = len(team_data.get('transfers', []))
+        
+        if chip_used == 'wildcard':
+            # Wildcard doesn't affect transfers - they remain unchanged
+            new_transfers = current_transfers
+        elif chip_used == 'free_hit':
+            # Free hit doesn't affect transfers
+            new_transfers = current_transfers
+        else:
+            # Normal transfers
+            if transfers_made == 0:
+                # No transfers made, carry over 1 (max 2)
+                new_transfers = min(current_transfers + 1, 2)
+            else:
+                # Transfers made, calculate remaining
+                new_transfers = max(0, current_transfers - transfers_made)
+        
+        # Handle chip usage and reset on Gameweek 20
+        chips_used = None
+        if chip_used and chip_used != 'null':
+            chips_used = {chip_used: True}
+        
+        # Reset all chips on Gameweek 20 (second half of season)
+        if gameweek == 20:
+            chips_used = {
+                "wildcard": False,
+                "bench_boost": False,
+                "free_hit": False,
+                "triple_captain": False
+            }
+            logger.info("Gameweek 20: All chips reset for second half of season")
+        
+        # Update meta.json
+        self.update_meta(
+            gameweek=gameweek,
+            team_data=team_data,
+            chips_used=chips_used,
+            free_transfers=new_transfers
+        )
+        
+        logger.info(f"Meta updated: transfers={new_transfers}, chip_used={chips_used}")
+    
+    def get_available_chips_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Get available chips information from meta data"""
+        chips_used = meta_data.get('chips_used', {})
+        available_chips = []
+        used_chips = []
+        
+        all_chips = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
+        for chip in all_chips:
+            if chips_used.get(chip, False):
+                used_chips.append({'name': chip})
+            else:
+                # Special case: Free hit cannot be used in consecutive gameweeks
+                if chip == 'free_hit' and chips_used.get('free_hit', False):
+                    # Free hit was used, so it's not available
+                    used_chips.append({'name': chip})
+                else:
+                    available_chips.append(chip)
+        
+        return {
+            'used': used_chips,
+            'available': available_chips
+        }
+    
+    def get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Get available transfers information from meta data"""
+        return {
+            'free_transfers': meta_data.get('free_transfers', 1),
+            'bank': meta_data.get('bank', 0.0)
+        } 
