@@ -6,7 +6,7 @@ import logging
 import sys
 import os
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from datetime import datetime
 import argparse
 from pathlib import Path
@@ -574,8 +574,10 @@ def main():
             if args.save_team:
                 try:
                     team_data = result['team_update']
-                    saved_file = save_team_to_json(team_data, args.save_file)
-                    print(f"\n💾 Team saved to: {saved_file}")
+                    # Use TeamManager to save the team
+                    gameweek = args.gameweek or 1
+                    optimizer.team_manager.save_team(gameweek, team_data)
+                    print(f"\n💾 Team saved for Gameweek {gameweek}")
                 except Exception as e:
                     logger.error(f"Failed to save team: {e}")
                     print(f"\n❌ Error saving team: {e}")
@@ -598,8 +600,10 @@ def main():
             if args.save_team:
                 try:
                     team_data = result['team_data']
-                    saved_file = save_team_to_json(team_data, args.save_file)
-                    print(f"\n💾 Team saved to: {saved_file}")
+                    # Use TeamManager to save the team
+                    gameweek = args.gameweek or 1
+                    optimizer.team_manager.save_team(gameweek, team_data)
+                    print(f"\n💾 Team saved for Gameweek {gameweek}")
                 except Exception as e:
                     logger.error(f"Failed to save team: {e}")
                     print(f"\n❌ Error saving team: {e}")
