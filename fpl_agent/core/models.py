@@ -5,7 +5,6 @@ Core data models for FPL Optimizer
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum
-from .config import Config
 
 
 class Position(Enum):
@@ -117,37 +116,9 @@ class FPLTeam:
         """Add a player to the team"""
         self.players.append(player)
     
-    def remove_player(self, player_id: int) -> bool:
-        """Remove a player from the team by ID"""
-        for i, player in enumerate(self.players):
-            if player.get('id') == player_id:
-                del self.players[i]
-                return True
-        return False
-    
     def get_total_cost(self) -> float:
         """Calculate total team cost"""
         return sum(float(p.get('price', 0)) for p in self.players)
-    
-    def get_remaining_budget(self) -> float:
-        """Calculate remaining budget"""
-        return self.total_value - self.get_total_cost()
-    
-    def is_valid_formation(self) -> bool:
-        """Check if the current formation is valid"""
-        if len(self.formation) != 3:
-            return False
-        
-        def_count, mid_count, fwd_count = self.formation
-        
-        # Check if we have enough players for this formation
-        def_players = self.get_players_by_position('DEF')
-        mid_players = self.get_players_by_position('MID')
-        fwd_players = self.get_players_by_position('FWD')
-        
-        return (len(def_players) >= def_count and 
-                len(mid_players) >= mid_count and 
-                len(fwd_players) >= fwd_count)
     
     def get_team_summary(self) -> Dict[str, Any]:
         """Get a summary of the team"""
