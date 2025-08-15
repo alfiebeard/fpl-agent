@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ class DataStore:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
         self.player_data_file = self.data_dir / "player_data.json"
+        self.fixtures_data_file = self.data_dir / "fixtures.json"
     
     def load_player_data(self) -> Optional[Dict[str, Any]]:
         """
@@ -104,6 +105,52 @@ class DataStore:
             
         except Exception as e:
             logger.error(f"Failed to save player data: {e}")
+            raise
+    
+    def load_fixtures_data(self) -> Optional[Dict[str, Any]]:
+        """
+        Load fixtures data from JSON file.
+        
+        Returns:
+            Full fixtures data dictionary (including metadata) or None if file doesn't exist
+        """
+        if not self.fixtures_data_file.exists():
+            logger.info("No fixtures data file found")
+            return None
+        
+        try:
+            with open(self.fixtures_data_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Check data age and provide warnings
+            self._check_data_age(data)
+            return data
+            
+        except Exception as e:
+            logger.error(f"Failed to load fixtures data: {e}")
+            return None
+    
+    def save_fixtures_data(self, fixtures_data: List[Dict[str, Any]]) -> None:
+        """
+        Save fixtures data to JSON file.
+        
+        Args:
+            fixtures_data: List of fixtures data to save
+        """
+        try:
+            data_to_save = {
+                'cache_timestamp': datetime.now().isoformat(),
+                'fixtures': fixtures_data,
+                'total_fixtures': len(fixtures_data)
+            }
+            
+            with open(self.fixtures_data_file, 'w', encoding='utf-8') as f:
+                json.dump(data_to_save, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved fixtures data with {len(fixtures_data)} fixtures to {self.fixtures_data_file}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save fixtures data: {e}")
             raise
     
     def _check_data_age(self, data: Dict[str, Any]) -> None:

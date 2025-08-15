@@ -224,6 +224,9 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         # Get team constraints from prompt formatter
         team_constraints = PromptFormatter.get_team_constraints_prompt(self.config)
         
+        # Get fixtures for the gameweek
+        fixtures_info = self.data_service.get_gameweek_fixtures_formatted(gameweek)
+        
         return f"""You are a Fantasy Premier League (FPL) team building expert. Your task is to create the optimal FPL team for Gameweek {gameweek}.
 
 CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure. Your entire response must be a single, valid JSON object.
@@ -236,6 +239,9 @@ You must strictly follow all official FPL rules and constraints when building th
 * A maximum of 3 players are allowed from any single Premier League club.
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
+
+The fixtures this gameweek are:
+{fixtures_info}
 
 {prompt_intro}
 {players_data}
@@ -360,6 +366,9 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
         has_enrichments = self._detect_prompt_context(players_data)
         prompt_intro = self._get_prompt_intro(has_enrichments, is_weekly_update=True)
         
+        # Get fixtures for the gameweek
+        fixtures_info = self.data_service.get_gameweek_fixtures_formatted(gameweek)
+        
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {team_str}
 
@@ -381,6 +390,9 @@ Evaluate your team using the latest information available. Consider:
 You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
 Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
+
+The fixtures this gameweek are:
+{fixtures_info}
 
 {prompt_intro}
 {players_data}

@@ -136,6 +136,58 @@ class DataService:
             
             raise
     
+    def get_fixtures(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """
+        Get fixtures data, either from cache or fresh from API.
+        
+        Args:
+            force_refresh: If True, ignore cache and fetch fresh data
+            
+        Returns:
+            Dictionary containing fixtures data and metadata
+        """
+        # Try to load from cache first (unless force refresh)
+        if not force_refresh:
+            cached_data = self.store.load_fixtures_data()
+            if cached_data:
+                logger.info("Using cached fixtures data")
+                return cached_data
+        
+        # Fetch fresh fixtures data
+        logger.info("Fetching fresh fixtures data from FPL API...")
+        try:
+            # Fetch raw fixtures from FPL API
+            raw_fixtures = self.fetcher.get_fixtures()
+            
+            # Get teams data for team name resolution
+            bootstrap_data = self.fetcher.get_fpl_static_data()
+            teams_data = bootstrap_data.get('teams', [])
+            
+            # Process the raw fixtures data
+            processed_fixtures = self.processor.process_fixtures_data(raw_fixtures, teams_data)
+            
+            # Save to cache
+            self.store.save_fixtures_data(processed_fixtures)
+            
+            logger.info(f"Successfully fetched and processed {len(processed_fixtures)} fixtures")
+            
+            return {
+                'cache_timestamp': datetime.now().isoformat(),
+                'fixtures': processed_fixtures,
+                'total_fixtures': len(processed_fixtures)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch fresh fixtures data: {e}")
+            
+            # Try to return cached data as fallback
+            cached_data = self.store.load_fixtures_data()
+            if cached_data:
+                logger.warning("Returning cached fixtures data due to fetch failure")
+                return cached_data
+            
+            raise
+    
     def get_available_players(self, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
         """
         Get only available players (filtered by availability criteria).
@@ -364,6 +416,33 @@ class DataService:
         
         logger.info(f"Processed {len(filtered_players)} players for LLM prompt")
         return formatted_players
+    
+    def get_gameweek_fixtures_formatted(self, gameweek: int) -> str:
+        """
+        Get formatted fixtures for a specific gameweek for use in prompts.
+        
+        Args:
+            gameweek: Gameweek number
+            
+        Returns:
+            Formatted string of fixtures for the gameweek
+        """
+        try:
+            # Get fixtures data (from cache if available)
+            fixtures_data = self.get_fixtures(force_refresh=False)
+            
+            if not fixtures_data or 'fixtures' not in fixtures_data:
+                return f"Error loading fixtures for Gameweek {gameweek}."
+            
+            # Get fixtures for the specific gameweek
+            gameweek_fixtures = self.processor.get_gameweek_fixtures(gameweek, fixtures_data['fixtures'])
+            
+            # Format fixtures for prompt
+            return self.processor.format_fixtures_for_prompt(gameweek_fixtures, gameweek)
+            
+        except Exception as e:
+            logger.error(f"Failed to get formatted fixtures for gameweek {gameweek}: {e}")
+            return f"Error loading fixtures for Gameweek {gameweek}."
     
     def _should_fetch_data(self, force_fetch: bool, cached_only: bool, data_fresh: bool) -> bool:
         """Determine if we should fetch fresh FPL data"""

@@ -52,6 +52,42 @@ class DataProcessor:
         
         logger.info(f"Processed {len(processed_players)} players")
         return processed_players
+
+    def process_fixtures_data(self, raw_fixtures: List[Dict[str, Any]], teams_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Process raw fixtures data, converting team IDs to team names.
+        
+        Args:
+            raw_fixtures: Raw fixtures data from FPL API
+            teams_data: Teams data from FPL API
+            
+        Returns:
+            List of processed fixtures with team names as strings
+        """
+        logger.info("Processing FPL fixtures data...")
+        
+        # Create team ID to name mapping
+        team_id_map = {}
+        for team in teams_data:
+            if isinstance(team, dict) and 'id' in team and 'name' in team:
+                team_id_map[team['id']] = team['name']
+        
+        processed_fixtures = []
+        for fixture in raw_fixtures:
+            try:
+                processed_fixtures.append({
+                    'event': fixture.get('event'),
+                    'team_h': team_id_map.get(fixture.get('team_h'), 'Unknown'),
+                    'team_a': team_id_map.get(fixture.get('team_a'), 'Unknown'),
+                    'kickoff_time': fixture.get('kickoff_time'),
+                    'finished': fixture.get('finished', False)
+                })
+            except Exception as e:
+                logger.warning(f"Failed to process fixture {fixture.get('id', 'unknown')}: {e}")
+                continue
+        
+        logger.info(f"Processed {len(processed_fixtures)} fixtures")
+        return processed_fixtures
     
     def _create_team_mapping(self, bootstrap_data: Dict[str, Any]) -> Dict[int, Dict[str, str]]:
         """Create mapping from team ID to team info."""
@@ -414,6 +450,85 @@ class DataProcessor:
             'is_double_gameweek': is_double_gameweek,
             'fixture_difficulty': round(avg_difficulty, 1)
         }
+    
+    def get_gameweek_fixtures(self, gameweek: int, fixtures_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Get all fixtures for a specific gameweek from cached fixtures data.
+        
+        Args:
+            gameweek: Gameweek number
+            fixtures_data: Cached fixtures data
+            
+        Returns:
+            List of fixtures for the specified gameweek
+        """
+        if not fixtures_data:
+            return []
+        
+        # Filter fixtures for the specific gameweek
+        gameweek_fixtures = []
+        for fixture in fixtures_data:
+            if fixture.get('event') == gameweek:
+                gameweek_fixtures.append(fixture)
+        
+        return gameweek_fixtures
+    
+    def format_fixtures_for_prompt(self, fixtures: List[Dict[str, Any]], gameweek: int) -> str:
+        """
+        Format fixtures into a clean, organized string for prompts.
+        
+        Args:
+            fixtures: List of fixtures for the gameweek
+            gameweek: Gameweek number
+            
+        Returns:
+            Formatted string of fixtures grouped by date
+        """
+        if not fixtures:
+            return f"No fixtures scheduled for Gameweek {gameweek}."
+        
+        def get_ordinal_suffix(day):
+            """Get the correct ordinal suffix for a day number"""
+            if 10 <= day % 100 <= 20:
+                suffix = 'th'
+            else:
+                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+            return suffix
+        
+        # Group fixtures by date
+        fixtures_by_date = {}
+        for fixture in fixtures:
+            try:
+                from datetime import datetime
+                kickoff_time = fixture['kickoff_time']
+                if kickoff_time:
+                    # Parse the ISO format date from FPL API
+                    fixture_date = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
+                    day = fixture_date.day
+                    suffix = get_ordinal_suffix(day)
+                    date_key = fixture_date.strftime(f'%A %d{suffix} %B %Y')
+                    
+                    if date_key not in fixtures_by_date:
+                        fixtures_by_date[date_key] = []
+                    
+                    fixtures_by_date[date_key].append(fixture)
+            except:
+                # Fallback if date parsing fails
+                if 'Unknown Date' not in fixtures_by_date:
+                    fixtures_by_date['Unknown Date'] = []
+                fixtures_by_date['Unknown Date'].append(fixture)
+        
+        # Format the output
+        output = [f"GAMEWEEK {gameweek} FIXTURES:", "=" * 30, ""]
+        
+        for date, date_fixtures in fixtures_by_date.items():
+            output.append(f"{date}:")
+            for fixture in date_fixtures:
+                # team_h and team_a are already strings!
+                output.append(f"• {fixture['team_h']} vs {fixture['team_a']}")
+            output.append("")
+        
+        return "\n".join(output)
     
     def _format_players_for_prompt(self, team_players: List[Dict[str, Any]]) -> str:
         """Format player list for LLM prompts"""

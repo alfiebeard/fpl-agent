@@ -90,15 +90,22 @@ class FPLAgent:
         return not enrich_fresh
     
     def fetch_fpl_data(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """Fetch FPL data with smart caching"""
+        """Fetch both FPL player data and fixtures data"""
         try:
             logger.info("Fetching FPL data...")
-            result = self.data_service.get_players(force_refresh=force_refresh)
             
-            # Return basic player data
+            # Fetch players (existing logic)
+            player_result = self.data_service.get_players(force_refresh=force_refresh)
+            
+            # Fetch fixtures (new logic)
+            fixtures_result = self.data_service.get_fixtures(force_refresh=force_refresh)
+            
+            # Return both results
             return {
-                'players': list(result.values()),
-                'total_players': len(result),
+                'players': list(player_result.values()),
+                'total_players': len(player_result),
+                'fixtures': fixtures_result['fixtures'],
+                'total_fixtures': fixtures_result['total_fixtures'],
                 'fetched_at': datetime.now().isoformat()
             }
             
@@ -657,7 +664,7 @@ def main():
         if args.command == 'fetch':
             # Fetch fresh FPL data
             result = optimizer.fetch_fpl_data(force_refresh=args.force_fetch)
-            print(f"\n✅ Fetched {result['total_players']} players")
+            print(f"\n✅ Fetched {result['total_players']} players and {result['total_fixtures']} fixtures")
             print(f"📅 Data timestamp: {result['fetched_at']}")
             
         elif args.command == 'enrich':
