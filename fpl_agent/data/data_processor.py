@@ -450,10 +450,11 @@ class DataProcessor:
         
         return "\n".join(formatted_players)
     
-    def filter_players_for_team_building(self, players_data: Dict[str, Dict[str, Any]], 
-                                       use_embeddings: bool = False) -> Dict[str, Dict[str, Any]]:
+    def filter_available_players(self, players_data: Dict[str, Dict[str, Any]], 
+                               use_embeddings: bool = False) -> Dict[str, Dict[str, Any]]:
         """
-        Filter players for team building based on availability and optionally embeddings.
+        Filter players for availability and optionally embeddings.
+        Used for both team building and gameweek updates.
         
         Args:
             players_data: Dictionary of player data
@@ -468,11 +469,16 @@ class DataProcessor:
         available_players = self._filter_available_players(players_data)
         logger.info(f"Basic filtering: {len(available_players)} players available from {len(players_data)} total")
         
+        # Step 2: Injury news filtering (only if enrichments available)
+        if self._has_enrichments(available_players):
+            available_players = self._filter_by_injury_news(available_players)
+            logger.info(f"Injury news filtering: {len(available_players)} players available after injury filtering")
+        
         if not use_embeddings:
             logger.info("Embedding filtering disabled, returning all available players")
             return available_players
         
-        # Step 2: Check if enrichments exist
+        # Step 3: Check if enrichments exist
         enriched_players = self._get_enriched_players(available_players)
         if not enriched_players:
             logger.info("No enrichments found, returning all available players")
@@ -500,7 +506,7 @@ class DataProcessor:
             return available_players
     
     def _filter_available_players(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Filter out players who can't play (injured, suspended, etc.)"""
+        """Filter out players who can't play (injured, suspended)"""
         available_players = {}
         
         for player_name, player_data in players_data.items():
@@ -509,10 +515,8 @@ class DataProcessor:
             if chance_of_playing is not None and chance_of_playing < 25:
                 continue
             
-            # Check if player has any minutes (basic availability)
-            minutes = player_data.get('minutes', 0)
-            if minutes == 0:
-                continue
+            # Note: We don't filter by minutes=0 as new signings/backup players
+            # might not have played yet but could still be viable FPL options
             
             available_players[player_name] = player_data
         
@@ -533,10 +537,179 @@ class DataProcessor:
         
         return enriched_data
     
+    def _has_enrichments(self, players_data: Dict[str, Dict[str, Any]]) -> bool:
+        """Check if players have enriched data (expert insights or injury news)"""
+        for player_data in players_data.values():
+            if player_data.get('expert_insights') or player_data.get('injury_news'):
+                return True
+        return False
+    
+    def _filter_by_injury_news(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Filter out players marked as 'Out' in injury news"""
+        available_players = {}
+        
+        for player_name, player_data in players_data.items():
+            # Use the existing keyword extraction system
+            injury_status = self._extract_injury_status(player_name, {player_name: player_data})
+            
+            # If we can't determine status or player is NOT "out", include them
+            if not injury_status or injury_status != "out":
+                available_players[player_name] = player_data
+            # If marked as "out", filter them out
+        
+        return available_players
+    
+    def _extract_injury_status(self, player_name: str, structured_data: Dict) -> str:
+        """Extract injury status from injury_news - only care about 'Out'"""
+        status_map = {
+            "out": "out"  # Only filter out "Out" players
+        }
+        return self._extract_keyword_status(player_name, structured_data, 'injury_news', status_map)
+    
+    def _extract_keyword_status(self, player_name: str, structured_data: Dict, 
+                               field_name: str, keyword_map: Dict[str, Any]) -> Any:
+        """Extract keyword status from the first keyword before the dash"""
+        try:
+            if player_name in structured_data:
+                field_text = structured_data[player_name].get(field_name, '')
+                if field_text and ' - ' in field_text:  # Look for space-dash-space
+                    # Split on first occurrence of " - " (space-dash-space)
+                    first_part = field_text.split(' - ', 1)[0].strip().lower()
+                    
+                    # Look for exact keyword match in the first part
+                    for keyword, value in keyword_map.items():
+                        if first_part == keyword.lower():
+                            return value
+            
+            return None  # Default if no keyword found
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract keyword status for {player_name}: {e}")
+            return None
+    
+    def format_players_by_position_ranked(self, players_data: Dict[str, Dict[str, Any]], 
+                                         use_embeddings: bool = False, 
+                                         include_rankings: bool = None,
+                                         include_scores: bool = False) -> str:
+        """
+        Format players grouped by position with rankings - used by both show-players and LLM prompts.
+        This method produces the EXACT same format as show-players.
+        
+        Args:
+            players_data: Dictionary of player data
+            use_embeddings: Whether embedding filtering was used
+            include_rankings: Whether to include ranking numbers (None=use config default, True/False=override)
+            include_scores: Whether to include embedding scores (for show-players with embeddings)
+            
+        Returns:
+            Formatted string with players grouped by position and ranked
+        """
+        # Get default from config if not specified
+        if include_rankings is None:
+            include_rankings = self.config.get('display', {}).get('include_rankings_in_prompts', True)
+        
+        formatted_lines = []
+        
+        # Group by position
+        position_groups = {}
+        for name, data in players_data.items():
+            position = data.get('position', 'UNK')
+            if position not in position_groups:
+                position_groups[position] = []
+            position_groups[position].append((name, data))
+        
+        # Sort positions in standard order
+        position_order = ['GK', 'DEF', 'MID', 'FWD']
+        
+        for position in position_order:
+            if position in position_groups:
+                players = position_groups[position]
+                
+                # Sort players by the appropriate metric
+                if include_scores and use_embeddings:
+                    # When showing embedding scores, sort by hybrid score for consistency
+                    def hybrid_sort_key(player_tuple):
+                        name, data = player_tuple
+                        try:
+                            hybrid_score = float(data.get('hybrid_score', 0) or 0)
+                            return hybrid_score
+                        except (ValueError, TypeError):
+                            return 0.0
+                    
+                    players.sort(key=hybrid_sort_key, reverse=True)
+                else:
+                    # Default sorting by PPG + Form (same as show-players)
+                    def safe_sort_key(player_tuple):
+                        name, data = player_tuple
+                        try:
+                            ppg = float(data.get('pp90', 0) or 0)
+                            form = float(data.get('form', 0) or 0)
+                            cost = float(data.get('now_cost', 0) or 0)
+                            return (ppg + form / 10, cost)
+                        except (ValueError, TypeError):
+                            # Fallback to safe values if conversion fails
+                            return (0.0, 0.0)
+                    
+                    players.sort(key=safe_sort_key, reverse=True)
+                
+                formatted_lines.append(f"\n{position} ({len(players)} players):")
+                
+                for i, (name, data) in enumerate(players, 1):
+                    price = float(data.get('now_cost', 0) or 0) / 10.0
+                    ppg = float(data.get('pp90', 0) or 0)
+                    form = float(data.get('form', 0) or 0)
+                    ownership = float(data.get('selected_by_percent', 0) or 0)
+                    team_name = data.get('team_name', 'Unknown')
+                    
+                    # Format the ranking prefix
+                    if include_rankings:
+                        prefix = f"{i:2d}. "
+                    else:
+                        prefix = "• "
+                    
+                    # Player line (exactly like show-players)
+                    # Add chance of playing after ownership
+                    chance = data.get('chance_of_playing', 100)
+                    if chance is None or chance == '':
+                        chance = 100
+                    else:
+                        try:
+                            chance = float(chance)
+                        except (ValueError, TypeError):
+                            chance = 100
+                    
+                    player_line = f"{prefix}{name} ({team_name}, £{price:.1f}m, PPG: {ppg:.1f}, Form: {form:.1f}, Ownership: {ownership:.1f}%, Chance: {chance:.0f}%)"
+                    formatted_lines.append(player_line)
+                    
+                    # Score line (if using embeddings and scores requested)
+                    if include_scores and use_embeddings:
+                        # Try to get embedding scores if available
+                        embedding_score = data.get('embedding_score', 0.0)
+                        keyword_bonus = data.get('keyword_bonus', 0.0)
+                        hybrid_score = embedding_score + keyword_bonus
+                        
+                        score_line = f"         Score: {hybrid_score:.3f} (Embedding: {embedding_score:.3f}, Bonus: {keyword_bonus:+.3f})"
+                        formatted_lines.append(score_line)
+                    
+                    # Expert insights line (if available and using embeddings)
+                    if use_embeddings and data.get('expert_insights'):
+                        expert_line = f"         Expert Insights: {data['expert_insights']}"
+                        formatted_lines.append(expert_line)
+                    
+                    # Injury news line (if available and using embeddings)
+                    if use_embeddings and data.get('injury_news'):
+                        injury_line = f"         Injury News: {data['injury_news']}"
+                        formatted_lines.append(injury_line)
+                    
+                    # Add empty line between players for better readability
+                    formatted_lines.append("")
+        
+        return "\n".join(formatted_lines)
+    
     def format_players_for_llm_prompt(self, players_data: Dict[str, Dict[str, Any]], 
                                     use_embeddings: bool = False) -> str:
         """
-        Format players for LLM prompts with different formats based on enrichment availability.
+        Format players for LLM prompts with position grouping and rankings.
         
         Args:
             players_data: Dictionary of player data
@@ -545,48 +718,10 @@ class DataProcessor:
         Returns:
             Formatted string for LLM prompt
         """
-        formatted_players = []
-        
-        for player_name, player_data in players_data.items():
-            # Basic player info
-            position = player_data.get('position', 'UNK')
-            price = player_data.get('now_cost', 0) / 10.0
-            ppg = player_data.get('points_per_game', 0)
-            form = player_data.get('form', 0)
-            ownership = player_data.get('selected_by_percent', 0)
-            
-            # Convert to float for formatting
-            try:
-                ppg_float = float(ppg) if ppg is not None else 0.0
-            except (ValueError, TypeError):
-                ppg_float = 0.0
-            
-            try:
-                form_float = float(form) if form is not None else 0.0
-            except (ValueError, TypeError):
-                form_float = 0.0
-            
-            try:
-                ownership_float = float(ownership) if ownership is not None else 0.0
-            except (ValueError, TypeError):
-                ownership_float = 0.0
-            
-            # Format: Player Name (Position, £Price, PPG: X.X, Form: X.X, Ownership: X.X%)
-            player_line = f"{player_name} ({position}, £{price:.1f}m, PPG: {ppg_float:.1f}, Form: {form_float:.1f}, Ownership: {ownership_float:.1f}%)"
-            formatted_players.append(player_line)
-            
-            # Add expert insights and injury news if available and using embeddings
-            if use_embeddings:
-                expert_insights = player_data.get('expert_insights', '')
-                injury_news = player_data.get('injury_news', '')
-                
-                if expert_insights:
-                    formatted_players.append(f"Expert Insights: {expert_insights}")
-                
-                if injury_news:
-                    formatted_players.append(f"Injury News: {injury_news}")
-                
-                # Add empty line between players
-                formatted_players.append("")
-        
-        return "\n".join(formatted_players)
+        # Use the common formatting method with config default for rankings and scores when using embeddings
+        return self.format_players_by_position_ranked(
+            players_data, 
+            use_embeddings=use_embeddings, 
+            include_rankings=None,  # Use config default
+            include_scores=use_embeddings  # Include scores when using embeddings (same as show-players)
+        )

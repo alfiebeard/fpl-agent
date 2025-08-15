@@ -5,7 +5,6 @@ Main FPL Optimizer application - Simplified with smart data handling
 import logging
 import sys
 import os
-import json
 from typing import Dict, Optional, Any
 from datetime import datetime
 import argparse
@@ -164,140 +163,51 @@ class FPLAgent:
                 'error': str(e)
             }
     
+    def enrich(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Simple enrich method for the enrich command"""
+        return self.enrich_player_data(force_refresh=force_refresh)
+    
     def gw_update(self, gameweek: Optional[int] = None, 
                   force_fetch: bool = False, force_enrich: bool = False,
-                  force_all: bool = False, cached_only: bool = False) -> Dict[str, Any]:
+                  force_all: bool = False, cached_only: bool = False, 
+                  no_enrichments: bool = False, prompt_only: bool = False) -> Dict[str, Any]:
         """Complete weekly gameweek update workflow"""
         try:
             print("🔄 Starting weekly FPL update...")
             
-            # Check data freshness using DataStore
-            fpl_data = self.data_store.load_player_data()
-            fpl_age_hours = None
-            if fpl_data and 'cache_timestamp' in fpl_data:
-                fpl_age_hours = self.data_store._calculate_data_age_hours(fpl_data)
-            
-            # Check embeddings freshness
-            embeddings_file = Path("team_data/player_embeddings.json")
-            embeddings_age_hours = None
-            if embeddings_file.exists():
-                file_stat = embeddings_file.stat()
-                embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
-            
-            # Check enriched data freshness
-            enriched_age_hours = None
-            if fpl_data and 'enrichment_timestamp' in fpl_data:
-                enriched_age_hours = self.data_store._calculate_data_age_hours(fpl_data, 'enrichment_timestamp')
-            
-            data_status = {
-                'fpl_data': {
-                    'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
-                    'age_hours': fpl_age_hours,
-                    'available': fpl_data is not None
-                },
-                'enriched_data': {
-                    'fresh': enriched_age_hours is not None and enriched_age_hours < 1.0,
-                    'age_hours': enriched_age_hours,
-                    'available': enriched_age_hours is not None
-                },
-                'embeddings': {
-                    'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
-                    'age_hours': embeddings_age_hours,
-                    'available': embeddings_age_hours is not None
-                },
-                'overall_status': 'unknown'
-            }
-            
-            # Determine overall status
-            if data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
-                if data_status['fpl_data']['fresh'] and data_status['enriched_data']['fresh']:
-                    data_status['overall_status'] = 'fresh'
-                elif data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
-                    data_status['overall_status'] = 'partial'
-                else:
-                    data_status['overall_status'] = 'stale'
-            elif data_status['fpl_data']['available']:
-                data_status['overall_status'] = 'fpl_only'
-            else:
-                data_status['overall_status'] = 'none'
-            
-            # Determine what to do based on flags and data freshness
-            should_fetch = self.should_fetch_data(
-                force_fetch or force_all, 
-                cached_only, 
-                data_status['fpl_data']['fresh']
+            # Get processed players data using the common service
+            formatted_players = self.data_service.get_processed_players(
+                force_fetch=force_fetch,
+                force_enrich=force_enrich,
+                force_all=force_all,
+                cached_only=cached_only,
+                no_enrichments=no_enrichments
             )
             
-            should_enrich = self.should_enrich_data(
-                force_enrich or force_all, 
-                cached_only, 
-                data_status['enriched_data']['fresh']
-            )
+            print(f"✅ Processed players data ready")
             
-            # Show data status
-            print(f"\n📊 Data Status:")
-            fpl_age = data_status['fpl_data']['age_hours'] or 0
-            enrich_age = data_status['enriched_data']['age_hours'] or 0
-            print(f"   • FPL data: {fpl_age:.1f} hours old")
-            print(f"   • Enriched data: {enrich_age:.1f} hours old")
-            
-            if cached_only:
-                print("   • Using ONLY cached data (--cached-only flag)")
-                should_fetch = False
-                should_enrich = False
-            
-            # Step 1: Fetch FPL data if needed
-            if should_fetch:
-                print(f"\n🔄 Fetching fresh FPL data...")
-                fetch_result = self.fetch_fpl_data(force_refresh=True)
-                print(f"✅ Fetched {fetch_result['total_players']} players")
-            else:
-                print(f"\n📊 Using cached FPL data ({fpl_age:.1f} hours old)")
-            
-            # Step 2: Enrich data if needed
-            if should_enrich:
-                print(f"\n🧠 Enriching player data...")
-                enrich_result = self.enrich_player_data(force_refresh=True)
-                if enrich_result['status'] == 'success':
-                    print(f"✅ Enriched {enrich_result['enriched_players']} players")
-                else:
-                    print(f"❌ Enrichment failed: {enrich_result.get('error', 'Unknown error')}")
-            else:
-                print(f"\n🧠 Using cached enriched data ({enrich_age:.1f} hours old)")
-            
-            # Step 3: Filter players based on config
-            use_embeddings = self.config.get('embeddings', {}).get('use_embeddings', False)
-            print(f"\n🔍 Filtering players (embeddings: {'enabled' if use_embeddings else 'disabled'})...")
-            
-            # Get filtered players using DataProcessor
-            filtered_players = self.data_service.processor.filter_players_for_team_building(
-                players_data, use_embeddings=use_embeddings
-            )
-            
-            # Format players for LLM prompt
-            formatted_players = self.data_service.processor.format_players_for_llm_prompt(
-                filtered_players, use_embeddings=use_embeddings
-            )
-            
-            print(f"✅ Filtered to {len(filtered_players)} players")
-            
-            # Step 4: Update team for gameweek
+            # Update team using LLM strategy
             print(f"\n⚽ Updating team for gameweek {gameweek or 'current'}...")
             team_result = self.llm_strategy.update_team_weekly(
                 gameweek=gameweek,
                 use_semantic_filtering=True,
-                force_refresh=False,  # Use cached enriched data
-                use_embeddings=use_embeddings,
-                available_players=formatted_players
+                force_refresh=False,
+                use_embeddings=not no_enrichments,  # Opposite of no_enrichments
+                available_players=formatted_players,
+                prompt_only=prompt_only
             )
+            
+            if prompt_only:
+                print("✅ Prompt generation complete!")
+                return {
+                    'prompt': team_result['prompt'],
+                    'completed_at': datetime.now().isoformat()
+                }
             
             print("✅ Weekly update complete!")
             
             return {
-                'fetch_performed': should_fetch,
-                'enrich_performed': should_enrich,
                 'team_update': team_result,
-                'data_status': data_status,
                 'completed_at': datetime.now().isoformat()
             }
             
@@ -308,139 +218,46 @@ class FPLAgent:
     
     def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
                    force_fetch: bool = False, force_enrich: bool = False,
-                   force_all: bool = False, cached_only: bool = False) -> Dict[str, Any]:
+                   force_all: bool = False, cached_only: bool = False, 
+                   no_enrichments: bool = False, prompt_only: bool = False) -> Dict[str, Any]:
         """Build new team with smart data handling"""
         try:
             print("⚽ Building new FPL team...")
             
-            # Check data freshness using DataStore
-            fpl_data = self.data_store.load_player_data()
-            fpl_age_hours = None
-            if fpl_data and 'cache_timestamp' in fpl_data:
-                fpl_age_hours = self.data_store._calculate_data_age_hours(fpl_data)
-            
-            # Check embeddings freshness
-            embeddings_file = Path("team_data/player_embeddings.json")
-            embeddings_age_hours = None
-            if embeddings_file.exists():
-                file_stat = embeddings_file.stat()
-                embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
-            
-            # Check enriched data freshness
-            enriched_age_hours = None
-            if fpl_data and 'enrichment_timestamp' in fpl_data:
-                enriched_age_hours = self.data_store._calculate_data_age_hours(fpl_data, 'enrichment_timestamp')
-            
-            data_status = {
-                'fpl_data': {
-                    'fresh': fpl_age_hours is not None and fpl_age_hours < 1.0,
-                    'age_hours': fpl_age_hours,
-                    'available': fpl_data is not None
-                },
-                'enriched_data': {
-                    'fresh': enriched_age_hours is not None and enriched_age_hours < 1.0,
-                    'age_hours': enriched_age_hours,
-                    'available': enriched_age_hours is not None
-                },
-                'embeddings': {
-                    'fresh': embeddings_age_hours is not None and embeddings_age_hours < 1.0,
-                    'age_hours': embeddings_age_hours,
-                    'available': embeddings_age_hours is not None
-                },
-                'overall_status': 'unknown'
-            }
-            
-            # Determine overall status
-            if data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
-                if data_status['fpl_data']['fresh'] and data_status['enriched_data']['fresh']:
-                    data_status['overall_status'] = 'fresh'
-                elif data_status['fpl_data']['available'] and data_status['enriched_data']['available']:
-                    data_status['overall_status'] = 'partial'
-                else:
-                    data_status['overall_status'] = 'stale'
-            elif data_status['fpl_data']['available']:
-                data_status['overall_status'] = 'fpl_only'
-            else:
-                data_status['overall_status'] = 'none'
-            
-            # Determine what to do based on flags and data freshness
-            should_fetch = self.should_fetch_data(
-                force_fetch or force_all, 
-                cached_only, 
-                data_status['fpl_data']['fresh']
+            # Get processed players data using the common service
+            formatted_players = self.data_service.get_processed_players(
+                force_fetch=force_fetch,
+                force_enrich=force_enrich,
+                force_all=force_all,
+                cached_only=cached_only,
+                no_enrichments=no_enrichments
             )
             
-            should_enrich = self.should_enrich_data(
-                force_enrich or force_all, 
-                cached_only, 
-                data_status['enriched_data']['fresh']
-            )
+            print(f"✅ Processed players data ready")
             
-            # Show data status
-            print(f"\n📊 Data Status:")
-            fpl_age = data_status['fpl_data']['age_hours'] or 0
-            enrich_age = data_status['enriched_data']['age_hours'] or 0
-            print(f"   • FPL data: {fpl_age:.1f} hours old")
-            print(f"   • Enriched data: {enrich_age:.1f} hours old")
-            
-            if cached_only:
-                print("   • Using ONLY cached data (--cached-only flag)")
-                should_fetch = False
-                should_enrich = False
-            
-            # Step 1: Fetch FPL data if needed
-            if should_fetch:
-                print(f"\n🔄 Fetching fresh FPL data...")
-                fetch_result = self.fetch_fpl_data(force_refresh=True)
-                print(f"✅ Fetched {fetch_result['total_players']} players")
-            else:
-                print(f"\n📊 Using cached FPL data ({fpl_age:.1f} hours old)")
-            
-            # Step 2: Enrich data if needed
-            if should_enrich:
-                print(f"\n🧠 Enriching player data...")
-                enrich_result = self.enrich_player_data(force_refresh=True)
-                if enrich_result['status'] == 'success':
-                    print(f"✅ Enriched {enrich_result['enriched_players']} players")
-                else:
-                    print(f"❌ Enrichment failed: {enrich_result.get('error', 'Unknown error')}")
-            else:
-                print(f"\n🧠 Using cached enriched data ({enrich_age:.1f} hours old)")
-            
-            # Step 3: Filter players based on config
-            use_embeddings = self.config.get('embeddings', {}).get('use_embeddings', False)
-            print(f"\n🔍 Filtering players (embeddings: {'enabled' if use_embeddings else 'disabled'})...")
-            
-            # Get filtered players using DataProcessor
-            filtered_players = self.data_service.processor.filter_players_for_team_building(
-                players_data, use_embeddings=use_embeddings
-            )
-            
-            # Format players for LLM prompt
-            formatted_players = self.data_service.processor.format_players_for_llm_prompt(
-                filtered_players, use_embeddings=use_embeddings
-            )
-            
-            print(f"✅ Filtered to {len(filtered_players)} players")
-            
-            # Step 4: Build team
+            # Build team using LLM strategy
             print(f"\n⚽ Building team with £{budget}m budget...")
             team_result = self.llm_strategy.create_team(
                 budget=budget,
                 gameweek=gameweek or 1,
                 use_semantic_filtering=True,
-                force_refresh=False,  # Use cached enriched data
-                use_embeddings=use_embeddings,
-                available_players=formatted_players
+                force_refresh=False,
+                use_embeddings=not no_enrichments,  # Opposite of no_enrichments
+                available_players=formatted_players,
+                prompt_only=prompt_only
             )
+            
+            if prompt_only:
+                print("✅ Prompt generation complete!")
+                return {
+                    'prompt': team_result['prompt'],
+                    'completed_at': datetime.now().isoformat()
+                }
             
             print("✅ Team building complete!")
             
             return {
-                'fetch_performed': should_fetch,
-                'enrich_performed': should_enrich,
                 'team_data': team_result,
-                'data_status': data_status,
                 'completed_at': datetime.now().isoformat()
             }
             
@@ -576,6 +393,223 @@ class FPLAgent:
             logger.error(f"Failed to show data status: {e}")
             print(f"❌ Error showing data status: {e}")
             raise
+    
+    def show_players_status(self) -> Dict[str, Any]:
+        """Display available players breakdown showing filtering process"""
+        try:
+            print("👥 FPL Players Status")
+            print("=" * 50)
+            
+            # Load player data
+            players_data = self.data_store.load_player_data()
+            if not players_data:
+                print("❌ No player data available. Run 'fetch' command first.")
+                return {}
+            
+            # Extract player data
+            if 'players' in players_data:
+                all_players = players_data['players']
+            elif 'player_data' in players_data:
+                all_players = players_data['player_data']
+            else:
+                all_players = players_data
+            
+            total_players = len(all_players)
+            print(f"📊 Total players in data: {total_players}")
+            
+            # Apply basic filtering to separate available vs unavailable
+            available_players = self.data_service.processor._filter_available_players(all_players)
+            unavailable_players = {
+                name: data for name, data in all_players.items() 
+                if name not in available_players
+            }
+            
+            print(f"\n🚫 Not Available Players: {len(unavailable_players)}")
+            print("-" * 30)
+            print("   (Filtered out by: chance_of_playing < 25% OR marked as 'Out' in injury news)")
+            print()
+            
+            # Debug: Check if we have any unavailable players
+            if len(unavailable_players) == 0:
+                print("   No unavailable players found")
+            else:
+                print(f"   Found {len(unavailable_players)} unavailable players")
+                # Show first few names as debug
+                first_names = list(unavailable_players.keys())[:5]
+                print(f"   First few: {first_names}")
+            
+            # Group by position for better organization
+            position_groups = {}
+            for name, data in unavailable_players.items():
+                position = data.get('element_type', 'Unknown')
+                
+                # Handle different possible element_type formats
+                if position == 1 or position == '1' or position == 'GK':
+                    position = 'GK'
+                elif position == 2 or position == '2' or position == 'DEF':
+                    position = 'DEF'
+                elif position == 3 or position == '3' or position == 'MID':
+                    position = 'MID'
+                elif position == 4 or position == '4' or position == 'FWD':
+                    position = 'FWD'
+                else:
+                    # If we can't determine position, try to infer from other data
+                    # Check if player has any position-related fields
+                    if 'element_type' in data and data['element_type'] not in ['Unknown', None, '']:
+                        position = 'Unknown'  # Keep as unknown if we have some data
+                    else:
+                        # Try to infer from team or other fields, default to 'Unknown'
+                        position = 'Unknown'
+                
+                if position not in position_groups:
+                    position_groups[position] = []
+                position_groups[position].append((name, data))
+            
+            print(f"   Position groups: {list(position_groups.keys())}")
+            
+            # Format using the common method for consistency
+            # First try the standard positions
+            for position in ['GK', 'DEF', 'MID', 'FWD']:
+                if position in position_groups:
+                    players = position_groups[position]
+                    print(f"   {position} ({len(players)} players):")
+                    
+                    # Use the common formatting method to ensure chance of playing is included
+                    position_data = dict(players)
+                    formatted_output = self.data_service.processor.format_players_by_position_ranked(
+                        position_data,
+                        use_embeddings=True,  # Show injury news and expert insights if available
+                        include_rankings=True,
+                        include_scores=False
+                    )
+                    print(formatted_output)
+                else:
+                    print(f"   No {position} players found")
+            
+            # Handle any remaining players (including 'Unknown' position)
+            for position in position_groups.keys():
+                if position not in ['GK', 'DEF', 'MID', 'FWD']:
+                    players = position_groups[position]
+                    print(f"   {position} ({len(players)} players):")
+                    
+                    # Use the common formatting method to ensure chance of playing is included
+                    position_data = dict(players)
+                    formatted_output = self.data_service.processor.format_players_by_position_ranked(
+                        position_data,
+                        use_embeddings=True,  # Show injury news and expert insights if available
+                        include_rankings=True,
+                        include_scores=False
+                    )
+                    print(formatted_output)
+            
+            print(f"\n✅ Available Players: {len(available_players)}")
+            print("-" * 30)
+            
+            # Check if embedding filtering is available and configured
+            embeddings_config = self.config.get('embeddings', {})
+            use_embeddings = embeddings_config.get('use_embeddings', False)
+            
+            if use_embeddings:
+                print(f"🔍 Embedding filtering: ENABLED")
+                
+                # Check if embeddings cache exists
+                embeddings_file = Path("team_data/player_embeddings.json")
+                if embeddings_file.exists():
+                    try:
+                        # Apply embedding filtering
+                        filtered_players = self.data_service.processor.filter_available_players(
+                            all_players, use_embeddings=True
+                        )
+                        
+                        # Get the processed player data that includes chance of playing and other fields
+                        # This ensures both sections have consistent data
+                        processed_players_data = {}
+                        for name, data in all_players.items():
+                            if name in filtered_players:
+                                # For top players, use the filtered data
+                                processed_players_data[name] = filtered_players[name]
+                            elif name in available_players:
+                                # For filtered out players, ensure they have the same fields
+                                processed_data = data.copy()
+                                # Ensure chance_of_playing is properly set
+                                if 'chance_of_playing' not in processed_data or processed_data['chance_of_playing'] is None:
+                                    processed_data['chance_of_playing'] = 100
+                                processed_players_data[name] = processed_data
+                        
+                        # Calculate players filtered out by embeddings
+                        embedding_filtered_out = {
+                            name: processed_players_data[name] for name in available_players.keys() 
+                            if name not in filtered_players
+                        }
+                        
+                        print(f"\n🎯 Top Players (Embedding Selected): {len(filtered_players)}")
+                        print("-" * 40)
+                        print("   (Selected by embedding similarity + keyword bonuses)")
+                        print()
+                        
+                        # Use the common formatting method for top players with scores
+                        formatted_top_players = self.data_service.processor.format_players_by_position_ranked(
+                            filtered_players, 
+                            use_embeddings=True, 
+                            include_rankings=True,
+                            include_scores=True
+                        )
+                        print(formatted_top_players)
+                        
+                        print(f"\n🚫 Filtered Out by Embedding: {len(embedding_filtered_out)}")
+                        print("-" * 40)
+                        print("   (Available but didn't make top N per position)")
+                        print()
+                        
+                        # Use the common formatting method for filtered out players with scores
+                        formatted_filtered_out = self.data_service.processor.format_players_by_position_ranked(
+                            embedding_filtered_out, 
+                            use_embeddings=True, 
+                            include_rankings=True,
+                            include_scores=True
+                        )
+                        print(formatted_filtered_out)
+                        
+                    except Exception as e:
+                        print(f"   ❌ Embedding filtering failed: {e}")
+                        print(f"   📋 Falling back to basic players summary...")
+                        self._show_basic_players_summary(available_players)
+                else:
+                    print(f"   📁 No embeddings cache found. Run 'enrich' command first.")
+                    print(f"   📋 Falling back to basic players summary...")
+                    self._show_basic_players_summary(available_players)
+            else:
+                print(f"🔍 Embedding filtering: DISABLED")
+                self._show_basic_players_summary(available_players)
+            
+            return {
+                'total_players': total_players if 'total_players' in locals() else 0,
+                'available_players': len(available_players) if 'available_players' in locals() else 0,
+                'unavailable_players': len(unavailable_players) if 'unavailable_players' in locals() else 0,
+                'use_embeddings': use_embeddings,
+                'completed_at': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to show players status: {e}")
+            print(f"❌ Error showing players status: {e}")
+            raise
+    
+    def _show_basic_players_summary(self, available_players: Dict[str, Dict[str, Any]]):
+        """Show summary of available players when no embedding filtering"""
+        print(f"\n📋 Basic Players Summary:")
+        print("-" * 30)
+        
+        # Use the common formatting method from DataProcessor
+        formatted_output = self.data_service.processor.format_players_by_position_ranked(
+            available_players, 
+            use_embeddings=False, 
+            include_rankings=True
+        )
+        print(formatted_output)
+        
+        # Note: These players would go into LLM prompts with basic stats only
+        print(f"\n📝 Note: These players would go into LLM prompts with basic stats only (no expert insights or injury news)")
 
 
 def main():
@@ -584,7 +618,7 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'enrich', 'gw-update', 'build-team', 'show-data'
+        'fetch', 'enrich', 'gw-update', 'build-team', 'show-data', 'show-players'
     ], help='Command to run')
     
     # Smart data flags
@@ -596,6 +630,8 @@ def main():
                        help='Force both fresh fetch and enrichment')
     parser.add_argument('--cached-only', action='store_true',
                        help='Use ONLY cached data (no API calls or enrichment)')
+    parser.add_argument('--no-enrichments', action='store_true',
+                       help='Use only basic player data without expert insights or injury news')
     
     # Common options
     parser.add_argument('--budget', type=float, default=100.0,
@@ -625,78 +661,17 @@ def main():
             print(f"📅 Data timestamp: {result['fetched_at']}")
             
         elif args.command == 'enrich':
-            if args.show_prompt:
-                # Show the prompts that would be sent to the LLM
-                print("📝 FPL Player Enrichment Prompts")
-                print("=" * 80)
-                
-                # Generate prompts using real FPL data for the first team
-                try:
-                    # Get real FPL data for prompt generation
-                    from fpl_agent.data.data_processor import DataProcessor
-                    from fpl_agent.core.config import Config
-                    config = Config()
-                    processor = DataProcessor(config)
-                    
-                    # Get current gameweek
-                    current_gameweek = processor.fetcher.get_current_gameweek()
-                    if current_gameweek is None:
-                        current_gameweek = 1  # Fallback to GW1
-                    
-                    # Get real player data from the optimizer's data store
-                    players_data = optimizer.data_store.get_players_data()
-                    if not players_data:
-                        raise ValueError("No player data available")
-                    
-                    # Group players by team and get the first team alphabetically
-                    team_players = processor._group_players_by_team(players_data)
-                    first_team_name = sorted(team_players.keys())[0]
-                    first_team_players = team_players[first_team_name]
-                    
-                    # Get real fixture info for this team
-                    fixture_info = processor._get_fixture_info(first_team_name, current_gameweek)
-                    
-                    # Format real players for prompts
-                    formatted_players = processor._format_players_for_prompt(first_team_players)
-                    
-                    # Generate both prompts using real data
-                    from fpl_agent.strategies.team_analysis_strategy import TeamAnalysisStrategy
-                    strategy = TeamAnalysisStrategy(config)
-                    
-                    print(f"🔍 HINTS & TIPS PROMPT FOR {first_team_name.upper()}:")
-                    print("-" * 40)
-                    hints_prompt = strategy._create_hints_tips_prompt(first_team_name, formatted_players, current_gameweek, fixture_info)
-                    print(f"Prompt Length: {len(hints_prompt)} characters")
-                    print("=" * 80)
-                    print(hints_prompt)
-                    print("=" * 80)
-                    
-                    print(f"\n🏥 INJURY NEWS PROMPT FOR {first_team_name.upper()}:")
-                    print("-" * 40)
-                    injury_prompt = strategy._create_injury_news_prompt(first_team_name, formatted_players, current_gameweek, fixture_info)
-                    print(f"Prompt Length: {len(injury_prompt)} characters")
-                    print("=" * 80)
-                    print(injury_prompt)
-                    print("=" * 80)
-                    
-                    print(f"✅ Real prompts generated for {first_team_name} (Gameweek {current_gameweek}). Use --show-prompt to preview, remove flag to execute.")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to generate prompts: {e}")
-                    print(f"❌ Error generating prompts: {e}")
-                    sys.exit(1)
+            # Simple enrich command - just call the enrich method
+            result = optimizer.enrich(force_refresh=args.force_enrich)
+            if result['status'] == 'success':
+                print(f"\n✅ Enriched {result['enriched_players']} players")
+                print(f"📅 Enriched at: {result['enriched_at']}")
+            elif result['status'] == 'not_implemented':
+                print(f"\n⚠️  {result['message']}")
+                print(f"📅 Status checked at: {result['enriched_at']}")
             else:
-                # Enrich player data with LLM insights
-                result = optimizer.enrich_player_data(force_refresh=args.force_enrich)
-                if result['status'] == 'success':
-                    print(f"\n✅ Enriched {result['enriched_players']} players")
-                    print(f"📅 Enriched at: {result['enriched_at']}")
-                elif result['status'] == 'not_implemented':
-                    print(f"\n⚠️  {result['message']}")
-                    print(f"📅 Status checked at: {result['enriched_at']}")
-                else:
-                    print(f"\n❌ Enrichment failed: {result.get('error', 'Unknown error')}")
-                    sys.exit(1)
+                print(f"\n❌ Enrichment failed: {result.get('error', 'Unknown error')}")
+                sys.exit(1)
                 
         elif args.command == 'gw-update':
             if args.show_prompt:
@@ -773,11 +748,18 @@ def main():
                         chips_data = {"wildcard": True, "bench_boost": True, "free_hit": True, "triple_captain": True}
                         transfers_data = {"free_transfers": 1}
                     
-                    # Generate the prompt
-                    prompt = optimizer.llm_strategy._create_weekly_update_prompt(
-                        current_team, gameweek, chips_data, transfers_data
+                    # Generate the prompt using the real method with prompt_only=True
+                    result = optimizer.gw_update(
+                        gameweek=gameweek,
+                        force_fetch=args.force_fetch,
+                        force_enrich=args.force_enrich,
+                        force_all=args.force_all,
+                        cached_only=args.cached_only,
+                        no_enrichments=args.no_enrichments,
+                        prompt_only=True
                     )
                     
+                    prompt = result['prompt']
                     print(f"Prompt Length: {len(prompt)} characters")
                     print("=" * 80)
                     print(prompt)
@@ -795,11 +777,12 @@ def main():
                     force_fetch=args.force_fetch,
                     force_enrich=args.force_enrich,
                     force_all=args.force_all,
-                    cached_only=args.cached_only
+                    cached_only=args.cached_only,
+                    no_enrichments=args.no_enrichments
                 )
                 
                 # Display team update result
-                display_comprehensive_team_result({'team_data': result['team_update']})
+                display_comprehensive_team_result(result['team_update'])
                 
                 # Save team if requested
                 if args.save_team:
@@ -821,11 +804,19 @@ def main():
                 
                 # Generate the prompt without executing
                 try:
-                    # Generate the prompt
-                    prompt = optimizer.llm_strategy._create_team_creation_prompt(
-                        args.budget, args.gameweek or 1
+                    # Call the real method with prompt_only=True to get the exact same prompt
+                    result = optimizer.build_team(
+                        budget=args.budget,
+                        gameweek=args.gameweek,
+                        force_fetch=args.force_fetch,
+                        force_enrich=args.force_enrich,
+                        force_all=args.force_all,
+                        cached_only=args.cached_only,
+                        no_enrichments=args.no_enrichments,
+                        prompt_only=True
                     )
                     
+                    prompt = result['prompt']
                     print(f"Prompt Length: {len(prompt)} characters")
                     print("=" * 80)
                     print(prompt)
@@ -844,11 +835,12 @@ def main():
                     force_fetch=args.force_fetch,
                     force_enrich=args.force_enrich,
                     force_all=args.force_all,
-                    cached_only=args.cached_only
+                    cached_only=args.cached_only,
+                    no_enrichments=args.no_enrichments
                 )
                 
                 # Display team result
-                display_comprehensive_team_result({'team_data': result['team_data']})
+                display_comprehensive_team_result(result['team_data'])
                 
                 # Save team if requested
                 if args.save_team:
@@ -865,6 +857,10 @@ def main():
         elif args.command == 'show-data':
             # Show current data status
             optimizer.show_data_status()
+            
+        elif args.command == 'show-players':
+            # Show available players breakdown
+            optimizer.show_players_status()
         
     except Exception as e:
         logger.error(f"Command failed: {e}")

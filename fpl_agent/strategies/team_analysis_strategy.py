@@ -51,8 +51,14 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             # Create the prompt
             prompt = self._create_hints_tips_prompt(team_name, formatted_players, current_gameweek, fixture_info)
             
+            # Debug: Log the prompt being sent
+            logger.info(f"Prompt for hints/tips (length: {len(prompt)}): {prompt[:500]}...")
+            
             # Get LLM response
             response = self.llm_engine.query(prompt)
+            
+            # Debug: Log the response received
+            logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract insights for each player
             return self._parse_hints_tips_response(response, formatted_players)
@@ -81,8 +87,14 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             # Create the prompt
             prompt = self._create_injury_news_prompt(team_name, formatted_players, current_gameweek, fixture_info)
             
+            # Debug: Log the prompt being sent
+            logger.info(f"Prompt for injury news (length: {len(prompt)}): {prompt[:500]}...")
+            
             # Get LLM response
             response = self.llm_engine.query(prompt)
+            
+            # Debug: Log the response received
+            logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract injury news for each player
             return self._parse_injury_news_response(response, formatted_players)
@@ -136,7 +148,9 @@ Format your response as a concise sentence for every player in the squad above, 
     ...
 }}
 
-Keep each player's information brief but informative."""
+Keep each player's information brief but informative.
+
+IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure."""
     
     def _create_injury_news_prompt(self, team_name: str, formatted_players: str, current_gameweek: int, fixture_info: dict) -> str:
         """Create the injury news prompt"""
@@ -179,18 +193,32 @@ Format your response as a concise sentence for every player in the squad above, 
     ...
 }}
 
-Keep each player's information brief but informative."""
+Keep each player's information brief but informative.
+
+IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure."""
     
     def _parse_hints_tips_response(self, response: str, formatted_players: str) -> Dict[str, str]:
         """Parse LLM response to extract hints and tips for each player."""
         try:
             import json
+            
+            # Debug: Log the raw response
+            logger.info(f"Raw LLM response for hints/tips (length: {len(response)}): {repr(response[:500])}")
+            
             # Try to extract JSON from the response
             response_text = response.strip()
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
             if response_text.endswith('```'):
                 response_text = response_text[:-3]
+            
+            # Debug: Log the cleaned response
+            logger.info(f"Cleaned response text (length: {len(response_text)}): {repr(response_text[:500])}")
+            
+            # Check if response is empty
+            if not response_text:
+                logger.error("Response is empty after cleaning")
+                return {}
             
             parsed = json.loads(response_text)
             
@@ -200,6 +228,7 @@ Keep each player's information brief but informative."""
             
         except Exception as e:
             logger.error(f"Failed to parse hints and tips response: {e}")
+            logger.error(f"Response that failed to parse: {repr(response)}")
             # Return empty dict on parsing failure
             return {}
     
@@ -207,12 +236,24 @@ Keep each player's information brief but informative."""
         """Parse LLM response to extract injury news for each player."""
         try:
             import json
+            
+            # Debug: Log the raw response
+            logger.info(f"Raw LLM response for injury news (length: {len(response)}): {repr(response[:500])}")
+            
             # Try to extract JSON from the response
             response_text = response.strip()
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
             if response_text.endswith('```'):
                 response_text = response_text[:-3]
+            
+            # Debug: Log the cleaned response
+            logger.info(f"Cleaned response text (length: {len(response_text)}): {repr(response_text[:500])}")
+            
+            # Check if response is empty
+            if not response_text:
+                logger.error("Response is empty after cleaning")
+                return {}
             
             parsed = json.loads(response_text)
             
@@ -222,6 +263,7 @@ Keep each player's information brief but informative."""
             
         except Exception as e:
             logger.error(f"Failed to parse injury news response: {e}")
+            logger.error(f"Response that failed to parse: {repr(response)}")
             # Return empty dict on parsing failure
             return {}
     

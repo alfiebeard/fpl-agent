@@ -13,13 +13,31 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
     print("FPL COMPREHENSIVE TEAM RESULT")
     print("=" * 80)
     
-    # Extract team data
-    team_data = result.get('team', {})
-    captain = result.get('captain', 'Unknown')
-    vice_captain = result.get('vice_captain', 'Unknown')
-    total_cost = result.get('total_cost', 0.0)
-    bank = result.get('bank', 0.0)
-    expected_points = result.get('expected_points', 0.0)
+    # Handle different data structures
+    # The result might be wrapped in 'team_data' or directly contain the team info
+    if 'team_data' in result:
+        team_data_wrapper = result['team_data']
+    else:
+        team_data_wrapper = result
+    
+    # Extract team data - handle both nested and flat structures
+    if 'team' in team_data_wrapper:
+        # Nested structure: team_data_wrapper['team'] contains the actual team
+        team_data = team_data_wrapper['team']
+        # Captain, vice_captain, etc. are at the same level as 'team'
+        captain = team_data_wrapper.get('captain', 'Unknown')
+        vice_captain = team_data_wrapper.get('vice_captain', 'Unknown')
+        total_cost = team_data_wrapper.get('total_cost', 0.0)
+        bank = team_data_wrapper.get('bank', 0.0)
+        expected_points = team_data_wrapper.get('expected_points', 0.0)
+    else:
+        # Flat structure: everything is at the top level
+        team_data = team_data_wrapper
+        captain = team_data_wrapper.get('captain', 'Unknown')
+        vice_captain = team_data_wrapper.get('vice_captain', 'Unknown')
+        total_cost = team_data_wrapper.get('total_cost', 0.0)
+        bank = team_data_wrapper.get('bank', 0.0)
+        expected_points = team_data_wrapper.get('expected_points', 0.0)
     
     # Display basic info
     print("\n" + "=" * 80)
@@ -38,7 +56,7 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
     print("=" * 80)
     
     # Display raw LLM response
-    raw_response = result.get('raw_llm_response', '')
+    raw_response = team_data_wrapper.get('raw_llm_response', '')
     if raw_response:
         print("\n" + "=" * 80)
         print("RAW LLM RESPONSE")

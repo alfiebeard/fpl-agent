@@ -273,33 +273,66 @@ class EmbeddingFilter:
         
         return similarities
     
-    def _extract_keyword_bonus(self, player_name: str, structured_data: Dict) -> float:
-        """Extract keyword bonus from player's hints_tips_news"""
+    def _extract_keyword_status(self, player_name: str, structured_data: Dict, 
+                               field_name: str, keyword_map: Dict[str, Any]) -> Any:
+        """Extract keyword status from the first keyword before the dash"""
         try:
             if player_name in structured_data:
-                hints_tips = structured_data[player_name].get('hints_tips_news', '')
-                if hints_tips:
-                    hints_lower = hints_tips.lower()
+                field_text = structured_data[player_name].get(field_name, '')
+                if field_text and ' - ' in field_text:  # Look for space-dash-space
+                    # Split on first occurrence of " - " (space-dash-space)
+                    first_part = field_text.split(' - ', 1)[0].strip().lower()
                     
-                    # Get keyword bonuses from config
-                    embeddings_config = self.config.get_embeddings_config()
-                    keyword_bonuses = embeddings_config.get('hybrid_scoring', {}).get('keyword_bonuses', {
-                        "must-have": 0.5,
-                        "recommended": 0.3,
-                        "rotation risk": -0.2,
-                        "avoid": -0.5
-                    })
-                    
-                    # Look for keywords at the start of the text
-                    for keyword, bonus in keyword_bonuses.items():
-                        if hints_lower.startswith(keyword):
-                            return bonus
+                    # Look for exact keyword match in the first part
+                    for keyword, value in keyword_map.items():
+                        if first_part == keyword.lower():
+                            return value
             
-            return 0.0  # Default if no keyword found
+            return None  # Default if no keyword found
             
         except Exception as e:
-            logger.warning(f"Failed to extract keyword bonus for {player_name}: {e}")
-            return 0.0
+            logger.warning(f"Failed to extract keyword status for {player_name}: {e}")
+            return None
+    
+    def _extract_keyword_bonus(self, player_name: str, structured_data: Dict) -> float:
+        """Extract keyword bonus from expert_insights (existing functionality)"""
+        keyword_map = {
+            "must-have": 0.5,
+            "recommended": 0.3,
+            "rotation risk": -0.2,
+            "avoid": -0.5
+        }
+        result = self._extract_keyword_status(player_name, structured_data, 'expert_insights', keyword_map)
+        return result if result is not None else 0.0
+    
+    def _extract_injury_status(self, player_name: str, structured_data: Dict) -> str:
+        """Extract injury status from injury_news - only care about 'Out'"""
+        status_map = {
+            "out": "out"  # Only filter out "Out" players
+        }
+        return self._extract_keyword_status(player_name, structured_data, 'injury_news', status_map)
+    
+    def _has_enrichments(self, players_data: Dict[str, Dict[str, Any]]) -> bool:
+        """Check if players have enriched data (expert insights or injury news)"""
+        for player_data in players_data.values():
+            if player_data.get('expert_insights') or player_data.get('injury_news'):
+                return True
+        return False
+    
+    def _filter_by_injury_news(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Filter out players marked as 'Out' in injury news"""
+        available_players = {}
+        
+        for player_name, player_data in players_data.items():
+            # Use the existing keyword extraction system
+            injury_status = self._extract_injury_status(player_name, {player_name: player_data})
+            
+            # If we can't determine status or player is NOT "out", include them
+            if not injury_status or injury_status != "out":
+                available_players[player_name] = player_data
+            # If marked as "out", filter them out
+        
+        return available_players
     
     def _calculate_hybrid_scores(self, similarities: Dict[str, List[Tuple[str, float]]], 
                                structured_data: Dict) -> Dict[str, List[Tuple[str, float, float, float]]]:
@@ -310,7 +343,7 @@ class EmbeddingFilter:
             hybrid_position_scores = []
             
             for player_name, embedding_score in player_scores:
-                # Get keyword bonus from hints_tips_news
+                # Get keyword bonus from expert_insights
                 keyword_bonus = self._extract_keyword_bonus(player_name, structured_data)
                 
                 # Calculate final hybrid score using configurable weights

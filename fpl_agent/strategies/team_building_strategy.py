@@ -32,7 +32,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         """Return the name of this strategy."""
         return "Team Building Strategy"
     
-    def create_team(self, budget: float = 100.0, gameweek: int = 1, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> Dict[str, Any]:
+    def create_team(self, budget: float = 100.0, gameweek: int = 1, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None, prompt_only: bool = False) -> Dict[str, Any]:
         """
         Create a new FPL team for Gameweek 1 using LLM analysis.
         
@@ -41,13 +41,18 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             gameweek: Gameweek to create the team for (defaults to 1)
             use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
             force_refresh: If True, ignore cache and fetch fresh player data
+            prompt_only: If True, return only the generated prompt without sending to LLM
         Returns:
-            Dict containing the created team in the specified JSON format
+            Dict containing the created team in the specified JSON format, or just the prompt if prompt_only=True
         """
         logger.info(f"Creating new FPL team with budget £{budget}m for Gameweek {gameweek}")
         
         # Create the team creation prompt
         prompt = self._create_team_creation_prompt(budget, gameweek, use_semantic_filtering, force_refresh, use_embeddings, available_players)
+        
+        if prompt_only:
+            logger.info("Prompt-only mode: returning generated prompt without LLM processing")
+            return {'prompt': prompt}
         
         # Query LLM for team creation
         logger.info("Querying LLM for team creation...")
@@ -96,7 +101,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         team_data['raw_llm_response'] = response
         return team_data
     
-    def update_team_weekly(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> Dict[str, Any]:
+    def update_team_weekly(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None, prompt_only: bool = False) -> Dict[str, Any]:
         """
         Update the current FPL team for the specified gameweek.
         
@@ -104,9 +109,10 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             gameweek: Gameweek to update for (defaults to current gameweek)
             use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
             force_refresh: If True, ignore cache and fetch fresh player data
+            prompt_only: If True, return only the generated prompt without sending to LLM
             
         Returns:
-            Dict containing the updated team in the specified JSON format
+            Dict containing the updated team in the specified JSON format, or just the prompt if prompt_only=True
         """
         if gameweek is None:
             gameweek = self.data_service.fetcher.get_current_gameweek()
@@ -129,7 +135,17 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             # Check if previous team exists
             previous_team = self.team_manager.get_previous_team(gameweek)
             if not previous_team:
-                raise ValueError(f"No team data found for Gameweek {gameweek - 1}. Cannot update team for Gameweek {gameweek}.")
+                # If no previous team exists, create a new team instead
+                logger.info(f"No previous team found for Gameweek {gameweek - 1}. Creating new team for Gameweek {gameweek}.")
+                return self.create_team(
+                    budget=100.0,  # Default budget
+                    gameweek=gameweek,
+                    use_semantic_filtering=use_semantic_filtering,
+                    force_refresh=force_refresh,
+                    use_embeddings=use_embeddings,
+                    available_players=available_players,
+                    prompt_only=prompt_only
+                )
             # Get current team data from local storage
             current_team = previous_team['team']
         
@@ -142,6 +158,10 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             prompt = self._create_weekly_update_prompt(
                 current_team, gameweek, chips_data, transfers_data, use_semantic_filtering, force_refresh, use_embeddings, available_players
             )
+            
+            if prompt_only:
+                logger.info("Prompt-only mode: returning generated prompt without LLM processing")
+                return {'prompt': prompt}
             
             # Get LLM response
             response = self.llm_engine.query(prompt)
@@ -197,6 +217,10 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         else:
             players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
         
+        # Determine prompt context based on available data and flags
+        has_enrichments = self._detect_prompt_context(players_data) and use_embeddings
+        prompt_intro = self._get_prompt_intro(has_enrichments)
+        
         # Get team constraints from prompt formatter
         team_constraints = PromptFormatter.get_team_constraints_prompt(self.config)
         
@@ -213,7 +237,7 @@ You must strictly follow all official FPL rules and constraints when building th
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
 
-The list of teams, their available players, the players positions, their costs and their likelihood of playing are below. You must select the players from this list:
+{prompt_intro}
 {players_data}
 
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
@@ -299,6 +323,23 @@ Each player must have a detailed, informative reason for their selection.
 
 REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure."""
     
+    def _detect_prompt_context(self, players_data: str) -> bool:
+        """Determine if we have enriched data available in the players data"""
+        # Check if the players data contains expert insights or injury news
+        return 'Expert Insights:' in players_data or 'Injury News:' in players_data
+    
+    def _get_prompt_intro(self, has_enrichments: bool, is_weekly_update: bool = False) -> str:
+        """Get the appropriate prompt introduction based on available data"""
+        if has_enrichments:
+            base_text = """The list of available players by each position, their costs, basic stats, preliminary score, expert insights and injury news are below. You should use this information to make your decisions, but use this as a starting point for wider research and don't only use this. The players are ranked based on a loose scoring system, which takes their expert insights into account using embeddings, you may use this as a starting point if you find it helpful, but don't only use this."""
+        else:
+            base_text = """The list of available players by each position, their costs and basic stats are below. You should use this information to make your decisions, but use this as a starting point for wider research and don't only use this."""
+        
+        if is_weekly_update:
+            return f"{base_text} You must select the players to transfer in from this list and replace the players in your current team with these players. You cannot transfer in players that are already in your starting 11 or substitutes."
+        else:
+            return f"{base_text} You must select the players from this list:"
+    
     def _create_weekly_update_prompt(self, current_team: Dict, gameweek: int, 
                                    chips_data: Dict, transfers_data: Dict, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> str:
         """Create the weekly update prompt"""
@@ -314,6 +355,10 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
             players_data = available_players
         else:
             players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
+        
+        # Determine prompt context based on available data
+        has_enrichments = self._detect_prompt_context(players_data)
+        prompt_intro = self._get_prompt_intro(has_enrichments, is_weekly_update=True)
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {team_str}
@@ -337,7 +382,7 @@ You must research and analyse the top Fantasy Premier League (FPL) strategies, t
 
 Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
 
-The list of teams, their available players, the players positions, their costs and their likelihood of playing are below. You must select the players to transfer in from this list and replace the players in your current team with these players. You cannot transfer in players that are already in your starting 11 or substitutes.
+{prompt_intro}
 {players_data}
 
 The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player you must use the following formula to calculate the sale price:

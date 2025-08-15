@@ -4,6 +4,11 @@
 fpl:
   base_url: "https://fantasy.premierleague.com/api"
 
+# Display Configuration
+# Controls how player data is formatted in outputs and prompts
+display:
+  include_rankings_in_prompts: true  # Whether to include player rankings in LLM prompts by default
+
 # LLM Configuration
 llm:
   # Main LLM for complex team optimization
@@ -42,7 +47,7 @@ team:
 # Embedding Configuration
 # Controls the embedding-based player filtering system
 embeddings:
-  use_embeddings: false
+  use_embeddings: true
   model: "BAAI/bge-base-en-v1.5"
   
   # Caching configuration

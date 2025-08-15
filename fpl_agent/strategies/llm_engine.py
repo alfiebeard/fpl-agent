@@ -56,7 +56,7 @@ class LLMEngine:
 
             # Configure generation settings from model config
             generation_config = types.GenerateContentConfig(
-                tools=[grounding_tool],  # Re-enabled as requested
+                tools=[grounding_tool],  # Re-enabled web search grounding
                 temperature=self.llm_config.get('temperature', 0.3),
                 max_output_tokens=self.llm_config.get('max_output_tokens', 8192),
                 top_p=self.llm_config.get('top_p', 0.8),
@@ -132,6 +132,9 @@ class LLMEngine:
             if not response_text:
                 logger.warning("LLM response text is empty")
                 return "Error: Empty response text from LLM"
+            
+            # Debug: Log the response text
+            logger.info(f"LLM response text (length: {len(response_text)}): {repr(response_text[:200])}")
             
             # Extract JSON if requested
             if extract_json:
