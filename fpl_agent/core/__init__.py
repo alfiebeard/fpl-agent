@@ -7,6 +7,5 @@ from .team_manager import TeamManager
 
 __all__ = [
     'Config',
-    'Position',
     'TeamManager'
 ] 

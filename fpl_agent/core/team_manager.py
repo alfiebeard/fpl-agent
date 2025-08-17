@@ -15,18 +15,32 @@ logger = logging.getLogger(__name__)
 class TeamManager:
     """Manages local FPL team data for each gameweek"""
     
+    # FPL Game Rules
+    DEFAULT_FREE_TRANSFERS = 1
+    MAX_FREE_TRANSFERS = 2
+    CHIP_RESET_GAMEWEEK = 20
+    DEFAULT_BUDGET = 100.0
+    
+    # File Naming
+    TEAM_FILE_PREFIX = "gw"
+    TEAM_FILE_SUFFIX = ".json"
+    META_FILE_NAME = "meta.json"
+    
+    # Chip Names
+    CHIP_NAMES = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
+    
     def __init__(self, data_dir: str = "team_data"):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
-        self.meta_file = self.data_dir / "meta.json"
+        self.meta_file = self.data_dir / self.META_FILE_NAME
     
     def _get_team_file(self, gameweek: int) -> Path:
         """Get the file path for a specific gameweek's team data"""
-        return self.data_dir / f"gw{gameweek:02d}.json"
+        return self.data_dir / f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}"
     
     def _scan_team_files(self) -> List[Path]:
         """Scan for team files and return them sorted by gameweek"""
-        team_files = list(self.data_dir.glob("gw*.json"))
+        team_files = list(self.data_dir.glob(f"{self.TEAM_FILE_PREFIX}*{self.TEAM_FILE_SUFFIX}"))
         # Sort by gameweek number (remove 'gw' prefix and convert to int)
         team_files.sort(key=lambda x: int(x.stem[2:]))
         return team_files
@@ -56,21 +70,18 @@ class TeamManager:
         """Initialize the meta.json file with default values for a new team"""
         meta_data = {
             "current_gw": gameweek,
-            "last_team_file": f"gw{gameweek:02d}.json",
+            "last_team_file": f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}",
             "bank": team_data.get('bank', 0.0),
-            "free_transfers": 1,
+            "free_transfers": self.DEFAULT_FREE_TRANSFERS,
             "chips_used": {
-                "wildcard": False,
-                "bench_boost": False,
-                "free_hit": False,
-                "triple_captain": False
+                chip: False for chip in self.CHIP_NAMES
             }
         }
         
         self._save_meta(meta_data)
         logger.info(f"Meta data initialized for Gameweek {gameweek}")
     
-    def update_meta(self, gameweek: int, team_data: Dict[str, Any], 
+    def _update_meta(self, gameweek: int, team_data: Dict[str, Any], 
                    chips_used: Optional[Dict[str, bool]] = None,
                    free_transfers: Optional[int] = None) -> None:
         """Update the meta.json file with new team status"""
@@ -78,7 +89,7 @@ class TeamManager:
         
         # Update basic info
         meta_data["current_gw"] = gameweek
-        meta_data["last_team_file"] = f"gw{gameweek:02d}.json"
+        meta_data["last_team_file"] = f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}"
         meta_data["bank"] = team_data.get('bank', meta_data.get('bank', 0.0))
         
         # Update free transfers if provided
@@ -210,10 +221,10 @@ class TeamManager:
         # Bank should revert to pre-free-hit bank
         # Free transfers should be 1 (normal weekly allocation)
         # Free hit should remain marked as used
-        self.update_meta(
+        self._update_meta(
             gameweek=gameweek,
             team_data=reverted_team,
-            free_transfers=1  # Normal weekly allocation after revert
+            free_transfers=self.DEFAULT_FREE_TRANSFERS  # Normal weekly allocation after revert
         )
         
         logger.info(f"Team reverted to pre-free-hit state for Gameweek {gameweek}")
@@ -235,7 +246,7 @@ class TeamManager:
         logger.info(f"Creating new team from scratch using {chip_type}")
         
         # Create a new team from scratch using the provided function
-        new_team_data = create_team_func(budget=100.0, gameweek=gameweek)
+        new_team_data = create_team_func(budget=self.DEFAULT_BUDGET, gameweek=gameweek)
         
         # Override with chip information
         new_team_data['wildcard_or_chip'] = chip_type
@@ -266,7 +277,7 @@ class TeamManager:
                 chip_used = None
         
         # Calculate new free transfers
-        current_transfers = current_meta.get('free_transfers', 1)
+        current_transfers = current_meta.get('free_transfers', self.DEFAULT_FREE_TRANSFERS)
         transfers_made = len(team_data.get('transfers', []))
         
         if chip_used == 'wildcard':
@@ -279,7 +290,7 @@ class TeamManager:
             # Normal transfers
             if transfers_made == 0:
                 # No transfers made, carry over 1 (max 2)
-                new_transfers = min(current_transfers + 1, 2)
+                new_transfers = min(current_transfers + 1, self.MAX_FREE_TRANSFERS)
             else:
                 # Transfers made, calculate remaining
                 new_transfers = max(0, current_transfers - transfers_made)
@@ -290,17 +301,14 @@ class TeamManager:
             chips_used = {chip_used: True}
         
         # Reset all chips on Gameweek 20 (second half of season)
-        if gameweek == 20:
+        if gameweek == self.CHIP_RESET_GAMEWEEK:
             chips_used = {
-                "wildcard": False,
-                "bench_boost": False,
-                "free_hit": False,
-                "triple_captain": False
+                chip: False for chip in self.CHIP_NAMES
             }
             logger.info("Gameweek 20: All chips reset for second half of season")
         
         # Update meta.json
-        self.update_meta(
+        self._update_meta(
             gameweek=gameweek,
             team_data=team_data,
             chips_used=chips_used,
@@ -315,7 +323,7 @@ class TeamManager:
         available_chips = []
         used_chips = []
         
-        all_chips = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
+        all_chips = self.CHIP_NAMES
         for chip in all_chips:
             if chips_used.get(chip, False):
                 used_chips.append({'name': chip})
@@ -335,46 +343,10 @@ class TeamManager:
     def get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
         """Get available transfer information from meta data"""
         current_gw = meta_data.get('current_gw', 1)
-        free_transfers = meta_data.get('free_transfers', 1)
+        free_transfers = meta_data.get('free_transfers', self.DEFAULT_FREE_TRANSFERS)
         
         return {
             'current_gw': current_gw,
             'free_transfers': free_transfers,
             'can_make_transfers': free_transfers > 0
         }
-    
-    def list_saved_teams(self) -> List[Dict[str, Any]]:
-        """List all saved team files with metadata"""
-        team_files = self._scan_team_files()
-        teams = []
-        
-        for team_file in team_files:
-            try:
-                # Extract gameweek from filename
-                gameweek = int(team_file.stem[2:])
-                
-                # Load team data to get basic info
-                team_data = self.load_team(gameweek)
-                if team_data:
-                    teams.append({
-                        'gameweek': gameweek,
-                        'filename': team_file.name,
-                        'path': str(team_file),
-                        'captain': team_data.get('captain', 'Unknown'),
-                        'vice_captain': team_data.get('vice_captain', 'Unknown'),
-                        'total_cost': team_data.get('total_cost', 0.0),
-                        'bank': team_data.get('bank', 0.0),
-                        'modified': team_file.stat().st_mtime
-                    })
-            except Exception as e:
-                logger.warning(f"Failed to process team file {team_file}: {e}")
-                continue
-        
-        return teams
-    
-    def get_latest_team_file(self) -> Optional[str]:
-        """Get the filename of the most recent team file"""
-        latest_gw = self.get_latest_gameweek()
-        if latest_gw:
-            return f"gw{latest_gw:02d}.json"
-        return None 
