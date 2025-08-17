@@ -331,13 +331,53 @@ class DataService:
         # Step 1: Fetch FPL data if needed
         if should_fetch:
             logger.info("Fetching fresh FPL data...")
-            self.fetcher.get_fpl_static_data()  # This updates the store
+            # Fetch fresh data from API
+            bootstrap_data = self.fetcher.get_fpl_static_data()
+            # Process the raw data
+            fresh_player_data = self.processor.process_fpl_data(bootstrap_data)
+            # Save the fresh data to the store
+            self.store.save_player_data(fresh_player_data)
+            logger.info("Fresh FPL data fetched and saved to store")
         
         # Step 2: Enrich data if needed
         if should_enrich:
             logger.info("Enriching player data...")
-            # Note: This would call the enrichment logic
-            # For now, we'll assume enriched data is already available
+            try:
+                # Load current player data for enrichment
+                current_players_data = self.store.load_player_data()
+                if not current_players_data or 'players' not in current_players_data:
+                    logger.warning("No player data available for enrichment")
+                else:
+                    # Import here to avoid circular imports
+                    from ..strategies.team_analysis_strategy import TeamAnalysisStrategy
+                    
+                    # Initialize the team analysis strategy for enrichment
+                    team_analysis_strategy = TeamAnalysisStrategy(self.config)
+                    
+                    # Enrich the player data using the processor
+                    enriched_players = self.processor.enrich_player_data_by_teams(
+                        current_players_data['players'], 
+                        team_analysis_strategy
+                    )
+                    
+                    # Save the enriched data back to the store
+                    enriched_data = {
+                        'players': enriched_players,
+                        'enrichment_timestamp': datetime.now().isoformat(),
+                        'enrichment_status': 'completed',
+                        'total_players_enriched': len(enriched_players)
+                    }
+                    
+                    # Preserve the cache timestamp if it exists
+                    if 'cache_timestamp' in current_players_data:
+                        enriched_data['cache_timestamp'] = current_players_data['cache_timestamp']
+                    
+                    self.store.save_player_data(enriched_data)
+                    logger.info(f"Successfully enriched {len(enriched_players)} players")
+                    
+            except Exception as e:
+                logger.error(f"Failed to enrich player data: {e}")
+                logger.warning("Continuing with unenriched data")
         
         # Step 3: Load player data for processing
         players_data = self.store.load_player_data()

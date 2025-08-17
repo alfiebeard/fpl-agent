@@ -99,6 +99,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         
         # Add the raw LLM response to the result for debugging
         team_data['raw_llm_response'] = response
+        
         return team_data
     
     def update_team_weekly(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None, prompt_only: bool = False) -> Dict[str, Any]:
