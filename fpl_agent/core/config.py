@@ -1,5 +1,5 @@
 """
-Configuration management for FPL Optimizer
+Configuration management for FPL Agent
 """
 
 import os
@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 
 class Config:
-    """Configuration manager for FPL Optimizer"""
+    """Configuration manager for FPL Agent"""
     
     def __init__(self, config_path: Optional[str] = None):
         """Initialize configuration from YAML file and environment variables"""
@@ -39,7 +39,6 @@ class Config:
         """Override config values with environment variables"""
         env_mappings = {
             'GEMINI_API_KEY': ('llm', 'api_key'),
-            'FPL_TEAM_ID': ('fpl', 'team_id'),
         }
         
         for env_var, config_path in env_mappings.items():
@@ -54,23 +53,6 @@ class Config:
                 current[config_path[-1]] = env_value
         
         return config
-    
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get configuration value by key"""
-        keys = key.split('.')
-        current = self._config
-        
-        for k in keys:
-            if isinstance(current, dict) and k in current:
-                current = current[k]
-            else:
-                return default
-        
-        return current
-    
-    def get_env_var(self, var_name: str) -> Optional[str]:
-        """Get environment variable"""
-        return os.getenv(var_name)
     
     def get_team_config(self) -> Dict[str, Any]:
         """Get team configuration"""

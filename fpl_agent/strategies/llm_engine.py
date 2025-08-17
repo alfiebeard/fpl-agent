@@ -45,7 +45,7 @@ class LLMEngine:
     def _initialize_gemini_model(self):
         """Initialize the Gemini client and model configuration"""
         try:
-            api_key = self.config.get_env_var('GEMINI_API_KEY')
+            api_key = self.llm_config.get('api_key')
             
             client = genai.Client(api_key=api_key)
 
