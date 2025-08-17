@@ -721,7 +721,7 @@ class DataProcessor:
         """
         # Get default from config if not specified
         if include_rankings is None:
-            include_rankings = self.config.get('display', {}).get('include_rankings_in_prompts', True)
+            include_rankings = self.config.get_display_config().get('include_rankings_in_prompts', True)
         
         formatted_lines = []
         

@@ -89,4 +89,8 @@ class Config:
         team_config = self.get_team_config()
         return team_config.get('formation_constraints', {}).get('starting_11', {
             'DEF': [3, 5], 'MID': [2, 5], 'FWD': [1, 3]
-        }) 
+        })
+    
+    def get_display_config(self) -> Dict[str, Any]:
+        """Get display configuration"""
+        return self._config.get('display', {}) 

@@ -32,201 +32,111 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         """Return the name of this strategy."""
         return "Team Building Strategy"
     
-    def create_team(self, budget: float = 100.0, gameweek: int = 1, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None, prompt_only: bool = False) -> Dict[str, Any]:
+    def create_team(self, budget: float, gameweek: int, 
+                    all_gameweek_data: Dict[str, Any], 
+                    team_context: Optional[Dict[str, Any]] = None,
+                    use_enrichments: bool = False,
+                    prompt_only: bool = False) -> Dict[str, Any]:
         """
-        Create a new FPL team for Gameweek 1 using LLM analysis.
-        
-        Args:
-            budget: Total budget in millions (default: 100.0)
-            gameweek: Gameweek to create the team for (defaults to 1)
-            use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
-            force_refresh: If True, ignore cache and fetch fresh player data
-            prompt_only: If True, return only the generated prompt without sending to LLM
-        Returns:
-            Dict containing the created team in the specified JSON format, or just the prompt if prompt_only=True
+        Create new team using consolidated data from main.py
+        Returns team data (does NOT save)
         """
-        logger.info(f"Creating new FPL team with budget £{budget}m for Gameweek {gameweek}")
-        
-        # Create the team creation prompt
-        prompt = self._create_team_creation_prompt(budget, gameweek, use_semantic_filtering, force_refresh, use_embeddings, available_players)
-        
-        if prompt_only:
-            logger.info("Prompt-only mode: returning generated prompt without LLM processing")
-            return {'prompt': prompt}
-        
-        # Query LLM for team creation
-        logger.info("Querying LLM for team creation...")
-        
-        # Debug: Log the prompt being sent
-        logger.debug(f"Prompt length: {len(prompt)} characters")
-        logger.debug(f"Prompt preview (first 500 chars): {prompt[:500]}...")
-        logger.debug(f"Prompt ending (last 500 chars): ...{prompt[-500:]}")
-        
         try:
-            response = self.llm_engine.query(prompt)
-            logger.info(f"LLM Response received (length: {len(response)})")
-            logger.debug(f"LLM Response preview: {response[:500]}...")
-        except Exception as e:
-            logger.error(f"LLM query failed: {e}")
-            raise
-        
-        # Parse and validate the response
-        logger.info("Parsing LLM response...")
-        try:
-            validator = FPLValidator()
-            team_data = validator.parse_team_response(response)
-        except Exception as e:
-            logger.error(f"Failed to parse LLM response: {e}")
-            logger.error(f"Full LLM response: {response}")
-            raise ValueError(f"LLM failed to generate a valid team. Response: {response}")
-        
-        # Validate the team data
-        logger.info("Validating team data...")
-        validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
-        
-        if validation_errors:
-            error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        
-        logger.info(f"Team created successfully with {len(team_data['team']['starting'])} starting players")
-        
-        # Save the team locally
-        self.team_manager.save_team(gameweek, team_data)
-        
-        # Initialize meta.json with team status
-        self.team_manager.initialize_meta(gameweek, team_data)
-        
-        # Add the raw LLM response to the result for debugging
-        team_data['raw_llm_response'] = response
-        
-        return team_data
-    
-    def update_team_weekly(self, gameweek: Optional[int] = None, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None, prompt_only: bool = False) -> Dict[str, Any]:
-        """
-        Update the current FPL team for the specified gameweek.
-        
-        Args:
-            gameweek: Gameweek to update for (defaults to current gameweek)
-            use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
-            force_refresh: If True, ignore cache and fetch fresh player data
-            prompt_only: If True, return only the generated prompt without sending to LLM
+            # Extract data from consolidated parameters
+            players_data = all_gameweek_data['players']
+            fixtures_info = all_gameweek_data['fixtures']
             
-        Returns:
-            Dict containing the updated team in the specified JSON format, or just the prompt if prompt_only=True
-        """
-        if gameweek is None:
-            gameweek = self.data_service.fetcher.get_current_gameweek()
-        
-        logger.info(f"Updating team for Gameweek {gameweek}")
-        
-        # Get current meta data to track state
-        current_meta = self.team_manager.get_meta()
-        
-        # Check if this is a free hit revert scenario and handle it first
-        if self.team_manager.is_free_hit_revert_scenario(gameweek, current_meta):
-            logger.info(f"Free hit revert scenario detected for Gameweek {gameweek}")
-            # Handle the revert and get the reverted team
-            reverted_team_data = self.team_manager.handle_free_hit_revert(gameweek, current_meta)
-            # Get updated meta after revert
-            current_meta = self.team_manager.get_meta()
-            # Use the reverted team for the prompt
-            current_team = reverted_team_data['team']
-        else:
-            # Check if previous team exists
-            previous_team = self.team_manager.get_previous_team(gameweek)
-            if not previous_team:
-                # If no previous team exists, create a new team instead
-                logger.info(f"No previous team found for Gameweek {gameweek - 1}. Creating new team for Gameweek {gameweek}.")
-                return self.create_team(
-                    budget=100.0,  # Default budget
-                    gameweek=gameweek,
-                    use_semantic_filtering=use_semantic_filtering,
-                    force_refresh=force_refresh,
-                    use_embeddings=use_embeddings,
-                    available_players=available_players,
-                    prompt_only=prompt_only
-                )
-            # Get current team data from local storage
-            current_team = previous_team['team']
-        
-        try:
-            # Get available chips and transfers from meta data
-            chips_data = self.team_manager.get_available_chips_from_meta(current_meta)
-            transfers_data = self.team_manager.get_available_transfers_from_meta(current_meta)
-            
-            # Create the weekly update prompt
-            prompt = self._create_weekly_update_prompt(
-                current_team, gameweek, chips_data, transfers_data, use_semantic_filtering, force_refresh, use_embeddings, available_players
+            # Create the team creation prompt
+            prompt = self._create_team_creation_prompt(
+                budget, gameweek, players_data, fixtures_info, team_context, use_enrichments
             )
             
             if prompt_only:
-                logger.info("Prompt-only mode: returning generated prompt without LLM processing")
                 return {'prompt': prompt}
             
-            # Get LLM response
+            # Send to LLM
             response = self.llm_engine.query(prompt)
             
-            # Parse and validate the response
+            # Parse and validate LLM response
             validator = FPLValidator()
             team_data = validator.parse_team_response(response)
             
-            # Check if wildcard or free hit is being used
-            chip_used = team_data.get('wildcard_or_chip')
-            if chip_used in ['wildcard', 'free_hit']:
-                logger.info(f"{chip_used.title()} chip detected - creating new team from scratch")
-                return self.team_manager.handle_chip_team_creation(gameweek, chip_used, team_data, self.create_team)
-            
-            # Validate the team data
-            logger.info("Validating team data...")
+            # Validate ONLY team structure (not business logic)
+            logger.info("Validating team structure...")
             validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
-            
-            # Validate bank calculation if transfers were made
-            if team_data.get('transfers'):
-                # Get available players data for bank validation
-                available_players = self.data_service.get_available_players_dict()
-                
-                bank_errors = validator.validate_bank_calculation(
-                    team_data, gameweek, team_data.get('transfers', []), available_players
-                )
-                validation_errors.extend(bank_errors)
             
             if validation_errors:
                 error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
                 logger.error(error_msg)
                 raise ValueError(error_msg)
             
-            # Save the updated team
-            self.team_manager.save_team(gameweek, team_data)
-            
-            # Automatically update meta.json based on the response
-            self.team_manager.update_meta_from_response(gameweek, team_data, current_meta)
-            
-            logger.info(f"Team updated successfully for Gameweek {gameweek}")
+            # Return team data (NO SAVING)
             return team_data
             
         except Exception as e:
-            logger.error(f"Failed to update team for Gameweek {gameweek}: {e}")
+            logger.error(f"Failed to create team: {e}")
             raise
     
-    def _create_team_creation_prompt(self, budget: float, gameweek: int, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> str:
-        """Create the team creation prompt"""
+    def update_team_weekly(self, team_context: Dict[str, Any], 
+                           all_gameweek_data: Dict[str, Any], 
+                           use_enrichments: bool = False,
+                           prompt_only: bool = False) -> Dict[str, Any]:
+        """
+        Update team using consolidated data from main.py
+        Returns team data (does NOT save or handle business logic)
+        """
+        try:
+            # Extract data from consolidated parameters
+            gameweek = team_context['gameweek']
+            current_team = team_context['team']
+            chips_data = team_context['chips']
+            transfers_data = team_context['transfers']
+            players_data = all_gameweek_data['players']
+            fixtures_info = all_gameweek_data['fixtures']
+            
+            # Create the weekly update prompt
+            prompt = self._create_weekly_update_prompt(
+                current_team, gameweek, chips_data, transfers_data, 
+                players_data, fixtures_info, use_enrichments
+            )
+            
+            if prompt_only:
+                return {'prompt': prompt}
+            
+            # Send to LLM
+            response = self.llm_engine.query(prompt)
+            
+            # Parse and validate LLM response
+            validator = FPLValidator()
+            team_data = validator.parse_team_response(response)
+            
+            # Validate ONLY team structure (not business logic)
+            logger.info("Validating team structure...")
+            validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
+            
+            if validation_errors:
+                error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Return team data with chip usage info (NO SAVING, NO BUSINESS LOGIC)
+            return team_data
+            
+        except Exception as e:
+            logger.error(f"Failed to update team: {e}")
+            raise
+    
+    def _create_team_creation_prompt(self, budget: float, gameweek: int, 
+                                    players_data: str, fixtures_info: str,
+                                    team_context: Optional[Dict[str, Any]] = None,
+                                    use_enrichments: bool = False) -> str:
+        """Create the team creation prompt using consolidated data"""
         
-        # Use provided available_players or fall back to data service
-        if available_players is not None:
-            players_data = available_players
-        else:
-            players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
-        
-        # Determine prompt context based on available data and flags
-        has_enrichments = self._detect_prompt_context(players_data) and use_embeddings
-        prompt_intro = self._get_prompt_intro(has_enrichments)
+        # Get prompt intro based on enrichments flag (not detected from data)
+        prompt_intro = self._get_prompt_intro(use_enrichments)
         
         # Get team constraints from prompt formatter
         team_constraints = PromptFormatter.get_team_constraints_prompt(self.config)
-        
-        # Get fixtures for the gameweek
-        fixtures_info = self.data_service.get_gameweek_fixtures_formatted(gameweek)
         
         return f"""You are a Fantasy Premier League (FPL) team building expert. Your task is to create the optimal FPL team for Gameweek {gameweek}.
 
@@ -321,19 +231,14 @@ FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No othe
 }}
 
 Ensure the final team meets all FPL constraints before submitting:
-* Total cost ≤ £100.0 million
+* Total cost ≤ £{budget}.0 million
 * {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
-* Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
+* Max {self.config.get_position_limits().get('max_players_per_team', 3)} players from any single club
 * Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)
 
 Each player must have a detailed, informative reason for their selection.
 
 REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure."""
-    
-    def _detect_prompt_context(self, players_data: str) -> bool:
-        """Determine if we have enriched data available in the players data"""
-        # Check if the players data contains expert insights or injury news
-        return 'Expert Insights:' in players_data or 'Injury News:' in players_data
     
     def _get_prompt_intro(self, has_enrichments: bool, is_weekly_update: bool = False) -> str:
         """Get the appropriate prompt introduction based on available data"""
@@ -348,8 +253,10 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
             return f"{base_text} You must select the players from this list:"
     
     def _create_weekly_update_prompt(self, current_team: Dict, gameweek: int, 
-                                   chips_data: Dict, transfers_data: Dict, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False, available_players: Optional[str] = None) -> str:
-        """Create the weekly update prompt"""
+                                   chips_data: Dict, transfers_data: Dict, 
+                                   players_data: str, fixtures_info: str,
+                                   use_enrichments: bool = False) -> str:
+        """Create the weekly update prompt using consolidated data"""
         
         # Format current team for prompt using prompt formatter
         team_str = PromptFormatter.format_current_team_for_prompt(current_team)
@@ -357,18 +264,11 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
         # Format available chips using prompt formatter
         chips_str = PromptFormatter.format_chips_for_prompt(chips_data)
         
-        # Use provided available_players or fall back to data service
-        if available_players is not None:
-            players_data = available_players
-        else:
-            players_data = self.data_service.get_available_players_formatted(use_semantic_filtering, force_refresh, use_embeddings)
-        
-        # Determine prompt context based on available data
-        has_enrichments = self._detect_prompt_context(players_data)
-        prompt_intro = self._get_prompt_intro(has_enrichments, is_weekly_update=True)
+        # Get prompt intro based on enrichments flag (not detected from data)
+        prompt_intro = self._get_prompt_intro(use_enrichments, is_weekly_update=True)
         
         # Get fixtures for the gameweek
-        fixtures_info = self.data_service.get_gameweek_fixtures_formatted(gameweek)
+        fixtures_info = fixtures_info
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {team_str}
@@ -399,8 +299,10 @@ The fixtures this gameweek are:
 {players_data}
 
 The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player you must use the following formula to calculate the sale price:
-Transfer Out Price = Available Price + floor((Available Price - Current Price In Team) / 2). Rounded down to the nearest £0.1m.
-For example, if a player is currently £8.5m in your team and the available price is £9.0m, the sale price would be £8.7m.
+If Current Price > Purchase Price: Transfer Out Price = Purchase Price + floor((Current Price - Purchase Price) / 2). Rounded down to the nearest £0.1m.
+For example, if a player was purchased at £8.0m and the available price is £9.0m, the sale price would be £8.5m.
+However, if Current Price <= Purchase Price: Transfer Out Price = Current Price
+If a player was purchased at £8.0m but the available price is £7.0m, the sale price would be £7.0m (full loss).
 
 This would get added to the bank and is then offset against the cost of the incoming player.
 
@@ -482,7 +384,7 @@ FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No othe
         "name": "Sub 1", 
         "position": "MID", 
         "price": 5.0, 
-        "team": "Brentford", 
+        "team": "Burnley", 
         "sub_order": 1,
         "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
       }},

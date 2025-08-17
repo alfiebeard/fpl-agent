@@ -420,15 +420,19 @@ class FPLValidator:
                 return player.get('price')
         return None
     
-    def _calculate_sell_price(self, available_price: float, team_price: float) -> float:
+    def _calculate_sell_price(self, current_price: float, purchase_price: float) -> float:
         """
         Calculate sell price using FPL rule:
-        Transfer Out Price = Available Price + floor((Available Price - Current Price In Team) / 2)
+        If Current Price > Purchase Price: Transfer Out Price = Purchase Price + floor((Current Price - Purchase Price) / 2)
         Rounded down to the nearest £0.1m
+        If Current Price <= Purchase Price: Transfer Out Price = Current Price
         """
-        price_diff = available_price - team_price
-        adjustment = (price_diff / 2) // 0.1 * 0.1  # Floor to nearest 0.1
-        sell_price = available_price + adjustment
+        if current_price > purchase_price:
+            price_diff = current_price - purchase_price
+            adjustment = (price_diff / 2) // 0.1 * 0.1  # Floor to nearest 0.1
+            sell_price = current_price + adjustment
+        else:
+            sell_price = current_price
         return round(sell_price, 1)  # Round to 1 decimal place
 
 

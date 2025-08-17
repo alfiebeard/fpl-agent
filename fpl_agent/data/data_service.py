@@ -395,7 +395,7 @@ class DataService:
             use_embeddings = False
             logger.info("Embedding filtering disabled due to --no-enrichments flag")
         else:
-            use_embeddings = self.config.get('embeddings', {}).get('use_embeddings', False)
+            use_embeddings = self.config.get_embeddings_config().get('use_embeddings', False)
         
         # Step 5: Filter players using DataProcessor
         filtered_players = self.processor.filter_available_players(
@@ -499,3 +499,24 @@ class DataService:
         if force_enrich:
             return True
         return not enrich_fresh
+    
+    def get_all_gameweek_data(self, gameweek: int, force_fetch: bool = False, 
+                             use_enrichments: bool = True, 
+                             cached_only: bool = False) -> Dict[str, Any]:
+        """
+        Get all data needed for a gameweek in one call.
+        Returns: players, fixtures
+        """
+        players = self.get_processed_players(
+            force_fetch=force_fetch,
+            force_enrich=use_enrichments,
+            force_all=False,
+            cached_only=cached_only,
+            no_enrichments=not use_enrichments
+        )
+        fixtures = self.get_gameweek_fixtures_formatted(gameweek)
+        
+        return {
+            'players': players,
+            'fixtures': fixtures
+        }

@@ -175,46 +175,54 @@ class FPLAgent:
     def gw_update(self, gameweek: Optional[int] = None, 
                   force_fetch: bool = False, force_enrich: bool = False,
                   force_all: bool = False, cached_only: bool = False, 
-                  no_enrichments: bool = False, prompt_only: bool = False) -> Dict[str, Any]:
+                  no_enrichments: bool = False, prompt_only: bool = False,
+                  save_team: bool = False) -> None:
         """Complete weekly gameweek update workflow"""
         try:
             print("🔄 Starting weekly FPL update...")
             
-            # Get processed players data using the common service
-            formatted_players = self.data_service.get_processed_players(
+            # Get all team context in one call (includes automatic free hit revert)
+            team_context = self.team_manager.get_team_context(gameweek or 1)
+            print(f"✅ Team context loaded for gameweek {team_context['gameweek']}")
+            
+            # Get all gameweek data in one call
+            all_gameweek_data = self.data_service.get_all_gameweek_data(
+                gameweek=gameweek or 1,
                 force_fetch=force_fetch,
-                force_enrich=force_enrich,
-                force_all=force_all,
-                cached_only=cached_only,
-                no_enrichments=no_enrichments
+                use_enrichments=not no_enrichments,
+                cached_only=cached_only
             )
+            print(f"✅ Gameweek data loaded")
             
-            print(f"✅ Processed players data ready")
-            
-            # Update team using LLM strategy
+            # Update team using LLM strategy (no persistence, no business logic)
             print(f"\n⚽ Updating team for gameweek {gameweek or 'current'}...")
             team_result = self.llm_strategy.update_team_weekly(
-                gameweek=gameweek,
-                use_semantic_filtering=True,
-                force_refresh=False,
-                use_embeddings=not no_enrichments,  # Opposite of no_enrichments
-                available_players=formatted_players,
+                team_context=team_context,
+                all_gameweek_data=all_gameweek_data,
+                use_enrichments=not no_enrichments,
                 prompt_only=prompt_only
             )
             
             if prompt_only:
                 print("✅ Prompt generation complete!")
-                return {
-                    'prompt': team_result['prompt'],
-                    'completed_at': datetime.now().isoformat()
-                }
+                print("\n" + "="*50)
+                print("📝 GENERATED PROMPT:")
+                print("="*50)
+                print(team_result['prompt'])
+                return team_result
             
-            print("✅ Weekly update complete!")
+            # Handle business logic (chip usage, transfer validation)
+            self._handle_weekly_update_business_logic(team_result, team_context)
             
-            return {
-                'team_update': team_result,
-                'completed_at': datetime.now().isoformat()
-            }
+            # Handle persistence if requested
+            if save_team:
+                self._save_weekly_update(team_result, team_context)
+                print("✅ Team saved successfully!")
+            else:
+                print("✅ Team update complete (not saved)")
+            
+            # Display results
+            display_comprehensive_team_result(team_result)
             
         except Exception as e:
             logger.error(f"Weekly update failed: {e}")
@@ -224,52 +232,131 @@ class FPLAgent:
     def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
                    force_fetch: bool = False, force_enrich: bool = False,
                    force_all: bool = False, cached_only: bool = False, 
-                   no_enrichments: bool = False, prompt_only: bool = False) -> Dict[str, Any]:
+                   no_enrichments: bool = False, prompt_only: bool = False,
+                   save_team: bool = False) -> None:
         """Build new team with smart data handling"""
         try:
             print("⚽ Building new FPL team...")
             
-            # Get processed players data using the common service
-            formatted_players = self.data_service.get_processed_players(
+            # Get all gameweek data in one call
+            all_gameweek_data = self.data_service.get_all_gameweek_data(
+                gameweek=gameweek or 1,
                 force_fetch=force_fetch,
-                force_enrich=force_enrich,
-                force_all=force_all,
-                cached_only=cached_only,
-                no_enrichments=no_enrichments
+                use_enrichments=not no_enrichments,
+                cached_only=cached_only
             )
+            print(f"✅ Gameweek data loaded")
             
-            print(f"✅ Processed players data ready")
-            
-            # Build team using LLM strategy
+            # Build team using LLM strategy (no persistence, no business logic)
             print(f"\n⚽ Building team with £{budget}m budget...")
             team_result = self.llm_strategy.create_team(
                 budget=budget,
                 gameweek=gameweek or 1,
-                use_semantic_filtering=True,
-                force_refresh=False,
-                use_embeddings=not no_enrichments,  # Opposite of no_enrichments
-                available_players=formatted_players,
+                all_gameweek_data=all_gameweek_data,
+                use_enrichments=not no_enrichments,
                 prompt_only=prompt_only
             )
             
             if prompt_only:
                 print("✅ Prompt generation complete!")
-                return {
-                    'prompt': team_result['prompt'],
-                    'completed_at': datetime.now().isoformat()
-                }
+                print("\n" + "="*50)
+                print("📝 GENERATED PROMPT:")
+                print("="*50)
+                print(team_result['prompt'])
+                return team_result
             
-            print("✅ Team building complete!")
+            # Handle persistence if requested
+            if save_team:
+                self._save_new_team(team_result, gameweek or 1)
+                print("✅ Team saved successfully!")
+            else:
+                print("✅ Team building complete (not saved)")
             
-            return {
-                'team_data': team_result,
-                'completed_at': datetime.now().isoformat()
-            }
+            # Display results
+            display_comprehensive_team_result(team_result)
             
         except Exception as e:
             logger.error(f"Team building failed: {e}")
             print(f"❌ Team building failed: {e}")
             raise
+    
+    def _handle_weekly_update_business_logic(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
+        """Handle all business logic for weekly updates AFTER LLM returns result"""
+        # Handle chip/wildcard usage (free hit revert already handled in get_team_context)
+        if team_result.get('wildcard_or_chip'):
+            self._apply_chip_usage(team_result['wildcard_or_chip'], team_context)
+        
+        # Validate transfers and bank (team structure already validated by LLM strategy)
+        self._validate_transfers_and_bank(team_result, team_context)
+
+    def _save_weekly_update(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
+        """Save weekly update team and update meta using existing TeamManager methods"""
+        # Save team using existing method
+        self.team_manager.save_team(team_context['gameweek'], team_result)
+        
+        # Update meta using existing method
+        self.team_manager.update_meta_from_response(team_context['gameweek'], team_result, self.team_manager.get_meta())
+
+    def _save_new_team(self, team_result: Dict[str, Any], gameweek: int) -> None:
+        """Save new team and initialize meta using existing TeamManager methods"""
+        # Save team using existing method
+        self.team_manager.save_team(gameweek, team_result)
+        
+        # Initialize meta using existing method
+        self.team_manager.initialize_meta_from_response(team_result, gameweek)
+
+    def _apply_chip_usage(self, chip_type: str, team_context: Dict[str, Any]) -> None:
+        """Apply chip usage to the team context"""
+        if chip_type in ['wildcard', 'free_hit']:
+            # Get correct budget from TeamManager using existing player data
+            available_budget = self.team_manager.calculate_team_value(
+                team_context['team'],  # Pass the team data directly
+                self.data_service.get_players(force_refresh=False)
+            )
+            print(f" {chip_type.title()} applied - available budget: £{available_budget}m")
+            
+            # Build new team with correct budget
+            new_team = self.build_team(
+                budget=available_budget, 
+                gameweek=team_context['gameweek'], 
+                save_team=True
+            )
+            
+        elif chip_type == 'bench_boost':
+            print("🔄 Bench Boost applied - all 15 players will score")
+            # Mark chip as used in meta (handled when team is saved)
+            
+        elif chip_type == 'triple_captain':
+            print("🔄 Triple Captain applied - captain points tripled")
+            # Mark chip as used in meta (handled when team is saved)
+
+    def _validate_transfers_and_bank(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
+        """Validate transfers and bank using existing Validator methods (team structure already validated)"""
+        from .utils.validator import Validator
+        
+        validator = Validator()
+        
+        # Only validate bank calculation if transfers were made (team structure already validated by LLM)
+        if team_result.get('transfers'):
+            # Get current player data for price validation
+            current_players = self.data_service.get_players(force_refresh=False)
+            
+            bank_errors = validator.validate_bank_calculation(
+                team_result, 
+                team_context['gameweek'],
+                team_result['transfers'],
+                current_players
+            )
+            if bank_errors:
+                print("⚠️  Bank calculation errors:")
+                for error in bank_errors:
+                    print(f"   • {error}")
+            else:
+                print("✅ Bank calculation validation passed")
+        else:
+            print("✅ No transfers made - bank validation skipped")
+        
+        print("✅ Transfer and bank validation complete")
     
     def show_data_status(self) -> Dict[str, Any]:
         """Display current data status"""
@@ -511,7 +598,7 @@ class FPLAgent:
             print("-" * 30)
             
             # Check if embedding filtering is available and configured
-            embeddings_config = self.config.get('embeddings', {})
+            embeddings_config = self.config.get_embeddings_config()
             use_embeddings = embeddings_config.get('use_embeddings', False)
             
             if use_embeddings:
@@ -657,215 +744,54 @@ def main():
     args = parser.parse_args()
     
     try:
-        optimizer = FPLAgent()
+        fpl_agent = FPLAgent()
         
         if args.command == 'fetch':
             # Fetch fresh FPL data
-            result = optimizer.fetch_fpl_data(force_refresh=args.force_fetch)
-            print(f"\n✅ Fetched {result['total_players']} players and {result['total_fixtures']} fixtures")
-            print(f"📅 Data timestamp: {result['fetched_at']}")
+            fpl_agent.fetch_fpl_data(force_refresh=args.force_fetch)
             
         elif args.command == 'enrich':
             # Simple enrich command - just call the enrich method
-            result = optimizer.enrich(force_refresh=args.force_enrich)
-            if result['status'] == 'success':
-                print(f"\n✅ Enriched {result['enriched_players']} players")
-                print(f"📅 Enriched at: {result['enriched_at']}")
-            elif result['status'] == 'not_implemented':
-                print(f"\n⚠️  {result['message']}")
-                print(f"📅 Status checked at: {result['enriched_at']}")
-            else:
-                print(f"\n❌ Enrichment failed: {result.get('error', 'Unknown error')}")
-                sys.exit(1)
+            fpl_agent.enrich(force_refresh=args.force_enrich)
                 
         elif args.command == 'gw-update':
-            if args.show_prompt:
-                # Show the prompt that would be sent to the LLM
-                print("📝 FPL Gameweek Update Prompt")
-                print("=" * 80)
-                
-                # Generate the prompt without executing
-                try:
-                    # Get real team data for prompt generation
-                    gameweek = args.gameweek or 1
-                    
-                    # Try to get the latest available team for prompt generation
-                    try:
-                        # First try to get the previous team for the specified gameweek
-                        previous_team = optimizer.team_manager.get_previous_team(gameweek)
-                        if previous_team:
-                            current_team = previous_team
-                            print(f"📋 Using real team data from Gameweek {gameweek - 1}")
-                        else:
-                            # If no previous team for this gameweek, try to get the latest available team
-                            latest_gw = optimizer.team_manager.get_latest_gameweek()
-                            if latest_gw and latest_gw >= 1:
-                                latest_team = optimizer.team_manager.load_team(latest_gw)
-                                if latest_team:
-                                    current_team = latest_team
-                                    print(f"📋 Using real team data from latest available Gameweek {latest_gw}")
-                                else:
-                                    raise ValueError("Could not load latest team")
-                            else:
-                                raise ValueError("No teams available")
-                        
-                        # Ensure the team data has the correct structure for the prompt formatter
-                        # The PromptFormatter expects either direct team data or team.team structure
-                        if current_team and 'team' in current_team:
-                            # If we have team.team structure, extract the inner team data
-                            if 'team' in current_team['team']:
-                                # Handle double-nested structure: team.team.team
-                                current_team = {
-                                    'starting': current_team['team']['team']['starting'],
-                                    'substitutes': current_team['team']['team']['substitutes'],
-                                    'captain': current_team['team'].get('captain'),
-                                    'vice_captain': current_team['team'].get('vice_captain'),
-                                    'total_cost': current_team['team'].get('total_cost'),
-                                    'bank': current_team['team'].get('bank')
-                                }
-                            else:
-                                # Handle single-nested structure: team.team
-                                current_team = current_team['team']
-                    except Exception as e:
-                        logger.warning(f"Could not load real team data: {e}, using sample data")
-                        # Fallback to sample data if no real team exists
-                        current_team = {
-                            "team": {
-                                "starting": [
-                                    {"name": "Sample Player 1", "position": "GK", "price": 5.0, "team": "Sample Team"},
-                                    {"name": "Sample Player 2", "position": "DEF", "price": 5.5, "team": "Sample Team"}
-                                ],
-                                "substitutes": [
-                                    {"name": "Sample Sub 1", "position": "MID", "price": 5.0, "team": "Sample Team"}
-                                ]
-                            }
-                        }
-                        print(f"⚠️  No real team data available, using sample data")
-                    
-                    # Get real chips and transfers data from meta
-                    try:
-                        meta_data = optimizer.team_manager.get_meta()
-                        chips_data = optimizer.team_manager.get_available_chips_from_meta(meta_data)
-                        transfers_data = optimizer.team_manager.get_available_transfers_from_meta(meta_data)
-                        print(f"🎯 Using real chips and transfers data")
-                    except Exception as e:
-                        logger.warning(f"Could not load meta data: {e}, using sample data")
-                        chips_data = {"wildcard": True, "bench_boost": True, "free_hit": True, "triple_captain": True}
-                        transfers_data = {"free_transfers": 1}
-                    
-                    # Generate the prompt using the real method with prompt_only=True
-                    result = optimizer.gw_update(
-                        gameweek=gameweek,
-                        force_fetch=args.force_fetch,
-                        force_enrich=args.force_enrich,
-                        force_all=args.force_all,
-                        cached_only=args.cached_only,
-                        no_enrichments=args.no_enrichments,
-                        prompt_only=True
-                    )
-                    
-                    prompt = result['prompt']
-                    print(f"Prompt Length: {len(prompt)} characters")
-                    print("=" * 80)
-                    print(prompt)
-                    print("=" * 80)
-                    print("✅ Prompt generated successfully. Use --show-prompt to preview, remove flag to execute.")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to generate prompt: {e}")
-                    print(f"❌ Error generating prompt: {e}")
-                    sys.exit(1)
-            else:
-                # Complete weekly gameweek update
-                result = optimizer.gw_update(
-                    gameweek=args.gameweek,
-                    force_fetch=args.force_fetch,
-                    force_enrich=args.force_enrich,
-                    force_all=args.force_all,
-                    cached_only=args.cached_only,
-                    no_enrichments=args.no_enrichments
-                )
-                
-                # Display team update result
-                display_comprehensive_team_result(result['team_update'])
-                
-                # Save team if requested
-                if args.save_team:
-                    try:
-                        team_data = result['team_update']
-                        # Use TeamManager to save the team
-                        gameweek = args.gameweek or 1
-                        optimizer.team_manager.save_team(gameweek, team_data)
-                        print(f"\n💾 Team saved for Gameweek {gameweek}")
-                    except Exception as e:
-                        logger.error(f"Failed to save team: {e}")
-                        print(f"\n❌ Error saving team: {e}")
+            # Complete weekly gameweek update
+            fpl_agent.gw_update(
+                gameweek=args.gameweek or 1,
+                force_fetch=args.force_fetch,
+                force_enrich=args.force_enrich,
+                force_all=args.force_all,
+                cached_only=args.cached_only,
+                no_enrichments=args.no_enrichments,
+                prompt_only=args.show_prompt
+            )
+            
+            if not args.show_prompt:
+                print("✅ Weekly update complete!")
             
         elif args.command == 'build-team':
-            if args.show_prompt:
-                # Show the prompt that would be sent to the LLM
-                print("📝 FPL Team Building Prompt")
-                print("=" * 80)
-                
-                # Generate the prompt without executing
-                try:
-                    # Call the real method with prompt_only=True to get the exact same prompt
-                    result = optimizer.build_team(
-                        budget=args.budget,
-                        gameweek=args.gameweek,
-                        force_fetch=args.force_fetch,
-                        force_enrich=args.force_enrich,
-                        force_all=args.force_all,
-                        cached_only=args.cached_only,
-                        no_enrichments=args.no_enrichments,
-                        prompt_only=True
-                    )
-                    
-                    prompt = result['prompt']
-                    print(f"Prompt Length: {len(prompt)} characters")
-                    print("=" * 80)
-                    print(prompt)
-                    print("=" * 80)
-                    print("✅ Prompt generated successfully. Use --show-prompt to preview, remove flag to execute.")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to generate prompt: {e}")
-                    print(f"❌ Error generating prompt: {e}")
-                    sys.exit(1)
-            else:
-                # Build new team
-                result = optimizer.build_team(
-                    budget=args.budget,
-                    gameweek=args.gameweek,
-                    force_fetch=args.force_fetch,
-                    force_enrich=args.force_enrich,
-                    force_all=args.force_all,
-                    cached_only=args.cached_only,
-                    no_enrichments=args.no_enrichments
-                )
-                
-                # Display team result
-                display_comprehensive_team_result(result['team_data'])
-                
-                # Save team if requested
-                if args.save_team:
-                    try:
-                        team_data = result['team_data']
-                        # Use TeamManager to save the team
-                        gameweek = args.gameweek or 1
-                        optimizer.team_manager.save_team(gameweek, team_data)
-                        print(f"\n💾 Team saved for Gameweek {gameweek}")
-                    except Exception as e:
-                        logger.error(f"Failed to save team: {e}")
-                        print(f"\n❌ Error saving team: {e}")
+            # Build new team
+            fpl_agent.build_team(
+                budget=args.budget,
+                gameweek=args.gameweek,
+                force_fetch=args.force_fetch,
+                force_enrich=args.force_enrich,
+                force_all=args.force_all,
+                cached_only=args.cached_only,
+                no_enrichments=args.no_enrichments,
+                prompt_only=args.show_prompt
+            )
+            
+            if not args.show_prompt:
+                print("✅ Team building complete!")
             
         elif args.command == 'show-data':
             # Show current data status
-            optimizer.show_data_status()
+            fpl_agent.show_data_status()
             
         elif args.command == 'show-players':
             # Show available players breakdown
-            optimizer.show_players_status()
+            fpl_agent.show_players_status()
         
     except Exception as e:
         logger.error(f"Command failed: {e}")

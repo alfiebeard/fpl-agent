@@ -41,7 +41,8 @@ class TeamManager:
     def _scan_team_files(self) -> List[Path]:
         """Scan for team files and return them sorted by gameweek"""
         team_files = list(self.data_dir.glob(f"{self.TEAM_FILE_PREFIX}*{self.TEAM_FILE_SUFFIX}"))
-        # Sort by gameweek number (remove 'gw' prefix and convert to int)
+        # Filter out copy files and sort by gameweek number (remove 'gw' prefix and convert to int)
+        team_files = [f for f in team_files if not f.stem.endswith(' copy')]
         team_files.sort(key=lambda x: int(x.stem[2:]))
         return team_files
     
@@ -113,7 +114,7 @@ class TeamManager:
         """Save team data for a specific gameweek"""
         team_file = self._get_team_file(gameweek)
         
-        # Add metadata
+        # Add metadata - team_data now contains starting/substitutes directly
         team_data_with_meta = {
             "gameweek": gameweek,
             "saved_at": datetime.now().isoformat(),
@@ -203,6 +204,8 @@ class TeamManager:
         pre_free_hit_team = pre_free_hit_team_data['team']
         
         # Create a new team entry for current gameweek with the reverted team
+        # Create a new team entry for current gameweek with the reverted team
+        # Use the cleaner structure with starting/substitutes directly
         reverted_team = {
             'captain': pre_free_hit_team.get('captain'),
             'vice_captain': pre_free_hit_team.get('vice_captain'),
@@ -211,7 +214,8 @@ class TeamManager:
             'expected_points': pre_free_hit_team.get('expected_points'),
             'wildcard_or_chip': None,
             'transfers': [],
-            'team': pre_free_hit_team['team']
+            'starting': pre_free_hit_team['team']['starting'],      # Direct access
+            'substitutes': pre_free_hit_team['team']['substitutes']  # Direct access
         }
         
         # Save the reverted team
@@ -229,6 +233,39 @@ class TeamManager:
         
         logger.info(f"Team reverted to pre-free-hit state for Gameweek {gameweek}")
         return reverted_team
+    
+    def calculate_team_value(self, team_data: Dict[str, Any], current_players: Dict[str, Dict[str, Any]]) -> float:
+        """Calculate available budget for wildcard/free hit using correct FPL sale price formula"""
+        total_value = 0.0
+        
+        for player in team_data['starting'] + team_data['substitutes']:
+            # Find current player data by name
+            player_name = player['name']
+            current_player = None
+            
+            # Search for player in current players data (players are keyed by full name)
+            current_player = current_players.get(player_name)
+            
+            if current_player:
+                current_price = current_player.get('now_cost', 0.0) / 10.0  # Convert from FPL units
+                purchase_price = player['price']  # Price when bought
+                
+                # Calculate sale price using CORRECT FPL formula
+                if current_price > purchase_price:
+                    # Player gained value: Purchase Price + floor((Current Price - Purchase Price) / 2)
+                    price_diff = current_price - purchase_price
+                    sale_price = purchase_price + (price_diff / 2)
+                else:
+                    # Player lost value or stayed same: Current Price (full loss)
+                    sale_price = current_price
+                
+                total_value += sale_price
+            else:
+                # Player not found, use purchase price as fallback
+                total_value += player['price']
+        
+        # Add bank to get total available budget
+        return total_value + team_data.get('bank', 0.0)
     
     def handle_chip_team_creation(self, gameweek: int, chip_type: str, team_data: Dict[str, Any], create_team_func) -> Dict[str, Any]:
         """
@@ -349,4 +386,35 @@ class TeamManager:
             'current_gw': current_gw,
             'free_transfers': free_transfers,
             'can_make_transfers': free_transfers > 0
+        }
+    
+    def get_team_context(self, gameweek: int) -> Dict[str, Any]:
+        """
+        Get all team context needed for weekly update in one call.
+        Returns: team, chips, transfers, bank, formation, etc.
+        """
+        meta_data = self.get_meta()
+        
+        # Handle free hit revert scenario
+        if self.is_free_hit_revert_scenario(gameweek, meta_data):
+            # Get the team from 2 gameweeks ago (before free hit)
+            team_data = self.load_team(gameweek - 2)
+            print(f"🔄 Free Hit revert: Using team from gameweek {gameweek - 2}")
+        else:
+            # Normal case: get team from previous gameweek
+            team_data = self.get_previous_team(gameweek)
+        
+        if not team_data:
+            # Fallback to latest available team
+            latest_gw = self.get_latest_gameweek()
+            if latest_gw:
+                team_data = self.load_team(latest_gw)
+        
+        return {
+            'team': team_data['team'] if team_data else None,  # Return team data, not file wrapper
+            'chips': self.get_available_chips_from_meta(meta_data),
+            'transfers': self.get_available_transfers_from_meta(meta_data),
+            'bank': meta_data.get('bank', 0.0),
+            'free_transfers': meta_data.get('free_transfers', self.DEFAULT_FREE_TRANSFERS),
+            'gameweek': gameweek
         }
