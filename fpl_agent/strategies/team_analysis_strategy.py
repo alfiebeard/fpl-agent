@@ -8,7 +8,6 @@ import logging
 from typing import Dict, List, Any, Optional
 
 from ..core.config import Config
-from ..core.models import FPLTeam
 from ..utils.validator import FPLValidator
 from .base_strategy import BaseLLMStrategy
 
@@ -267,7 +266,7 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
             # Return empty dict on parsing failure
             return {}
     
-    def analyze_team(self, team: FPLTeam) -> Dict[str, Any]:
+    def analyze_team(self, team: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze an FPL team and provide insights.
         
@@ -311,7 +310,7 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
             logger.error(f"Failed to analyze team {team.team_name}: {e}")
             raise
     
-    def analyze_team_performance(self, team: FPLTeam, gameweek: Optional[int] = None) -> Dict[str, Any]:
+    def analyze_team_performance(self, team: Dict[str, Any], gameweek: Optional[int] = None) -> Dict[str, Any]:
         """
         Analyze team performance for a specific gameweek or overall.
         
@@ -356,7 +355,7 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
             logger.error(f"Failed to analyze team performance: {e}")
             raise
     
-    def get_team_recommendations(self, team: FPLTeam, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def get_team_recommendations(self, team: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Get recommendations for improving the team.
         
@@ -396,7 +395,7 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
             logger.error(f"Failed to get team recommendations: {e}")
             raise
     
-    def _create_analysis_prompt(self, team: FPLTeam, current_data: Dict[str, Any]) -> str:
+    def _create_analysis_prompt(self, team: Dict[str, Any], current_data: Dict[str, Any]) -> str:
         """Create prompt for team analysis."""
         team_summary = team.get_team_summary()
         
@@ -430,7 +429,7 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
         
         return prompt
     
-    def _create_performance_analysis_prompt(self, team: FPLTeam, performance_data: Dict[str, Any], gameweek: Optional[int]) -> str:
+    def _create_performance_analysis_prompt(self, team: Dict[str, Any], performance_data: Dict[str, Any], gameweek: Optional[int]) -> str:
         """Create prompt for performance analysis."""
         team_summary = team.get_team_summary()
         
@@ -458,7 +457,7 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
         
         return prompt
     
-    def _create_recommendations_prompt(self, team: FPLTeam, current_data: Dict[str, Any], context: Optional[Dict[str, Any]]) -> str:
+    def _create_recommendations_prompt(self, team: Dict[str, Any], current_data: Dict[str, Any], context: Optional[Dict[str, Any]]) -> str:
         """Create prompt for team recommendations."""
         team_summary = team.get_team_summary()
         

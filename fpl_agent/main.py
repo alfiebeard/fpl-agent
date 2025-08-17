@@ -14,7 +14,6 @@ from pathlib import Path
 try:
     # When run as module (python -m fpl_agent.main)
     from .core.config import Config
-    from .core.models import FPLTeam
     from .data import DataService
     from .data.data_store import DataStore
     from .strategies import TeamBuildingStrategy
@@ -25,7 +24,6 @@ except ImportError:
     # Add the parent directory to the path
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from fpl_agent.core.config import Config
-    from fpl_agent.core.models import FPLTeam
     from fpl_agent.data import DataService
     from fpl_agent.data.data_store import DataStore
     from fpl_agent.strategies import TeamBuildingStrategy

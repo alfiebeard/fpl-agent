@@ -136,7 +136,6 @@ python -m fpl_optimizer optimize --sample-size 50
 
 ```python
 from fpl_optimizer import FPLOptimizer
-from fpl_optimizer.models import FPLTeam
 
 # Initialize optimizer
 optimizer = FPLOptimizer()
