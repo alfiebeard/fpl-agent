@@ -275,7 +275,6 @@ fpl_optimizer/
 │   ├── llm_team_creator.py      # LLM-based approach
 │   ├── web_search.py            # Expert insights scraping
 │   └── llm_analyzer.py          # LLM analysis engine
-├── models.py                    # Data models
 ├── config.py                    # Configuration management
 ├── optimizer/                   # Mathematical optimization
 ├── ingestion/                   # Data ingestion
