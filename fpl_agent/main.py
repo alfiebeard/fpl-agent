@@ -54,22 +54,6 @@ class FPLAgent:
         if self._llm_strategy is None:
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
-        
-    def should_fetch_data(self, force_fetch: bool, cached_only: bool, data_fresh: bool) -> bool:
-        """Determine if we should fetch fresh FPL data"""
-        if cached_only:
-            return False
-        if force_fetch:
-            return True
-        return not data_fresh
-    
-    def should_enrich_data(self, force_enrich: bool, cached_only: bool, enrich_fresh: bool) -> bool:
-        """Determine if we should run LLM enrichment"""
-        if cached_only:
-            return False
-        if force_enrich:
-            return True
-        return not enrich_fresh
     
     def fetch_fpl_data(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Fetch both FPL player data and fixtures data"""
@@ -95,7 +79,7 @@ class FPLAgent:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich_player_data(self, force_refresh: bool = False) -> Dict[str, Any]:
+    def enrich(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Enrich player data with LLM insights"""
         try:
             logger.info("Enriching player data with LLM insights...")
@@ -152,10 +136,6 @@ class FPLAgent:
                 'error': str(e)
             }
     
-    def enrich(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """Simple enrich method for the enrich command"""
-        return self.enrich_player_data(force_refresh=force_refresh)
-    
     def gw_update(self, gameweek: Optional[int] = None, 
                   force_fetch: bool = False, force_enrich: bool = False,
                   force_all: bool = False, cached_only: bool = False, 
@@ -195,18 +175,18 @@ class FPLAgent:
                 print(team_result['prompt'])
                 return team_result
             
-            # Handle business logic (chip usage, transfer validation)
-            self._handle_weekly_update_business_logic(team_result, team_context)
+            # Apply business logic and get final team
+            final_team_result = self._handle_weekly_update_business_logic(team_result, team_context)
             
             # Handle persistence if requested
             if save_team:
-                self._save_weekly_update(team_result, team_context)
+                self._save_weekly_update(final_team_result, team_context)
                 print("✅ Team saved successfully!")
             else:
                 print("✅ Team update complete (not saved)")
             
             # Display results
-            display_comprehensive_team_result(team_result)
+            display_comprehensive_team_result(final_team_result)
             
         except Exception as e:
             logger.error(f"Weekly update failed: {e}")
@@ -217,7 +197,7 @@ class FPLAgent:
                    force_fetch: bool = False, force_enrich: bool = False,
                    force_all: bool = False, cached_only: bool = False, 
                    no_enrichments: bool = False, prompt_only: bool = False,
-                   save_team: bool = False) -> None:
+                   save_team: bool = False, chip_context: Optional[str] = None) -> None:
         """Build new team with smart data handling"""
         try:
             print("⚽ Building new FPL team...")
@@ -264,14 +244,24 @@ class FPLAgent:
             print(f"❌ Team building failed: {e}")
             raise
     
-    def _handle_weekly_update_business_logic(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
-        """Handle all business logic for weekly updates AFTER LLM returns result"""
-        # Handle chip/wildcard usage (free hit revert already handled in get_team_context)
-        if team_result.get('wildcard_or_chip'):
-            self._apply_chip_usage(team_result['wildcard_or_chip'], team_context)
+    def _handle_weekly_update_business_logic(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle business logic and return updated team result"""
         
-        # Validate transfers and bank (team structure already validated by LLM strategy)
-        self._validate_transfers_and_bank(team_result, team_context)
+        # Start with the original team
+        updated_team = team_result.copy()
+        
+        # Handle chip usage - this might return a completely new team
+        if team_result.get('wildcard_or_chip'):
+            chip_result = self._apply_chip_usage(team_result['wildcard_or_chip'], team_context)
+            if chip_result and 'team' in chip_result:
+                # Replace with the new chip-built team
+                updated_team = chip_result
+                # The chip info is already in the returned team
+        
+        # Validate (this might modify the team if there are issues)
+        self._validate_transfers_and_bank(updated_team, team_context)
+        
+        return updated_team
 
     def _save_weekly_update(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
         """Save weekly update team and update meta using existing TeamManager methods"""
@@ -289,30 +279,37 @@ class FPLAgent:
         # Initialize meta using existing method
         self.team_manager.initialize_meta_from_response(team_result, gameweek)
 
-    def _apply_chip_usage(self, chip_type: str, team_context: Dict[str, Any]) -> None:
-        """Apply chip usage to the team context"""
+    def _apply_chip_usage(self, chip_type: str, team_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply chip usage and return the new team"""
+        
         if chip_type in ['wildcard', 'free_hit']:
-            # Get correct budget from TeamManager using existing player data
+            # Get budget and build new team
             available_budget = self.team_manager.calculate_team_value(
-                team_context['team'],  # Pass the team data directly
+                team_context['team'], 
                 self.data_service.get_players(force_refresh=False)
             )
-            print(f" {chip_type.title()} applied - available budget: £{available_budget}m")
+            print(f"🔄 {chip_type.title()} applied - building new team with £{available_budget}m budget...")
             
-            # Build new team with correct budget
+            # Build new team - this returns the complete team result
             new_team = self.build_team(
                 budget=available_budget, 
                 gameweek=team_context['gameweek'], 
-                save_team=True
+                save_team=True,
+                chip_context=chip_type
             )
+            
+            # The returned team already has all the metadata we need
+            return new_team
             
         elif chip_type == 'bench_boost':
             print("🔄 Bench Boost applied - all 15 players will score")
-            # Mark chip as used in meta (handled when team is saved)
+            return {'chip_applied': 'bench_boost'}
             
         elif chip_type == 'triple_captain':
             print("🔄 Triple Captain applied - captain points tripled")
-            # Mark chip as used in meta (handled when team is saved)
+            return {'chip_applied': 'triple_captain'}
+        
+        return {}
 
     def _validate_transfers_and_bank(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
         """Validate transfers and bank using existing Validator methods (team structure already validated)"""
