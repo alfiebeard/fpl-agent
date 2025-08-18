@@ -1,33 +1,20 @@
 """
-Main FPL Optimizer application - Simplified with smart data handling
+Main FPL Agent application
 """
 
 import logging
 import sys
-import os
 from typing import Dict, Optional, Any
 from datetime import datetime
 import argparse
 from pathlib import Path
 
-# Handle imports for both direct execution and module execution
-try:
-    # When run as module (python -m fpl_agent.main)
-    from .core.config import Config
-    from .data import DataService
-    from .data.data_store import DataStore
-    from .strategies import TeamBuildingStrategy
-    from .utils.display import display_comprehensive_team_result
-
-except ImportError:
-    # When run directly (python fpl_agent/main.py)
-    # Add the parent directory to the path
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from fpl_agent.core.config import Config
-    from fpl_agent.data import DataService
-    from fpl_agent.data.data_store import DataStore
-    from fpl_agent.strategies import TeamBuildingStrategy
-    from fpl_agent.utils.display import display_comprehensive_team_result
+from .core.config import Config
+from .core.team_manager import TeamManager
+from .data import DataService
+from .data.data_store import DataStore
+from .strategies import TeamBuildingStrategy
+from .utils.display import display_comprehensive_team_result
 
 
 # Configure logging
@@ -56,7 +43,6 @@ class FPLAgent:
         self.data_store = DataStore()
         
         # Initialize team manager
-        from .core.team_manager import TeamManager
         self.team_manager = TeamManager()
         
         # LLM strategy will be initialized lazily when needed
@@ -68,9 +54,7 @@ class FPLAgent:
         if self._llm_strategy is None:
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
-    
-    # ... existing code ...
-    
+        
     def should_fetch_data(self, force_fetch: bool, cached_only: bool, data_fresh: bool) -> bool:
         """Determine if we should fetch fresh FPL data"""
         if cached_only:
