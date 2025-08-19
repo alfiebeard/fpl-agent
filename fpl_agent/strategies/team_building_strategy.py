@@ -351,7 +351,7 @@ Remember your team must be built from the current team with only transfers on to
 FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No other text, no markdown, no explanations outside the JSON:
 
 {{
-  "wildcard_or_chip": null,  // or "wildcard", "bench_boost", "free_hit", "triple_captain"
+  "chip": null,  // or "wildcard", "bench_boost", "free_hit", "triple_captain"
   "chip_reason": "Detailed explanation of why this chip is being used (or why no chip is needed)",
   "transfers": [
     {{

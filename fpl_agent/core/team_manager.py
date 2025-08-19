@@ -182,58 +182,6 @@ class TeamManager:
                     return True
         return False
     
-    def handle_free_hit_revert(self, gameweek: int, current_meta: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle free hit revert scenario - revert to team before free hit was used
-        
-        Args:
-            gameweek: Current gameweek
-            current_meta: Current meta data
-            
-        Returns:
-            Reverted team data
-        """
-        # Find the team from before the free hit
-        pre_free_hit_gw = gameweek - 2
-        pre_free_hit_team_data = self.load_team(pre_free_hit_gw)
-        
-        if not pre_free_hit_team_data:
-            raise ValueError(f"No team found from Gameweek {pre_free_hit_gw} to revert to after free hit")
-        
-        # Get the team data from before free hit
-        pre_free_hit_team = pre_free_hit_team_data['team']
-        
-        # Create a new team entry for current gameweek with the reverted team
-        # Create a new team entry for current gameweek with the reverted team
-        # Use the cleaner structure with starting/substitutes directly
-        reverted_team = {
-            'captain': pre_free_hit_team.get('captain'),
-            'vice_captain': pre_free_hit_team.get('vice_captain'),
-            'total_cost': pre_free_hit_team.get('total_cost'),
-            'bank': pre_free_hit_team.get('bank'),
-            'expected_points': pre_free_hit_team.get('expected_points'),
-            'wildcard_or_chip': None,
-            'transfers': [],
-            'starting': pre_free_hit_team['team']['starting'],      # Direct access
-            'substitutes': pre_free_hit_team['team']['substitutes']  # Direct access
-        }
-        
-        # Save the reverted team
-        self.save_team(gameweek, reverted_team)
-        
-        # Update meta.json to reflect the revert
-        # Bank should revert to pre-free-hit bank
-        # Free transfers should be 1 (normal weekly allocation)
-        # Free hit should remain marked as used
-        self._update_meta(
-            gameweek=gameweek,
-            team_data=reverted_team,
-            free_transfers=self.DEFAULT_FREE_TRANSFERS  # Normal weekly allocation after revert
-        )
-        
-        logger.info(f"Team reverted to pre-free-hit state for Gameweek {gameweek}")
-        return reverted_team
-    
     def calculate_team_value(self, team_data: Dict[str, Any], current_players: Dict[str, Dict[str, Any]]) -> float:
         """Calculate available budget for wildcard/free hit using correct FPL sale price formula"""
         total_value = 0.0
@@ -267,43 +215,11 @@ class TeamManager:
         # Add bank to get total available budget
         return total_value + team_data.get('bank', 0.0)
     
-    def handle_chip_team_creation(self, gameweek: int, chip_type: str, team_data: Dict[str, Any], create_team_func) -> Dict[str, Any]:
-        """
-        Handle wildcard or free hit team creation from scratch
-        
-        Args:
-            gameweek: Current gameweek
-            chip_type: 'wildcard' or 'free_hit'
-            team_data: Initial team data from LLM response
-            create_team_func: Function to create a new team
-            
-        Returns:
-            Created team data
-        """
-        logger.info(f"Creating new team from scratch using {chip_type}")
-        
-        # Create a new team from scratch using the provided function
-        new_team_data = create_team_func(budget=self.DEFAULT_BUDGET, gameweek=gameweek)
-        
-        # Override with chip information
-        new_team_data['wildcard_or_chip'] = chip_type
-        new_team_data['chip_reason'] = team_data.get('chip_reason', f'{chip_type.title()} chip used')
-        
-        # Save the new team
-        self.save_team(gameweek, new_team_data)
-        
-        # Update meta.json
-        current_meta = self.get_meta()
-        self.update_meta_from_response(gameweek, new_team_data, current_meta)
-        
-        logger.info(f"New team created successfully using {chip_type} for Gameweek {gameweek}")
-        return new_team_data
-    
     def update_meta_from_response(self, gameweek: int, team_data: Dict[str, Any], current_meta: Dict[str, Any]) -> None:
         """Update meta.json based on the LLM response"""
         
         # Check if a chip was used
-        chip_used = team_data.get('wildcard_or_chip')
+        chip_used = team_data.get('chip')
         
         # Check for consecutive free hit usage (not allowed in FPL)
         if chip_used == 'free_hit':
@@ -418,3 +334,33 @@ class TeamManager:
             'free_transfers': meta_data.get('free_transfers', self.DEFAULT_FREE_TRANSFERS),
             'gameweek': gameweek
         }
+
+    def save_weekly_update(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
+        """
+        Save weekly update team and update meta.
+        Moved from main.py to consolidate team save operations.
+        
+        Args:
+            team_result: Team result from LLM strategy
+            team_context: Current team context
+        """
+        # Save team using existing method
+        self.save_team(team_context['gameweek'], team_result)
+        
+        # Update meta using existing method
+        self.update_meta_from_response(team_context['gameweek'], team_result, self.get_meta())
+
+    def save_new_team(self, team_result: Dict[str, Any], gameweek: int) -> None:
+        """
+        Save new team and initialize meta.
+        Moved from main.py to consolidate team save operations.
+        
+        Args:
+            team_result: Team result from LLM strategy
+            gameweek: Gameweek number
+        """
+        # Save team using existing method
+        self.save_team(gameweek, team_result)
+        
+        # Initialize meta using existing method
+        self.initialize_meta(gameweek, team_result)

@@ -564,3 +564,39 @@ class FPLValidator:
             logger.info("Team data validation passed")
         
         return errors 
+
+    def validate_transfers_and_bank_workflow(self, team_result: Dict[str, Any], gameweek: int, 
+                                           team_context: Dict[str, Any], 
+                                           available_players: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Complete workflow for validating transfers and bank calculations.
+        Moved from main.py to consolidate validation logic.
+        
+        Args:
+            team_result: Team result from LLM strategy
+            gameweek: Current gameweek
+            team_context: Team context including previous team data
+            available_players: Current available players with prices
+        """
+        # Only validate if transfers were made
+        if not team_result.get('transfers'):
+            print("✅ No transfers made - bank validation skipped")
+            return
+        
+        # Validate bank calculation
+        bank_errors = self.validate_bank_calculation(
+            team_result, 
+            gameweek,
+            team_result['transfers'],
+            available_players
+        )
+        
+        # Display validation results
+        if bank_errors:
+            print("⚠️  Bank calculation errors:")
+            for error in bank_errors:
+                print(f"   • {error}")
+        else:
+            print("✅ Bank calculation validation passed")
+        
+        print("✅ Transfer and bank validation complete") 
