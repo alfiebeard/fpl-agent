@@ -209,6 +209,17 @@ class FPLAgent:
             )
             print(f"✅ Gameweek data loaded")
             
+            # Get data for current team players
+            current_team_player_data = self.data_service.get_current_team_player_data(
+                current_team=team_context['team'],
+                use_enrichments=not no_enrichments,
+                force_refresh=force_fetch
+            )
+            print(f"✅ Current team player data loaded")
+
+            # Add current team player data to team context
+            team_context['current_team_player_data'] = current_team_player_data
+            
             # Update team using LLM strategy (no persistence, no business logic)
             print(f"\n⚽ Updating team for gameweek {gameweek or 'current'}...")
             team_result = self.llm_strategy.update_team_weekly(

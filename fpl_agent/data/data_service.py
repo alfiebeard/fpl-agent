@@ -14,6 +14,7 @@ from ..core.config import Config
 from .fetch_fpl import FPLDataFetcher
 from .data_store import DataStore
 from .data_processor import DataProcessor
+from ..utils.fpl_calculations import calculate_fpl_sale_price
 
 logger = logging.getLogger(__name__)
 
@@ -426,6 +427,8 @@ class DataService:
                         except Exception:
                             continue
                     
+                    # TODO: Can this not just be one function in embedding_filter, that runs all this? Would be cleaner.
+
                     # Get query embeddings and calculate similarities
                     query_embeddings = embedding_filter._encode_queries()
                     player_positions = embedding_filter._get_player_positions(enriched_data, filtered_players)
@@ -890,3 +893,143 @@ class DataService:
         
         # Note: These players would go into LLM prompts with basic stats only
         print(f"\n📝 Note: These players would go into LLM prompts with basic stats only (no expert insights or injury news)")
+    
+    def get_current_team_player_data(self, current_team: Dict[str, Any], 
+                                    use_enrichments: bool = False,
+                                    force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+        """
+        Get comprehensive data for all players in the current team.
+        
+        Args:
+            current_team: Current team data from gwNN.json
+            use_enrichments: Whether to include expert insights and injury news
+            force_refresh: Whether to force fresh data fetch
+            
+        Returns:
+            Dictionary of player data indexed by full name, including:
+            - Current market price (from player_data.json)
+            - Purchase price (from gwNN.json)
+            - Expert insights (if enrichments available)
+            - Injury news (if enrichments available)
+            - All other player attributes
+            
+        Raises:
+            ValueError: If any player in current team is not found in market data
+        """
+        try:
+            # 1. Get all player names from current team
+            team_players = current_team['starting'] + current_team['substitutes']
+            player_names = [player['name'] for player in team_players]
+            
+            # 2. Get current market data for these specific players
+            all_players_data = self.get_players(force_refresh=force_refresh)
+            current_market_data = {
+                name: all_players_data[name] 
+                for name in player_names 
+                if name in all_players_data
+            }
+            
+            # 3. Validate all players found
+            missing_players = [name for name in player_names if name not in current_market_data]
+            if missing_players:
+                raise ValueError(
+                    f"Players not found in current market data: {', '.join(missing_players)}. "
+                    f"This indicates a data inconsistency that must be resolved."
+                )
+            
+            # 4. Get enriched data if requested
+            enriched_data = {}
+            if use_enrichments:
+                enriched_data = self._get_team_enrichments(player_names, force_refresh)
+            
+            # 5. Merge all data sources
+            final_player_data = {}
+            for player_name in player_names:
+                # Get team data (purchase price, position, etc.)
+                team_player = next(p for p in team_players if p['name'] == player_name)
+                
+                # Get market data (current price, etc.)
+                market_player = current_market_data[player_name]
+                
+                # Get enriched data if available
+                player_enrichments = enriched_data.get(player_name, {})
+                
+                # Calculate sale price using FPL formula
+                current_price = market_player.get('now_cost', 0) / 10.0
+                purchase_price = team_player['price']
+                sale_price = calculate_fpl_sale_price(current_price, purchase_price)
+                
+                # Merge all data
+                final_player_data[player_name] = {
+                    # From team data
+                    'name': team_player['name'],
+                    'position': team_player['position'],
+                    'team': team_player['team'],
+                    'purchase_price': purchase_price,
+                    
+                    # From market data
+                    'current_price': current_price,
+                    'form': market_player.get('form', ''),
+                    'total_points': market_player.get('total_points', 0),
+                    'minutes': market_player.get('minutes', 0),
+                    
+                    # Calculated sale price
+                    'sale_price': sale_price,
+                    
+                    # From enrichments (if available)
+                    'expert_insights': player_enrichments.get('expert_insights', 'None'),
+                    'injury_news': player_enrichments.get('injury_news', 'None'),
+                    
+                    # Additional market data
+                    'selected_by_percent': market_player.get('selected_by_percent', 0),
+                    'transfers_in': market_player.get('transfers_in', 0),
+                    'transfers_out': market_player.get('transfers_out', 0),
+                }
+            
+            logger.info(f"Successfully loaded data for {len(final_player_data)} team players")
+            return final_player_data
+            
+        except Exception as e:
+            logger.error(f"Failed to get current team player data: {e}")
+            raise
+    
+    def _get_team_enrichments(self, player_names: List[str], force_refresh: bool) -> Dict[str, Dict[str, Any]]:
+        """
+        Get enriched data (expert insights and injury news) for specific players.
+        
+        Args:
+            player_names: List of player names to enrich
+            force_refresh: Whether to force fresh enrichment
+            
+        Returns:
+            Dictionary of enriched data indexed by player name
+        """
+        try:
+            # Load existing enriched data from cache
+            cached_data = self.store.load_player_data()
+            if not cached_data or force_refresh:
+                logger.info("No enriched data available or force refresh requested")
+                return {}
+            
+            # Extract enrichments for the specific players
+            enriched_data = {}
+            for player_name in player_names:
+                player_enrichments = {}
+                
+                # Get expert insights if available
+                if 'expert_insights' in cached_data and player_name in cached_data['expert_insights']:
+                    player_enrichments['expert_insights'] = cached_data['expert_insights'][player_name]
+                
+                # Get injury news if available
+                if 'injury_news' in cached_data and player_name in cached_data['injury_news']:
+                    player_enrichments['injury_news'] = cached_data['injury_news'][player_name]
+                
+                if player_enrichments:
+                    enriched_data[player_name] = player_enrichments
+            
+            logger.info(f"Loaded enrichments for {len(enriched_data)} out of {len(player_names)} players")
+            return enriched_data
+            
+        except Exception as e:
+            logger.warning(f"Failed to load team enrichments: {e}")
+            return {}

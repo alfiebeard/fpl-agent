@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 from ..core.config import Config
 from .fetch_fpl import FPLDataFetcher
 from .embedding_filter import EmbeddingFilter
+from ..utils.prompt_formatter import PromptFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -770,51 +771,15 @@ class DataProcessor:
                 formatted_lines.append(f"\n{position} ({len(players)} players):")
                 
                 for i, (name, data) in enumerate(players, 1):
-                    price = float(data.get('now_cost', 0) or 0) / 10.0
-                    ppg = float(data.get('pp90', 0) or 0)
-                    form = float(data.get('form', 0) or 0)
-                    ownership = float(data.get('selected_by_percent', 0) or 0)
-                    team_name = data.get('team_name', 'Unknown')
-                    
-                    # Format the ranking prefix
-                    if include_rankings:
-                        prefix = f"{i:2d}. "
-                    else:
-                        prefix = "• "
-                    
-                    # Player line (exactly like show-players)
-                    # Add chance of playing after ownership
-                    chance = data.get('chance_of_playing', 100)
-                    if chance is None or chance == '':
-                        chance = 100
-                    else:
-                        try:
-                            chance = float(chance)
-                        except (ValueError, TypeError):
-                            chance = 100
-                    
-                    player_line = f"{prefix}{name} ({team_name}, £{price:.1f}m, PPG: {ppg:.1f}, Form: {form:.1f}, Ownership: {ownership:.1f}%, Chance: {chance:.0f}%)"
-                    formatted_lines.append(player_line)
-                    
-                    # Score line (if using embeddings and scores requested)
-                    if include_scores and use_embeddings:
-                        # Try to get embedding scores if available
-                        embedding_score = data.get('embedding_score', 0.0)
-                        keyword_bonus = data.get('keyword_bonus', 0.0)
-                        hybrid_score = embedding_score + keyword_bonus
-                        
-                        score_line = f"         Score: {hybrid_score:.3f} (Embedding: {embedding_score:.3f}, Bonus: {keyword_bonus:+.3f})"
-                        formatted_lines.append(score_line)
-                    
-                    # Expert insights line (if available and using embeddings)
-                    if use_embeddings and data.get('expert_insights'):
-                        expert_line = f"         Expert Insights: {data['expert_insights']}"
-                        formatted_lines.append(expert_line)
-                    
-                    # Injury news line (if available and using embeddings)
-                    if use_embeddings and data.get('injury_news'):
-                        injury_line = f"         Injury News: {data['injury_news']}"
-                        formatted_lines.append(injury_line)
+                    # Use unified player formatter
+                    player_info = PromptFormatter.format_player(
+                        data,
+                        format_type="detailed",
+                        include_rankings=include_rankings,
+                        include_scores=include_scores and use_embeddings,
+                        player_index=i if include_rankings else None
+                    )
+                    formatted_lines.append(player_info)
                     
                     # Add empty line between players for better readability
                     formatted_lines.append("")

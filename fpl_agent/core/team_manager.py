@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import logging
+from fpl_agent.utils.fpl_calculations import calculate_fpl_sale_price
 
 logger = logging.getLogger(__name__)
 
@@ -198,16 +199,8 @@ class TeamManager:
                 current_price = current_player.get('now_cost', 0.0) / 10.0  # Convert from FPL units
                 purchase_price = player['price']  # Price when bought
                 
-                # Calculate sale price using CORRECT FPL formula
-                if current_price > purchase_price:
-                    # Player gained value: Purchase Price + floor((Current Price - Purchase Price) / 2)
-                    price_diff = current_price - purchase_price
-                    sale_price = purchase_price + (price_diff / 2)
-                else:
-                    # Player lost value or stayed same: Current Price (full loss)
-                    sale_price = current_price
-                
-                total_value += sale_price
+                # Calculate sale price using FPL formula
+                total_value += calculate_fpl_sale_price(current_price, purchase_price)
             else:
                 # Player not found, use purchase price as fallback
                 total_value += player['price']

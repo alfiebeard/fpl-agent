@@ -93,11 +93,12 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             transfers_data = team_context['transfers']
             players_data = all_gameweek_data['players']
             fixtures_info = all_gameweek_data['fixtures']
+            current_team_player_data = team_context['current_team_player_data']
             
             # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
                 current_team, gameweek, chips_data, transfers_data, 
-                players_data, fixtures_info, use_enrichments
+                players_data, fixtures_info, use_enrichments, current_team_player_data
             )
             
             if prompt_only:
@@ -255,11 +256,12 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
     def _create_weekly_update_prompt(self, current_team: Dict, gameweek: int, 
                                    chips_data: Dict, transfers_data: Dict, 
                                    players_data: str, fixtures_info: str,
-                                   use_enrichments: bool = False) -> str:
+                                   use_enrichments: bool = False,
+                                   current_team_player_data: Dict = None) -> str:
         """Create the weekly update prompt using consolidated data"""
         
         # Format current team for prompt using prompt formatter
-        team_str = PromptFormatter.format_current_team_for_prompt(current_team)
+        team_str = PromptFormatter.format_current_team_for_prompt(current_team, current_team_player_data)
         
         # Format available chips using prompt formatter
         chips_str = PromptFormatter.format_chips_for_prompt(chips_data)
