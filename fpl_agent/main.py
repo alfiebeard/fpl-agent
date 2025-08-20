@@ -254,7 +254,17 @@ class FPLAgent:
         if team_result.get('chip'):
             chip_type = team_result['chip']
             
+            # Validate chip availability before using it
+            available_chips = team_context['chips']['available']
+            if chip_type not in available_chips:
+                print(f"❌ {chip_type.title()} chip is not available!")
+                print(f"Available chips: {', '.join(available_chips) if available_chips else 'None'}")
+                print(f"Used chips: {', '.join(chip['name'] for chip in team_context['chips']['used'])}")
+                raise ValueError(f"{chip_type.title()} chip is not available for use")
+            
             if chip_type in ['wildcard', 'free_hit']:
+                print(f"✅ {chip_type.title()} chip is available - proceeding with team rebuild...")
+                
                 # Get budget from current team
                 available_budget = self.team_manager.calculate_team_value(
                     team_context['team'], 
@@ -276,10 +286,12 @@ class FPLAgent:
                 updated_team = new_team_result
             
             elif chip_type == 'bench_boost':
+                print(f"✅ {chip_type.title()} chip is available - proceeding...")
                 print("🔄 Bench Boost applied - all 15 players will score")
                 updated_team['chip'] = 'bench_boost'
                 
             elif chip_type == 'triple_captain':
+                print(f"✅ {chip_type.title()} chip is available - proceeding...")
                 print("🔄 Triple Captain applied - captain points tripled")
                 updated_team['chip'] = 'triple_captain'
             
