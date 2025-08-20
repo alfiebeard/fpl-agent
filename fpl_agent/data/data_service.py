@@ -15,6 +15,9 @@ from .fetch_fpl import FPLDataFetcher
 from .data_store import DataStore
 from .data_processor import DataProcessor
 from ..utils.fpl_calculations import calculate_fpl_sale_price
+from .embedding_filter import EmbeddingFilter
+import numpy as np
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -220,117 +223,25 @@ class DataService:
         
         return self.processor.get_fixture_info(team_name, current_gameweek, fixtures, players)
     
-    def get_available_players_formatted(self, use_semantic_filtering: bool = False, force_refresh: bool = False, use_embeddings: bool = False) -> str:
-        """
-        Get available players data formatted for LLM prompts.
-        
-        Args:
-            use_semantic_filtering: If True, use enriched data with injury news and FPL suggestions
-            force_refresh: If True, ignore cache and fetch fresh data
-            use_embeddings: If True, use embedding filtering (placeholder for future implementation)
-            
-        Returns:
-            String containing all available players organized by team
-        """
-        logger.info("Fetching and formatting available players data...")
-        
-        try:
-            # Get available players using the new filtering system
-            players_data = self.get_players(force_refresh=force_refresh)
-            
-            # Use the new filtering system from DataProcessor
-            filtered_players = self.processor.filter_available_players(
-                players_data, use_embeddings=use_embeddings
-            )
-            
-            # Format using the new formatting method
-            return self.processor.format_players_for_llm_prompt(
-                filtered_players, use_embeddings=use_embeddings
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to get available players data: {e}")
-            return "Error: Could not fetch player data"
-    
-    def get_available_players_dict(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get available players data as a dictionary for validation.
-        
-        Returns:
-            Dictionary of players with their data
-        """
-        try:
-            # Get available players
-            players = self.get_available_players()
-            
-            # Convert to the expected format
-            players_dict = {}
-            for player_id, player in players.items():
-                players_dict[player.get('full_name', 'Unknown')] = {
-                    'name': player.get('full_name', 'Unknown'),
-                    'position': player.get('position', 'UNK'),
-                    'price': player.get('now_cost', 0) / 10.0,  # Convert from FPL price format
-                    'team': player.get('team_name', 'Unknown')
-                }
-            
-            return players_dict
-            
-        except Exception as e:
-            logger.error(f"Failed to get available players dict: {e}")
-            return {}
-    
-    def get_processed_players(self, force_fetch: bool = False, force_enrich: bool = False,
-                             force_all: bool = False, cached_only: bool = False,
-                             no_enrichments: bool = False) -> str:
+    def get_processed_players(self, use_cached: bool = False, 
+                             use_enrichments: bool = True,
+                             filter_players: bool = False) -> Dict[str, Dict[str, Any]]:
         """
         Get processed players data with smart caching and enrichment handling.
-        This method handles all the complex data processing logic that was duplicated in main.py.
         
         Args:
-            force_fetch: If True, force fresh FPL data fetch
-            force_enrich: If True, force fresh enrichment
-            force_all: If True, force both fresh fetch and enrichment
-            cached_only: If True, use only cached data
-            no_enrichments: If True, disable embedding filtering and enrichments
+            use_cached: If True, use only cached data. If False, fetch fresh data.
+            use_enrichments: Whether to include expert insights and injury news
+            filter_players: If True, apply availability filters (injured, unavailable, etc.). 
+                          If False, return all players without filtering.
             
         Returns:
-            Formatted string of available players for LLM prompts
+            Dictionary of processed player data keyed by player name
         """
         logger.info("Getting processed players data...")
         
-        # Check data freshness using DataStore
-        fpl_data = self.store.load_player_data()
-        fpl_age_hours = None
-        if fpl_data and 'cache_timestamp' in fpl_data:
-            fpl_age_hours = self.store._calculate_data_age_hours(fpl_data)
-        
-        # Check embeddings freshness
-        embeddings_file = Path("team_data/player_embeddings.json")
-        embeddings_age_hours = None
-        if embeddings_file.exists():
-            file_stat = embeddings_file.stat()
-            embeddings_age_hours = (datetime.now().timestamp() - file_stat.st_mtime) / 3600
-        
-        # Check enriched data freshness
-        enriched_age_hours = None
-        if fpl_data and 'enrichment_timestamp' in fpl_data:
-            enriched_age_hours = self.store._calculate_data_age_hours(fpl_data, 'enrichment_timestamp')
-        
-        # Determine what to do based on flags and data freshness
-        should_fetch = self._should_fetch_data(
-            force_fetch or force_all, 
-            cached_only, 
-            fpl_age_hours is not None and fpl_age_hours < 1.0
-        )
-        
-        should_enrich = self._should_enrich_data(
-            force_enrich or force_all, 
-            cached_only, 
-            enriched_age_hours is not None and enriched_age_hours < 1.0
-        )
-        
         # Step 1: Fetch FPL data if needed
-        if should_fetch:
+        if not use_cached:
             logger.info("Fetching fresh FPL data...")
             # Fetch fresh data from API
             bootstrap_data = self.fetcher.get_fpl_static_data()
@@ -341,7 +252,7 @@ class DataService:
             logger.info("Fresh FPL data fetched and saved to store")
         
         # Step 2: Enrich data if needed
-        if should_enrich:
+        if use_enrichments and not use_cached:
             logger.info("Enriching player data...")
             try:
                 # Load current player data for enrichment
@@ -392,23 +303,25 @@ class DataService:
             players_data = players_data['player_data']
         
         # Step 4: Determine embedding usage
-        if no_enrichments:
-            use_embeddings = False
-            logger.info("Embedding filtering disabled due to --no-enrichments flag")
+        use_embeddings = use_enrichments and self.config.get_embeddings_config().get('use_embeddings', False)
+        if use_embeddings:
+            logger.info("Using embedding filtering and enrichments")
         else:
-            use_embeddings = self.config.get_embeddings_config().get('use_embeddings', False)
+            logger.info("Embedding filtering and enrichments disabled")
         
-        # Step 5: Filter players using DataProcessor
-        filtered_players = self.processor.filter_available_players(
-            players_data, use_embeddings=use_embeddings
-        )
+        # Step 5: Filter players only if requested
+        if filter_players:
+            filtered_players = self.processor.filter_available_players(
+                players_data, use_embeddings=use_embeddings
+            )
+            logger.info(f"Applied player filtering: {len(filtered_players)} players available from {len(players_data)} total")
+        else:
+            filtered_players = players_data
+            logger.info(f"No filtering applied: {len(filtered_players)} players returned")
         
         # Step 6: Calculate and inject embedding scores if using embeddings
         if use_embeddings:
-            try:
-                # Import here to avoid circular imports
-                from .embedding_filter import EmbeddingFilter
-                
+            try:                
                 # Get the embedding filter to calculate scores
                 embedding_filter = EmbeddingFilter(self.config)
                 enriched_data = self.processor._get_enriched_players(filtered_players)
@@ -420,8 +333,6 @@ class DataService:
                     converted_embeddings = {}
                     for player_name, embedding_str in player_embeddings['embeddings'].items():
                         try:
-                            import numpy as np
-                            import json
                             embedding_array = np.array(json.loads(embedding_str))
                             converted_embeddings[player_name] = embedding_array
                         except Exception:
@@ -452,13 +363,9 @@ class DataService:
             except Exception as e:
                 logger.warning(f"Failed to calculate embedding scores: {e}, scores will be 0.0")
         
-        # Step 7: Format players for LLM prompt
-        formatted_players = self.processor.format_players_for_llm_prompt(
-            filtered_players, use_embeddings=use_embeddings
-        )
-        
+        # Step 7: Return the filtered players dictionary (formatting happens later when needed)
         logger.info(f"Processed {len(filtered_players)} players for LLM prompt")
-        return formatted_players
+        return filtered_players
     
     def get_gameweek_fixtures_formatted(self, gameweek: int) -> str:
         """
@@ -487,35 +394,25 @@ class DataService:
             logger.error(f"Failed to get formatted fixtures for gameweek {gameweek}: {e}")
             return f"Error loading fixtures for Gameweek {gameweek}."
     
-    def _should_fetch_data(self, force_fetch: bool, cached_only: bool, data_fresh: bool) -> bool:
-        """Determine if we should fetch fresh FPL data"""
-        if cached_only:
-            return False
-        if force_fetch:
-            return True
-        return not data_fresh
-    
-    def _should_enrich_data(self, force_enrich: bool, cached_only: bool, enrich_fresh: bool) -> bool:
-        """Determine if we should run LLM enrichment"""
-        if cached_only:
-            return False
-        if force_enrich:
-            return True
-        return not enrich_fresh
-    
-    def get_all_gameweek_data(self, gameweek: int, force_fetch: bool = False, 
-                             use_enrichments: bool = True, 
-                             cached_only: bool = False) -> Dict[str, Any]:
+    def get_all_gameweek_data(self, gameweek: int, use_cached: bool = False, 
+                             use_enrichments: bool = True,
+                             filter_players: bool = False) -> Dict[str, Any]:
         """
         Get all data needed for a gameweek in one call.
-        Returns: players, fixtures
+        
+        Args:
+            gameweek: Gameweek number
+            use_cached: If True, use only cached data. If False, fetch fresh data.
+            use_enrichments: Whether to include expert insights and injury news
+            filter_players: If True, apply availability filters. If False, return all players.
+            
+        Returns:
+            Dictionary containing players and fixtures data
         """
         players = self.get_processed_players(
-            force_fetch=force_fetch,
-            force_enrich=use_enrichments,
-            force_all=False,
-            cached_only=cached_only,
-            no_enrichments=not use_enrichments
+            use_cached=use_cached,      # Use cache when use_cached is True
+            use_enrichments=use_enrichments,
+            filter_players=filter_players  # Pass through filtering preference
         )
         fixtures = self.get_gameweek_fixtures_formatted(gameweek)
         

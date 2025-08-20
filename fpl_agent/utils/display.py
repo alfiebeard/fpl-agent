@@ -6,6 +6,19 @@ from typing import Dict, Any
 from datetime import datetime
 
 
+def display_fetch_results(result: Dict[str, Any], use_cached: bool = False) -> None:
+    """Display fetch operation results to the user"""
+    if use_cached:
+        print(f"📊 Loaded cached FPL data:")
+    else:
+        print(f"🔄 Fetched fresh FPL data:")
+    
+    print(f"   • Players: {result['total_players']}")
+    print(f"   • Fixtures: {result['total_fixtures']}")
+    print(f"   • Fetched at: {result['fetched_at']}")
+    print("✅ Data fetch complete!")
+
+
 def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
     """Display comprehensive team creation/update results"""
     print("✅ Team building complete!")

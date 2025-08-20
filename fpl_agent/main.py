@@ -12,9 +12,10 @@ from .core.config import Config
 from .core.team_manager import TeamManager
 from .data import DataService
 from .data.data_store import DataStore
+from .data.data_processor import DataProcessor
+from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
-from .utils.display import display_comprehensive_team_result
-from .utils.validator import FPLValidator
+from .utils.display import display_comprehensive_team_result, display_fetch_results
 
 
 # Configure logging
@@ -55,40 +56,36 @@ class FPLAgent:
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
-    def fetch_fpl_data(self, force_refresh: bool = False) -> Dict[str, Any]:
+    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False) -> None:
         """Fetch both FPL player data and fixtures data"""
         try:
-            logger.info("Fetching FPL data...")
+            if use_cached:
+                logger.info("Loading cached FPL data...")
+            else:
+                logger.info("Fetching fresh FPL data...")
             
-            # Fetch players (existing logic)
-            player_result = self.data_service.get_players(force_refresh=force_refresh)
+            # For fetch command, don't filter players - show all data
+            all_gameweek_data = self.data_service.get_all_gameweek_data(
+                gameweek=1,  # Default to gameweek 1 for initial fetch
+                use_cached=use_cached,
+                use_enrichments=use_enrichments,
+                filter_players=False  # Show all players, not just available ones
+            )
             
-            # Fetch fixtures (new logic)
-            fixtures_result = self.data_service.get_fixtures(force_refresh=force_refresh)
-            
-            # Return both results
-            return {
-                'players': list(player_result.values()),
-                'total_players': len(player_result),
-                'fixtures': fixtures_result['fixtures'],
-                'total_fixtures': fixtures_result['total_fixtures'],
+            display_fetch_results({
+                'total_players': len(all_gameweek_data['players']),
+                'total_fixtures': len(all_gameweek_data['fixtures']),
                 'fetched_at': datetime.now().isoformat()
-            }
+            }, use_cached)
             
         except Exception as e:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich(self, force_refresh: bool = False) -> Dict[str, Any]:
+    def enrich(self) -> Dict[str, Any]:
         """Enrich player data with LLM insights"""
         try:
             logger.info("Enriching player data with LLM insights...")
-            
-            if force_refresh:
-                print("🔄 Forcing fresh enrichment (this will take 15-20 minutes)...")
-            else:
-                print("🧠 Enriching player data with LLM insights...")
-                print("⏱️  This process takes 15-20 minutes but is cached for future use")
             
             # Load current player data
             players_data = self.data_store.get_players_data()
@@ -96,10 +93,6 @@ class FPLAgent:
                 raise ValueError("No player data available for enrichment")
             
             print(f"📊 Enriching {len(players_data)} players from {len(set(player.get('team_name') for player in players_data.values()))} teams...")
-            
-            # Use DataProcessor to enrich player data by teams
-            from .data.data_processor import DataProcessor
-            from .strategies.team_analysis_strategy import TeamAnalysisStrategy
             
             data_processor = DataProcessor(self.config)
             team_analysis_strategy = TeamAnalysisStrategy(self.config)
@@ -119,22 +112,10 @@ class FPLAgent:
             self.data_store.save_player_data(enriched_data)
             
             print(f"✅ Successfully enriched {len(enriched_players)} players")
-            
-            return {
-                'enriched_players': len(enriched_players),
-                'status': 'success',
-                'message': f'Successfully enriched {len(enriched_players)} players',
-                'enriched_at': datetime.now().isoformat()
-            }
                 
         except Exception as e:
             logger.error(f"Failed to enrich player data: {e}")
             print(f"❌ Error enriching player data: {e}")
-            return {
-                'enriched_players': 0,
-                'status': 'failed',
-                'error': str(e)
-            }
     
     def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
                    force_fetch: bool = False, force_enrich: bool = False,
@@ -146,11 +127,12 @@ class FPLAgent:
             print("⚽ Building new FPL team...")
             
             # Get all gameweek data in one call
+            # For team building, filter players to only show available ones
             all_gameweek_data = self.data_service.get_all_gameweek_data(
                 gameweek=gameweek or 1,
-                force_fetch=force_fetch,
+                use_cached=cached_only,  # Use cached data if requested
                 use_enrichments=not no_enrichments,
-                cached_only=cached_only
+                filter_players=True  # Filter to only available players for team building
             )
             print(f"✅ Gameweek data loaded")
             
@@ -201,11 +183,12 @@ class FPLAgent:
             print(f"✅ Team context loaded for gameweek {team_context['gameweek']}")
             
             # Get all gameweek data in one call
+            # For team updates, filter players to only show available ones
             all_gameweek_data = self.data_service.get_all_gameweek_data(
                 gameweek=gameweek or 1,
-                force_fetch=force_fetch,
+                use_cached=cached_only,  # Use cached data if requested
                 use_enrichments=not no_enrichments,
-                cached_only=cached_only
+                filter_players=True  # Filter to only available players for team updates
             )
             print(f"✅ Gameweek data loaded")
             
@@ -328,9 +311,9 @@ def main():
     parser.add_argument('--force-all', action='store_true',
                        help='Force both fresh fetch and enrichment')
     parser.add_argument('--cached-only', action='store_true',
-                       help='Use ONLY cached data (no API calls or enrichment)')
-    parser.add_argument('--no-enrichments', action='store_true',
-                       help='Use only basic player data without expert insights or injury news')
+                       help='Use ONLY cached data (no API calls or enrichment). For fetch command: use stored data instead of fresh fetch.')
+    parser.add_argument('--use-enrichments', action='store_true',
+                       help='Use enrichments with expert insights or injury news')
     
     # Common options
     parser.add_argument('--budget', type=float, default=100.0,
@@ -354,12 +337,11 @@ def main():
         fpl_agent = FPLAgent()
         
         if args.command == 'fetch':
-            # Fetch fresh FPL data
-            fpl_agent.fetch_fpl_data(force_refresh=args.force_fetch)
+            # Fetch fresh FPL data (always fresh unless --cached flag)
+            fpl_agent.fetch_fpl_data(use_cached=args.cached_only, use_enrichments=args.use_enrichments)
             
         elif args.command == 'enrich':
-            # Simple enrich command - just call the enrich method
-            fpl_agent.enrich(force_refresh=args.force_enrich)
+            fpl_agent.enrich()
                 
         elif args.command == 'gw-update':
             # Complete weekly gameweek update
