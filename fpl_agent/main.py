@@ -298,24 +298,7 @@ class FPLAgent:
             # Preserve the LLM's chip_reason
             updated_team['chip_reason'] = team_result['chip_reason']
         
-        # Validate transfers and bank
-        self._validate_transfers_and_bank(updated_team, team_context)
-        
         return updated_team
-
-    def _validate_transfers_and_bank(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> None:
-        """Validate transfers and bank using FPLValidator workflow"""
-        
-        validator = FPLValidator()
-        current_players = self.data_service.get_players(force_refresh=False)
-        
-        # Use the comprehensive validation workflow
-        validator.validate_transfers_and_bank_workflow(
-            team_result,
-            team_context['gameweek'],
-            team_context,
-            current_players
-        )
 
 def main():
     """Main entry point with simplified command structure"""
