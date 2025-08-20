@@ -61,7 +61,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             validator = FPLValidator()
             team_data = validator.parse_team_response(response)
             
-            # Validate ONLY team structure (not business logic)
+            # Validate team structure
             logger.info("Validating team structure...")
             validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
             
@@ -110,7 +110,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             validator = FPLValidator()
             team_data = validator.parse_team_response(response)
             
-            # Validate ONLY team structure (not business logic)
+            # Validate team structure
             logger.info("Validating team structure...")
             validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
             

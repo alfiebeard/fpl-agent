@@ -70,23 +70,15 @@ class PromptFormatter:
             return "Error: Could not format player data"
     
     @staticmethod
-    def format_current_team_for_prompt(team_data: Dict) -> str:
+    def format_current_team_for_prompt(team: Dict) -> str:
         """Format current team data for the prompt"""
-        if not team_data:
+        if not team:
             return "No current team data available"
         
         formatted = []
         
-        # Handle the actual team data structure from saved teams
-        if 'team' in team_data:
-            team = team_data['team']
-            # Captain and vice-captain are at the top level of the team data
-            captain = team_data.get('captain', 'Unknown')
-            vice_captain = team_data.get('vice_captain', 'Unknown')
-        else:
-            team = team_data
-            captain = team.get('captain', 'Unknown')
-            vice_captain = team.get('vice_captain', 'Unknown')
+        captain = team.get('captain', 'Unknown')
+        vice_captain = team.get('vice_captain', 'Unknown')
         
         # Add starting players section
         formatted.append("Starting 11")
