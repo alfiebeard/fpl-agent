@@ -56,7 +56,7 @@ class FPLAgent:
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
-    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False) -> None:
+    def fetch_fpl_data(self, use_cached: bool = False, no_enrichments: bool = False) -> None:
         """Fetch both FPL player data and fixtures data"""
         try:
             if use_cached:
@@ -68,7 +68,7 @@ class FPLAgent:
             all_gameweek_data = self.data_service.get_all_gameweek_data(
                 gameweek=1,  # Default to gameweek 1 for initial fetch
                 use_cached=use_cached,
-                use_enrichments=use_enrichments,
+                use_enrichments=not no_enrichments,
                 filter_players=False  # Show all players, not just available ones
             )
             
@@ -118,9 +118,7 @@ class FPLAgent:
             print(f"❌ Error enriching player data: {e}")
     
     def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
-                   force_fetch: bool = False, force_enrich: bool = False,
-                   force_all: bool = False, cached_only: bool = False, 
-                   no_enrichments: bool = False, prompt_only: bool = False,
+                   cached_only: bool = False, no_enrichments: bool = False, prompt_only: bool = False,
                    save_team: bool = False) -> None:
         """Build new team using LLM strategy"""
         try:
@@ -130,13 +128,13 @@ class FPLAgent:
             # For team building, filter players to only show available ones
             all_gameweek_data = self.data_service.get_all_gameweek_data(
                 gameweek=gameweek or 1,
-                use_cached=cached_only,  # Use cached data if requested
+                use_cached=cached_only,
                 use_enrichments=not no_enrichments,
                 filter_players=True  # Filter to only available players for team building
             )
             print(f"✅ Gameweek data loaded")
             
-            # Build team using LLM strategy (no persistence, no business logic)
+            # Build team using LLM strategy
             print(f"\n⚽ Building team with £{budget}m budget...")
             team_result = self.llm_strategy.create_team(
                 budget=budget,
@@ -154,14 +152,14 @@ class FPLAgent:
                 print(team_result['prompt'])
                 return team_result
             
-            # Handle persistence if requested
+            # Save team if requested
             if save_team:
                 self.team_manager.save_new_team(team_result, gameweek or 1)
                 print("✅ Team saved successfully!")
             else:
                 print("✅ Team building complete (not saved)")
             
-            # Display results
+            # Display team results
             display_comprehensive_team_result(team_result)
             
         except Exception as e:
@@ -169,9 +167,7 @@ class FPLAgent:
             print(f"❌ Team building failed: {e}")
             raise
 
-    def gw_update(self, gameweek: Optional[int] = None, 
-                  force_fetch: bool = False, force_enrich: bool = False,
-                  force_all: bool = False, cached_only: bool = False, 
+    def gw_update(self, gameweek: Optional[int] = None, cached_only: bool = False, 
                   no_enrichments: bool = False, prompt_only: bool = False,
                   save_team: bool = False) -> None:
         """Complete weekly gameweek update using LLM strategy"""
@@ -196,7 +192,7 @@ class FPLAgent:
             current_team_player_data = self.data_service.get_current_team_player_data(
                 current_team=team_context['team'],
                 use_enrichments=not no_enrichments,
-                force_refresh=force_fetch
+                force_refresh=not cached_only
             )
             print(f"✅ Current team player data loaded")
 
@@ -296,7 +292,7 @@ class FPLAgent:
 
 def main():
     """Main entry point with simplified command structure"""
-    parser = argparse.ArgumentParser(description='FPL Agent - Smart Data Handling')
+    parser = argparse.ArgumentParser(description='FPL Agent')
     
     # Main command
     parser.add_argument('command', choices=[
@@ -304,16 +300,10 @@ def main():
     ], help='Command to run')
     
     # Smart data flags
-    parser.add_argument('--force-fetch', action='store_true',
-                       help='Force fresh FPL data fetch')
-    parser.add_argument('--force-enrich', action='store_true',
-                       help='Force fresh LLM enrichment')
-    parser.add_argument('--force-all', action='store_true',
-                       help='Force both fresh fetch and enrichment')
     parser.add_argument('--cached-only', action='store_true',
                        help='Use ONLY cached data (no API calls or enrichment). For fetch command: use stored data instead of fresh fetch.')
-    parser.add_argument('--use-enrichments', action='store_true',
-                       help='Use enrichments with expert insights or injury news')
+    parser.add_argument('--no-enrichments', action='store_true',
+                       help='Do not use enrichments with expert insights or injury news, just basic data')
     
     # Common options
     parser.add_argument('--budget', type=float, default=100.0,
@@ -326,8 +316,6 @@ def main():
     # Save options
     parser.add_argument('--save-team', action='store_true',
                        help='Save the created team to a JSON file')
-    parser.add_argument('--save-file', type=str,
-                       help='Specific file path to save team')
     parser.add_argument('--show-prompt', action='store_true',
                        help='Show the prompt that would be sent to the LLM (for debugging)')
     
@@ -338,34 +326,19 @@ def main():
         
         if args.command == 'fetch':
             # Fetch fresh FPL data (always fresh unless --cached flag)
-            fpl_agent.fetch_fpl_data(use_cached=args.cached_only, use_enrichments=args.use_enrichments)
+            fpl_agent.fetch_fpl_data(
+                use_cached=args.cached_only, 
+                no_enrichments=args.no_enrichments
+            )
             
         elif args.command == 'enrich':
             fpl_agent.enrich()
-                
-        elif args.command == 'gw-update':
-            # Complete weekly gameweek update
-            fpl_agent.gw_update(
-                gameweek=args.gameweek or 1,
-                force_fetch=args.force_fetch,
-                force_enrich=args.force_enrich,
-                force_all=args.force_all,
-                cached_only=args.cached_only,
-                no_enrichments=args.no_enrichments,
-                prompt_only=args.show_prompt
-            )
-            
-            if not args.show_prompt:
-                print("✅ Weekly update complete!")
-            
+
         elif args.command == 'build-team':
             # Build new team
             fpl_agent.build_team(
                 budget=args.budget,
                 gameweek=args.gameweek,
-                force_fetch=args.force_fetch,
-                force_enrich=args.force_enrich,
-                force_all=args.force_all,
                 cached_only=args.cached_only,
                 no_enrichments=args.no_enrichments,
                 prompt_only=args.show_prompt
@@ -373,6 +346,18 @@ def main():
             
             if not args.show_prompt:
                 print("✅ Team building complete!")
+                
+        elif args.command == 'gw-update':
+            # Complete weekly gameweek update
+            fpl_agent.gw_update(
+                gameweek=args.gameweek or 1,
+                cached_only=args.cached_only,
+                no_enrichments=args.no_enrichments,
+                prompt_only=args.show_prompt
+            )
+            
+            if not args.show_prompt:
+                print("✅ Weekly update complete!")
             
         elif args.command == 'show-data':
             # Show current data status
