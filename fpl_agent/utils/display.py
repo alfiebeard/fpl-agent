@@ -6,6 +6,81 @@ from typing import Dict, Any
 from datetime import datetime
 
 
+def display_data_status(data_status: Dict[str, Any]) -> None:
+    """
+    Display comprehensive data status information.
+    
+    Args:
+        data_status: Dictionary containing data status information
+    """
+    print("📊 FPL Data Status")
+    print("=" * 50)
+    
+    # FPL Data Status
+    print(f"\n🔄 FPL Data:")
+    if data_status['fpl_data']['available']:
+        age = data_status['fpl_data']['age_hours']
+        status = "✅ Fresh" if data_status['fpl_data']['fresh'] else "⚠️  Stale"
+        print(f"   • Status: {status}")
+        print(f"   • Age: {age:.1f} hours")
+        print(f"   • Last updated: {datetime.now().timestamp() - (age * 3600):.0f} seconds ago")
+    else:
+        print("   • Status: ❌ Not available")
+        print("   • Action: Run 'fetch' command")
+    
+    # Enriched Data Status
+    print(f"\n🧠 Enriched Data:")
+    if data_status['enriched_data']['available']:
+        age = data_status['enriched_data']['age_hours']
+        status = "✅ Fresh" if data_status['enriched_data']['fresh'] else "⚠️  Stale"
+        print(f"   • Status: {status}")
+        print(f"   • Age: {age:.1f} hours")
+        print(f"   • Last updated: {datetime.now().timestamp() - (age * 3600):.0f} seconds ago")
+    else:
+        print("   • Status: ❌ Not available")
+        print("   • Action: Run 'enrich' command")
+    
+    # Embeddings Status
+    print(f"\n🔍 Embeddings:")
+    if data_status['embeddings']['available']:
+        age = data_status['embeddings']['age_hours']
+        status = "✅ Fresh" if data_status['embeddings']['fresh'] else "⚠️  Stale"
+        print(f"   • Status: {status}")
+        print(f"   • Age: {age:.1f} hours")
+    else:
+        print("   • Status: ❌ Not available")
+    
+    # Overall Status
+    print(f"\n📋 Overall Status:")
+    overall = data_status['overall_status']
+    if overall == 'fresh':
+        print("   • Status: ✅ All data is fresh and ready")
+        print("   • Action: Ready for team building/updates")
+    elif overall == 'stale':
+        print("   • Status: ⚠️  Data is available but stale")
+        print("   • Action: Consider running 'gw-update' or 'build-team' with --force-all")
+    elif overall == 'partial':
+        print("   • Status: ⚠️  Partial data available")
+        print("   • Action: Run 'enrich' to complete data preparation")
+    elif overall == 'fpl_only':
+        print("   • Status: ⚠️  Only FPL data available")
+        print("   • Action: Run 'enrich' to add LLM insights")
+    else:
+        print("   • Status: ❌ No data available")
+        print("   • Action: Run 'fetch' to get started")
+    
+    # Recommendations
+    print(f"\n💡 Recommendations:")
+    if data_status['overall_status'] == 'fresh':
+        print("   • All data is fresh - ready for team operations")
+    elif data_status['overall_status'] in ['stale', 'partial']:
+        print("   • Run 'gw-update' for complete weekly refresh")
+        print("   • Or run 'build-team' with --force-all for fresh team")
+    else:
+        print("   • Start with 'fetch' to get FPL data")
+        print("   • Then 'enrich' to add insights")
+        print("   • Finally 'build-team' or 'gw-update'")
+
 def display_fetch_results(result: Dict[str, Any], use_cached: bool = False) -> None:
     """Display fetch operation results to the user"""
     if use_cached:

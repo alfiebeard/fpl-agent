@@ -8,16 +8,13 @@ fetch → process → store → retrieve
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 from ..core.config import Config
 from .fetch_fpl import FPLDataFetcher
 from .data_store import DataStore
 from .data_processor import DataProcessor
 from ..utils.fpl_calculations import calculate_fpl_sale_price
-from .embedding_filter import EmbeddingFilter
-import numpy as np
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -47,270 +44,127 @@ class DataService:
         self.fetcher = FPLDataFetcher(config)
         self.store = DataStore()
         self.processor = DataProcessor(config)
-    
-    def get_players(self, force_refresh: bool = False, 
-                   filters: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
+
+    def get_all_gameweek_data(self, gameweek: int, use_cached: bool = False, 
+                             filter_unavailable_players: bool = False) -> Dict[str, Any]:
         """
-        Get player data, either from cache or fresh from API.
+        Get all fpl and fixture data needed for a gameweek in one call.
         
         Args:
-            force_refresh: If True, ignore cache and fetch fresh data
-            filters: Optional filters for available players
+            gameweek: Gameweek number
+            use_cached: If True, return cached data. If False, fetch fresh data.
+            filter_unavailable_players: If True, apply availability filters. If False, return all players.
             
         Returns:
-            Dictionary of player data keyed by player ID
+            Dictionary containing players and fixtures data
         """
-        # Try to load from cache first (unless force refresh)
-        if not force_refresh:
-            cached_data = self.store.load_player_data()
-            if cached_data:
-                # Handle both old and new data formats
-                if 'players' in cached_data:
-                    logger.info("Using cached enriched player data")
-                    player_data = cached_data['players']
-                elif 'player_data' in cached_data:
-                    logger.info("Using cached legacy player data")
-                    player_data = cached_data['player_data']
-                else:
-                    logger.info("Using cached player data")
-                    player_data = cached_data
-                
-                # Apply filters if requested
-                if filters:
-                    player_data = self.processor.get_available_players(player_data, filters)
-                
-                return player_data
-        else:
-            logger.info("Force refresh requested, will fetch fresh data")
+        players = self.get_players(
+            use_cached=use_cached,      # Use cache when use_cached is True
+            filter_unavailable_players=filter_unavailable_players  # Pass through filtering preference
+        )
         
-        # Fetch fresh data if no cache or force refresh
-        logger.info("Fetching fresh player data from FPL API...")
-        try:
-            # Fetch raw data from FPL API
-            bootstrap_data = self.fetcher.get_fpl_static_data()
-            
-            # Process the raw data
-            player_data = self.processor.process_fpl_data(bootstrap_data)
-            
-            # Check if we have existing enriched data to preserve
-            existing_data = self.store.load_player_data()
-            if existing_data and 'expert_insights' in existing_data:
-                # Preserve enriched data by merging with fresh FPL data
-                logger.info("Preserving existing enriched data while updating FPL data")
-                enriched_data = {
-                    'cache_timestamp': datetime.now().isoformat(),
-                    'players': player_data,
-                    'total_players': len(player_data),
-                    'expert_insights': existing_data.get('expert_insights', {}),
-                    'injury_news': existing_data.get('injury_news', {}),
-                    'enrichment_timestamp': existing_data.get('enrichment_timestamp')
-                }
-                self.store.save_player_data(enriched_data)
-            else:
-                # No existing enriched data, save normally
-                logger.info("No existing enriched data found, saving raw player data")
-                self.store.save_player_data(player_data)
-            
-            # Apply filters if requested
-            if filters:
-                player_data = self.processor.get_available_players(player_data, filters)
-            
-            logger.info(f"Successfully fetched and processed {len(player_data)} players")
-            return player_data
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch fresh data: {e}")
-            
-            # Try to return cached data as fallback
-            cached_data = self.store.load_player_data()
-            if cached_data:
-                logger.warning("Returning cached data due to fetch failure")
-                # Handle both old and new data formats
-                if 'players' in cached_data:
-                    player_data = cached_data['players']
-                elif 'player_data' in cached_data:
-                    player_data = cached_data['player_data']
-                else:
-                    player_data = cached_data
-                
-                if filters:
-                    player_data = self.processor.get_available_players(player_data, filters)
-                
-                return player_data
-            
-            raise
+        # Get raw fixtures data for the gameweek
+        fixtures = self.get_fixtures(use_cached=use_cached)
+        if fixtures and 'fixtures' in fixtures:
+            gameweek_fixtures = self.processor.get_gameweek_fixtures(gameweek, fixtures['fixtures'])
+        else:
+            gameweek_fixtures = []
+        
+        return {
+            'players': players,
+            'fixtures': gameweek_fixtures  # Raw fixture data for processing
+        }
     
-    def get_fixtures(self, force_refresh: bool = False) -> Dict[str, Any]:
+    def get_fixtures(self, use_cached: bool = False) -> Dict[str, Any]:
         """
         Get fixtures data, either from cache or fresh from API.
         
         Args:
-            force_refresh: If True, ignore cache and fetch fresh data
+            use_cached: If True, use cached data. If False, fetch fresh data.
             
         Returns:
             Dictionary containing fixtures data and metadata
         """
-        # Try to load from cache first (unless force refresh)
-        if not force_refresh:
-            cached_data = self.store.load_fixtures_data()
-            if cached_data:
-                logger.info("Using cached fixtures data")
-                return cached_data
         
-        # Fetch fresh fixtures data
-        logger.info("Fetching fresh fixtures data from FPL API...")
-        try:
-            # Fetch raw fixtures from FPL API
-            raw_fixtures = self.fetcher.get_fixtures()
-            
-            # Get teams data for team name resolution
-            bootstrap_data = self.fetcher.get_fpl_static_data()
-            teams_data = bootstrap_data.get('teams', [])
-            
-            # Process the raw fixtures data
-            processed_fixtures = self.processor.process_fixtures_data(raw_fixtures, teams_data)
-            
-            # Save to cache
-            self.store.save_fixtures_data(processed_fixtures)
-            
-            logger.info(f"Successfully fetched and processed {len(processed_fixtures)} fixtures")
-            
-            return {
-                'cache_timestamp': datetime.now().isoformat(),
-                'fixtures': processed_fixtures,
-                'total_fixtures': len(processed_fixtures)
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch fresh fixtures data: {e}")
-            
-            # Try to return cached data as fallback
-            cached_data = self.store.load_fixtures_data()
-            if cached_data:
-                logger.warning("Returning cached fixtures data due to fetch failure")
-                return cached_data
-            
-            raise
+        # Step 1: Fetch fresh fixtures data
+        if not use_cached:
+            try:
+                logger.info("Fetching fresh fixtures data...")
+                # Fetch raw fixtures from FPL API
+                fixtures_data = self.fetcher.get_fixtures()
+                # Get teams data for team name resolution
+                bootstrap_data = self.fetcher.get_fpl_static_data()
+                teams_data = bootstrap_data.get('teams', [])
+                # Process the raw fixtures data
+                processed_fixtures = self.processor.process_fixtures_data(fixtures_data, teams_data)
+                # Save to cache
+                self.store.save_fixtures_data(processed_fixtures)    
+                logger.info(f"Successfully fetched and processed {len(processed_fixtures)} fixtures")
+            except Exception as e:
+                logger.error(f"Failed to fetch fresh fixtures data: {e}")
+                raise
+        else:
+            logger.warning("Returning cached fixtures data due to use_cached flag")
+
+        # Step 2: Load cached fixtures data
+        fixtures_data = self.store.load_fixtures_data()
+        if not fixtures_data:
+            raise ValueError("No fixtures data available. Run 'fetch' command first.")
+        
+        return fixtures_data
+        
     
-    def get_available_players(self, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
+    def get_players(self, use_cached: bool = False, 
+                             filter_unavailable_players: bool = False) -> Dict[str, Dict[str, Any]]:
         """
-        Get only available players (filtered by availability criteria).
-        
-        Args:
-            filters: Optional custom filters
-            
-        Returns:
-            Dictionary of available players
-        """
-        if filters is None:
-            filters = self._DEFAULT_FILTERS.copy()
-        
-        return self.get_players(force_refresh=False, filters=filters)
-    
-    def get_fixture_info(self, team_name: str, current_gameweek: int) -> Dict[str, Any]:
-        """
-        Get fixture information for a team in a specific gameweek.
-        
-        Args:
-            team_name: Name of the team
-            current_gameweek: Current gameweek number
-            
-        Returns:
-            Dictionary containing fixture string, double gameweek status, and fixture difficulty
-        """
-        fixtures = self.fetcher.get_fixtures()
-        players = self.get_players(force_refresh=False)
-        
-        return self.processor.get_fixture_info(team_name, current_gameweek, fixtures, players)
-    
-    def get_processed_players(self, use_cached: bool = False, 
-                             use_enrichments: bool = True,
-                             filter_players: bool = False) -> Dict[str, Dict[str, Any]]:
-        """
-        Get processed players data with smart caching and enrichment handling.
+        Get players data with smart caching.
         
         Args:
             use_cached: If True, use only cached data. If False, fetch fresh data.
-            use_enrichments: Whether to include expert insights and injury news
-            filter_players: If True, apply availability filters (injured, unavailable, etc.). 
+            filter_unavailable_players: If True, apply availability filters (injured, unavailable, etc.). 
                           If False, return all players without filtering.
             
         Returns:
             Dictionary of processed player data keyed by player name
         """
-        logger.info("Getting processed players data...")
         
         # Step 1: Fetch FPL data if needed
         if not use_cached:
-            logger.info("Fetching fresh FPL data...")
-            # Fetch fresh data from API
-            bootstrap_data = self.fetcher.get_fpl_static_data()
-            # Process the raw data
-            fresh_player_data = self.processor.process_fpl_data(bootstrap_data)
-            # Save the fresh data to the store
-            self.store.save_player_data(fresh_player_data)
-            logger.info("Fresh FPL data fetched and saved to store")
-        
-        # Step 2: Enrich data if needed
-        if use_enrichments and not use_cached:
-            logger.info("Enriching player data...")
             try:
-                # Load current player data for enrichment
-                current_players_data = self.store.load_player_data()
-                if not current_players_data or 'players' not in current_players_data:
-                    logger.warning("No player data available for enrichment")
-                else:
-                    # Import here to avoid circular imports
-                    from ..strategies.team_analysis_strategy import TeamAnalysisStrategy
-                    
-                    # Initialize the team analysis strategy for enrichment
-                    team_analysis_strategy = TeamAnalysisStrategy(self.config)
-                    
-                    # Enrich the player data using the processor
-                    enriched_players = self.processor.enrich_player_data_by_teams(
-                        current_players_data['players'], 
-                        team_analysis_strategy
-                    )
-                    
-                    # Save the enriched data back to the store
-                    enriched_data = {
-                        'players': enriched_players,
-                        'enrichment_timestamp': datetime.now().isoformat(),
-                        'enrichment_status': 'completed',
-                        'total_players_enriched': len(enriched_players)
-                    }
-                    
-                    # Preserve the cache timestamp if it exists
-                    if 'cache_timestamp' in current_players_data:
-                        enriched_data['cache_timestamp'] = current_players_data['cache_timestamp']
-                    
-                    self.store.save_player_data(enriched_data)
-                    logger.info(f"Successfully enriched {len(enriched_players)} players")
-                    
+                logger.info("Fetching fresh FPL data...")
+                # Fetch fresh data from API
+                bootstrap_data = self.fetcher.get_fpl_static_data()
+                # Process the raw data
+                fresh_player_data = self.processor.process_fpl_data(bootstrap_data)
+                # Save the fresh data to the store
+                self.store.save_player_data(fresh_player_data)
+                logger.info("Fresh FPL data fetched and saved to store")
             except Exception as e:
-                logger.error(f"Failed to enrich player data: {e}")
-                logger.warning("Continuing with unenriched data")
+                logger.error(f"Failed to fetch fresh FPL data: {e}")
+                raise
+        else:
+            logger.warning("Returning cached FPL data due to use_cached flag")
         
-        # Step 3: Load player data for processing
+        # Step 2: Load player data for processing
         players_data = self.store.load_player_data()
         if not players_data:
             raise ValueError("No player data available. Run 'fetch' command first.")
         
-        # Extract just the players data
-        if 'players' in players_data:
-            players_data = players_data['players']
-        elif 'player_data' in players_data:
-            players_data = players_data['player_data']
+        players_data = players_data['players']
         
-        # Step 4: Determine embedding usage
-        use_embeddings = use_enrichments and self.config.get_embeddings_config().get('use_embeddings', False)
+        # TODO: Should this be a separate function? This is more processing than fetching?
+
+        # Step 3: Determine embedding usage
+        use_embeddings = self.config.get_embeddings_config().get('use_embeddings', False)
         if use_embeddings:
             logger.info("Using embedding filtering and enrichments")
         else:
             logger.info("Embedding filtering and enrichments disabled")
         
-        # Step 5: Filter players only if requested
-        if filter_players:
+        # Step 4: Filter players only if requested
+        # TODO: Add a filter using default filters - manual, then an approach using enrichment results.
+
+        if filter_unavailable_players:
             filtered_players = self.processor.filter_available_players(
                 players_data, use_embeddings=use_embeddings
             )
@@ -319,112 +173,11 @@ class DataService:
             filtered_players = players_data
             logger.info(f"No filtering applied: {len(filtered_players)} players returned")
         
-        # Step 6: Calculate and inject embedding scores if using embeddings
-        if use_embeddings:
-            try:                
-                # Get the embedding filter to calculate scores
-                embedding_filter = EmbeddingFilter(self.config)
-                enriched_data = self.processor._get_enriched_players(filtered_players)
-                
-                # Get similarities and hybrid scores
-                player_embeddings = embedding_filter._load_cached_embeddings()
-                if player_embeddings and 'embeddings' in player_embeddings:
-                    # Convert string representations back to numpy arrays
-                    converted_embeddings = {}
-                    for player_name, embedding_str in player_embeddings['embeddings'].items():
-                        try:
-                            embedding_array = np.array(json.loads(embedding_str))
-                            converted_embeddings[player_name] = embedding_array
-                        except Exception:
-                            continue
-                    
-                    # TODO: Can this not just be one function in embedding_filter, that runs all this? Would be cleaner.
-
-                    # Get query embeddings and calculate similarities
-                    query_embeddings = embedding_filter._encode_queries()
-                    player_positions = embedding_filter._get_player_positions(enriched_data, filtered_players)
-                    similarities = embedding_filter._calculate_similarities(converted_embeddings, query_embeddings, player_positions)
-                    
-                    # Get hybrid scores for ranking
-                    structured_data = embedding_filter._get_structured_data_for_hybrid_scoring(enriched_data, filtered_players)
-                    hybrid_scores = embedding_filter._calculate_hybrid_scores(similarities, structured_data)
-                    
-                    # Inject scores into player data
-                    for position, ranked_players in hybrid_scores.items():
-                        for player_name, hybrid_score, embedding_score, keyword_bonus in ranked_players:
-                            if player_name in filtered_players:
-                                filtered_players[player_name]['embedding_score'] = embedding_score
-                                filtered_players[player_name]['keyword_bonus'] = keyword_bonus
-                                filtered_players[player_name]['hybrid_score'] = hybrid_score
-                    
-                    logger.info(f"Injected embedding scores for {len(filtered_players)} players")
-                else:
-                    logger.warning("No embeddings cache available, scores will be 0.0")
-            except Exception as e:
-                logger.warning(f"Failed to calculate embedding scores: {e}, scores will be 0.0")
-        
-        # Step 7: Return the filtered players dictionary (formatting happens later when needed)
-        logger.info(f"Processed {len(filtered_players)} players for LLM prompt")
         return filtered_players
-    
-    def get_gameweek_fixtures_formatted(self, gameweek: int) -> str:
-        """
-        Get formatted fixtures for a specific gameweek for use in prompts.
-        
-        Args:
-            gameweek: Gameweek number
-            
-        Returns:
-            Formatted string of fixtures for the gameweek
-        """
-        try:
-            # Get fixtures data (from cache if available)
-            fixtures_data = self.get_fixtures(force_refresh=False)
-            
-            if not fixtures_data or 'fixtures' not in fixtures_data:
-                return f"Error loading fixtures for Gameweek {gameweek}."
-            
-            # Get fixtures for the specific gameweek
-            gameweek_fixtures = self.processor.get_gameweek_fixtures(gameweek, fixtures_data['fixtures'])
-            
-            # Format fixtures for prompt
-            return self.processor.format_fixtures_for_prompt(gameweek_fixtures, gameweek)
-            
-        except Exception as e:
-            logger.error(f"Failed to get formatted fixtures for gameweek {gameweek}: {e}")
-            return f"Error loading fixtures for Gameweek {gameweek}."
-    
-    def get_all_gameweek_data(self, gameweek: int, use_cached: bool = False, 
-                             use_enrichments: bool = True,
-                             filter_players: bool = False) -> Dict[str, Any]:
-        """
-        Get all data needed for a gameweek in one call.
-        
-        Args:
-            gameweek: Gameweek number
-            use_cached: If True, use only cached data. If False, fetch fresh data.
-            use_enrichments: Whether to include expert insights and injury news
-            filter_players: If True, apply availability filters. If False, return all players.
-            
-        Returns:
-            Dictionary containing players and fixtures data
-        """
-        players = self.get_processed_players(
-            use_cached=use_cached,      # Use cache when use_cached is True
-            use_enrichments=use_enrichments,
-            filter_players=filter_players  # Pass through filtering preference
-        )
-        fixtures = self.get_gameweek_fixtures_formatted(gameweek)
-        
-        return {
-            'players': players,
-            'fixtures': fixtures
-        }
 
     def show_data_status(self, data_store: DataStore) -> Dict[str, Any]:
         """
         Display current data status.
-        Moved from main.py to consolidate data status operations.
         
         Args:
             data_store: DataStore instance for loading player data
@@ -432,10 +185,7 @@ class DataService:
         Returns:
             Dictionary containing data status information
         """
-        try:
-            print("📊 FPL Data Status")
-            print("=" * 50)
-            
+        try:            
             # Check data freshness using DataStore
             fpl_data = data_store.load_player_data()
             fpl_age_hours = None
@@ -485,74 +235,9 @@ class DataService:
                 data_status['overall_status'] = 'fpl_only'
             else:
                 data_status['overall_status'] = 'none'
-            
-            # FPL Data Status
-            print(f"\n🔄 FPL Data:")
-            if data_status['fpl_data']['available']:
-                age = data_status['fpl_data']['age_hours']
-                status = "✅ Fresh" if data_status['fpl_data']['fresh'] else "⚠️  Stale"
-                print(f"   • Status: {status}")
-                print(f"   • Age: {age:.1f} hours")
-                print(f"   • Last updated: {datetime.now().timestamp() - (age * 3600):.0f} seconds ago")
-            else:
-                print("   • Status: ❌ Not available")
-                print("   • Action: Run 'fetch' command")
-            
-            # Enriched Data Status
-            print(f"\n🧠 Enriched Data:")
-            if data_status['enriched_data']['available']:
-                age = data_status['enriched_data']['age_hours']
-                status = "✅ Fresh" if data_status['enriched_data']['fresh'] else "⚠️  Stale"
-                print(f"   • Status: {status}")
-                print(f"   • Age: {age:.1f} hours")
-                print(f"   • Last updated: {datetime.now().timestamp() - (age * 3600):.0f} seconds ago")
-            else:
-                print("   • Status: ❌ Not available")
-                print("   • Action: Run 'enrich' command")
-            
-            # Embeddings Status
-            print(f"\n🔍 Embeddings:")
-            if data_status['embeddings']['available']:
-                age = data_status['embeddings']['age_hours']
-                status = "✅ Fresh" if data_status['embeddings']['fresh'] else "⚠️  Stale"
-                print(f"   • Status: {status}")
-                print(f"   • Age: {age:.1f} hours")
-            else:
-                print("   • Status: ❌ Not available")
-            
-            # Overall Status
-            print(f"\n📋 Overall Status:")
-            overall = data_status['overall_status']
-            if overall == 'fresh':
-                print("   • Status: ✅ All data is fresh and ready")
-                print("   • Action: Ready for team building/updates")
-            elif overall == 'stale':
-                print("   • Status: ⚠️  Data is available but stale")
-                print("   • Action: Consider running 'gw-update' or 'build-team' with --force-all")
-            elif overall == 'partial':
-                print("   • Status: ⚠️  Partial data available")
-                print("   • Action: Run 'enrich' to complete data preparation")
-            elif overall == 'fpl_only':
-                print("   • Status: ⚠️  Only FPL data available")
-                print("   • Action: Run 'enrich' to add LLM insights")
-            else:
-                print("   • Status: ❌ No data available")
-                print("   • Action: Run 'fetch' to get started")
-            
-            # Recommendations
-            print(f"\n💡 Recommendations:")
-            if data_status['overall_status'] == 'fresh':
-                print("   • All data is fresh - ready for team operations")
-            elif data_status['overall_status'] in ['stale', 'partial']:
-                print("   • Run 'gw-update' for complete weekly refresh")
-                print("   • Or run 'build-team' with --force-all for fresh team")
-            else:
-                print("   • Start with 'fetch' to get FPL data")
-                print("   • Then 'enrich' to add insights")
-                print("   • Finally 'build-team' or 'gw-update'")
-            
+
             return data_status
-            
+                        
         except Exception as e:
             logger.error(f"Failed to show data status: {e}")
             print(f"❌ Error showing data status: {e}")
@@ -570,6 +255,8 @@ class DataService:
         Returns:
             Dictionary containing player status information
         """
+
+        # TODO: sort this mess out - common too long, move some to display. Work out what it's trying to do.
         try:
             print("👥 FPL Players Status")
             print("=" * 50)
@@ -793,14 +480,14 @@ class DataService:
     
     def get_current_team_player_data(self, current_team: Dict[str, Any], 
                                     use_enrichments: bool = False,
-                                    force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+                                    use_cached: bool = False) -> Dict[str, Dict[str, Any]]:
         """
         Get comprehensive data for all players in the current team.
         
         Args:
             current_team: Current team data from gwNN.json
             use_enrichments: Whether to include expert insights and injury news
-            force_refresh: Whether to force fresh data fetch
+            use_cached: Whether to use cached data only
             
         Returns:
             Dictionary of player data indexed by full name, including:
@@ -819,7 +506,7 @@ class DataService:
             player_names = [player['name'] for player in team_players]
             
             # 2. Get current market data for these specific players
-            all_players_data = self.get_players(force_refresh=force_refresh)
+            all_players_data = self.get_players(use_cached=use_cached)
             current_market_data = {
                 name: all_players_data[name] 
                 for name in player_names 
@@ -837,7 +524,7 @@ class DataService:
             # 4. Get enriched data if requested
             enriched_data = {}
             if use_enrichments:
-                enriched_data = self._get_team_enrichments(player_names, force_refresh)
+                enriched_data = self._get_team_enrichments(player_names, use_cached)
             
             # 5. Merge all data sources
             final_player_data = {}
@@ -890,13 +577,13 @@ class DataService:
             logger.error(f"Failed to get current team player data: {e}")
             raise
     
-    def _get_team_enrichments(self, player_names: List[str], force_refresh: bool) -> Dict[str, Dict[str, Any]]:
+    def _get_team_enrichments(self, player_names: List[str], use_cached: bool) -> Dict[str, Dict[str, Any]]:
         """
         Get enriched data (expert insights and injury news) for specific players.
         
         Args:
             player_names: List of player names to enrich
-            force_refresh: Whether to force fresh enrichment
+            use_cached: Whether to use cached data only
             
         Returns:
             Dictionary of enriched data indexed by player name
@@ -904,7 +591,7 @@ class DataService:
         try:
             # Load existing enriched data from cache
             cached_data = self.store.load_player_data()
-            if not cached_data or force_refresh:
+            if not cached_data or use_cached:
                 logger.info("No enriched data available or force refresh requested")
                 return {}
             

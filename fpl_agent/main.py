@@ -4,7 +4,7 @@ Main FPL Agent application
 
 import logging
 import sys
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from datetime import datetime
 import argparse
 
@@ -12,10 +12,11 @@ from .core.config import Config
 from .core.team_manager import TeamManager
 from .data import DataService
 from .data.data_store import DataStore
-from .data.data_processor import DataProcessor
+from .utils.team_utils import group_players_by_team, get_team_fixture_info
 from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
 from .utils.display import display_comprehensive_team_result, display_fetch_results
+from .data.embedding_filter import EmbeddingFilter
 
 
 # Configure logging
@@ -56,91 +57,197 @@ class FPLAgent:
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
-    def fetch_fpl_data(self, use_cached: bool = False, no_enrichments: bool = False) -> None:
+    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = True, gameweek: Optional[int] = None, filter_unavailable_players: Optional[bool] = False) -> None:
         """Fetch both FPL player data and fixtures data"""
         try:
             if use_cached:
                 logger.info("Loading cached FPL data...")
             else:
                 logger.info("Fetching fresh FPL data...")
-            
+
+            if gameweek is None:
+                gameweek = self.data_service.fetcher.get_current_gameweek() or 1
+
             # For fetch command, don't filter players - show all data
             all_gameweek_data = self.data_service.get_all_gameweek_data(
-                gameweek=1,  # Default to gameweek 1 for initial fetch
+                gameweek=gameweek,
                 use_cached=use_cached,
-                use_enrichments=not no_enrichments,
-                filter_players=False  # Show all players, not just available ones
+                filter_unavailable_players=filter_unavailable_players  # Show all players, not just available ones
             )
+
+            if use_enrichments:
+                # If using enrichments, gets ranking by default too.
+                self.enrich(all_gameweek_data, gameweek)
             
             display_fetch_results({
                 'total_players': len(all_gameweek_data['players']),
                 'total_fixtures': len(all_gameweek_data['fixtures']),
                 'fetched_at': datetime.now().isoformat()
             }, use_cached)
+
+            return all_gameweek_data
             
         except Exception as e:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich(self) -> Dict[str, Any]:
-        """Enrich player data with LLM insights"""
+    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True) -> Dict[str, Any]:
+        """Enrich player data with LLM insights including expert insights and injury news"""
         try:
             logger.info("Enriching player data with LLM insights...")
-            
-            # Load current player data
-            players_data = self.data_store.get_players_data()
-            if not players_data:
-                raise ValueError("No player data available for enrichment")
-            
-            print(f"📊 Enriching {len(players_data)} players from {len(set(player.get('team_name') for player in players_data.values()))} teams...")
-            
-            data_processor = DataProcessor(self.config)
+
+            if gameweek is None:
+                gameweek = self.data_service.fetcher.get_current_gameweek() or 1
+
+            if all_gameweek_data is None:
+                # Fetch all gameweek data in one call
+                # For team building, filter players to only show available ones
+                all_gameweek_data = self.fetch_fpl_data(
+                    use_cached=False, 
+                    use_enrichments=True, 
+                    gameweek=gameweek, 
+                    filter_unavailable_players=False
+                )
+
+            # Group players by team
+            team_players = group_players_by_team(all_gameweek_data['players'])
+
+            # Get enrichments by team
+            print(f"📊 Enriching {len(all_gameweek_data['players'])} players from {len(set(player.get('team_name') for player in all_gameweek_data['players'].values()))} teams...")
+
             team_analysis_strategy = TeamAnalysisStrategy(self.config)
             
-            # Enrich the player data
-            enriched_players = data_processor.enrich_player_data_by_teams(players_data, team_analysis_strategy)
+            logger.info(f"Processing {len(team_players)} Premier League teams for enrichment")
             
-            # Add enrichment timestamp
+            # Process each team sequentially
+            for i, team_name in enumerate(team_players.keys(), 1):
+                try:
+                    logger.info(f"Processing team {i}/{len(team_players)}: {team_name}")
+                    print(f"🔄 Processing {team_name}... ({i}/{len(team_players)} teams)")
+                    
+                    # Get players for this team
+                    team_player_list = team_players[team_name]
+                    
+                    # Get fixture information for this team
+                    fixture_info = get_team_fixture_info(team_name, all_gameweek_data['fixtures'], gameweek)
+                    
+                    # Get expert insights from LLM strategy
+                    expert_insights = team_analysis_strategy.get_team_hints_tips(team_name, team_player_list, gameweek, fixture_info)
+                    
+                    # Get injury news from LLM strategy
+                    injury_news = team_analysis_strategy.get_team_injury_news(team_name, team_player_list, gameweek, fixture_info)
+                    
+                    # Apply enriched data to players
+                    self._add_enrichments_to_players(all_gameweek_data['players'], team_player_list, expert_insights, injury_news)
+                    
+                    print(f"   ✅ Team data enriched for {team_name}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process team {team_name}: {e}")
+                    print(f"   ❌ Team processing failed for {team_name}: {e}")
+                    continue
+            
+            logger.info("Player enrichment completed")
+
+            if rank_players:
+                # Calculate embedding scores using EmbeddingFilter
+                embedding_filter = EmbeddingFilter(self.config)
+                player_embeddings = embedding_filter.calculate_player_embeddings(all_gameweek_data['players'], use_cached=False)
+                player_embedding_scores = embedding_filter.calculate_player_embedding_scores(player_embeddings)
+                
+                # Add embedding scores to players
+                if player_embeddings:
+                    self._add_embedding_scores_to_players(all_gameweek_data['players'], player_embedding_scores)
+                    print(f"✅ Added embedding scores for {len(player_embedding_scores)} players")
+                else:
+                    print("⚠️  No embedding scores calculated")
+            
+            # Save enriched data
             enriched_data = {
-                'players': enriched_players,
-                'enrichment_timestamp': datetime.now().isoformat(),
-                'enrichment_status': 'completed',
-                'total_players_enriched': len(enriched_players)
+                'players': all_gameweek_data['players'],
+                'enrichment_timestamp': datetime.now().isoformat()
             }
             
-            # Store enriched data back to data store
-            self.data_store.save_player_data(enriched_data)
-            
-            print(f"✅ Successfully enriched {len(enriched_players)} players")
+            self.data_service.store.save_player_data(enriched_data)
+            print(f"✅ Successfully enriched player data for {len(team_players)} teams")
                 
         except Exception as e:
             logger.error(f"Failed to enrich player data: {e}")
             print(f"❌ Error enriching player data: {e}")
+        
+    def _add_enrichments_to_players(self, players_data: Dict[str, Dict[str, Any]], 
+                                      team_players: List[Dict[str, Any]], 
+                                      expert_insights: Dict[str, str],
+                                      injury_news: Dict[str, str]) -> None:
+        """Apply enriched data to player records."""
+        for player in team_players:
+            player_name = player['full_name']
+            if player_name in players_data:
+                players_data[player_name]['expert_insights'] = expert_insights.get(
+                    player_name, "No expert insights available"
+                )
+                players_data[player_name]['injury_news'] = injury_news.get(
+                    player_name, "No injury news available"
+                )
+    
+    def _add_embedding_scores_to_players(self, players_data: Dict[str, Dict[str, Any]], 
+                                        embedding_scores: Dict[str, Dict[str, Any]]) -> None:
+        """Add embedding scores to players."""
+        for player_name, scores in embedding_scores.items():
+            if player_name in players_data:
+                players_data[player_name].update(scores)
     
     def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
-                   cached_only: bool = False, no_enrichments: bool = False, prompt_only: bool = False,
+                   cached_only: bool = False, rag_mode: str = "ranked_enrichments", prompt_only: bool = False,
                    save_team: bool = False) -> None:
-        """Build new team using LLM strategy"""
+        """Build new team using LLM strategy
+        
+        Args:
+            budget: Team budget (£)
+            gameweek: Gameweek number (Default: current gameweek)
+            cached_only: Use cached data only (Default: False)
+            rag_mode: RAG strategy to use for team building (Default: "ranked_enrichments")
+                - "none": No enrichments, no ranking
+                - "enrichments": Use enrichments, no ranking
+                - "ranked_enrichments": Enrichments + ranking
+            prompt_only: Show the prompt that would be sent to the LLM (for debugging) (Default: False)
+            save_team: Save the created team to a JSON file (Default: False)
+        """
         try:
             print("⚽ Building new FPL team...")
+            print(f"🔄 Using RAG mode: {rag_mode}")
+
+            if rag_mode == "none":
+                use_enrichments = False
+                use_ranking = False
+            elif rag_mode == "enrichments":
+                use_enrichments = True
+                use_ranking = False
+            elif rag_mode == "ranked_enrichments":
+                use_enrichments = True
+                use_ranking = True
+            else:
+                raise ValueError(f"Invalid rag_mode: {rag_mode}")
             
-            # Get all gameweek data in one call
+            # Fetch all gameweek data in one call
             # For team building, filter players to only show available ones
-            all_gameweek_data = self.data_service.get_all_gameweek_data(
-                gameweek=gameweek or 1,
-                use_cached=cached_only,
-                use_enrichments=not no_enrichments,
-                filter_players=True  # Filter to only available players for team building
+            all_gameweek_data = self.fetch_fpl_data(
+                use_cached=cached_only, 
+                use_enrichments=use_enrichments, 
+                gameweek=gameweek, 
+                filter_unavailable_players=True
             )
+
             print(f"✅ Gameweek data loaded")
             
             # Build team using LLM strategy
             print(f"\n⚽ Building team with £{budget}m budget...")
             team_result = self.llm_strategy.create_team(
                 budget=budget,
-                gameweek=gameweek or 1,
+                gameweek=gameweek,
                 all_gameweek_data=all_gameweek_data,
-                use_enrichments=not no_enrichments,
+                use_enrichments=use_enrichments,
+                use_ranking=use_ranking,
                 prompt_only=prompt_only
             )
             
@@ -154,7 +261,7 @@ class FPLAgent:
             
             # Save team if requested
             if save_team:
-                self.team_manager.save_new_team(team_result, gameweek or 1)
+                self.team_manager.save_new_team(team_result, gameweek)
                 print("✅ Team saved successfully!")
             else:
                 print("✅ Team building complete (not saved)")
@@ -168,31 +275,57 @@ class FPLAgent:
             raise
 
     def gw_update(self, gameweek: Optional[int] = None, cached_only: bool = False, 
-                  no_enrichments: bool = False, prompt_only: bool = False,
+                  rag_mode: str = "ranked_enrichments", prompt_only: bool = False,
                   save_team: bool = False) -> None:
-        """Complete weekly gameweek update using LLM strategy"""
+        """Complete weekly gameweek update using LLM strategy
+        
+        Args:
+            gameweek: Gameweek number (Default: current gameweek)
+            cached_only: Use cached data only (Default: False)
+            rag_mode: RAG strategy to use for team building (Default: "ranked_enrichments")
+                - "none": No enrichments, no ranking
+                - "enrichments": Use enrichments, no ranking
+                - "ranked_enrichments": Enrichments + ranking
+            prompt_only: Show the prompt that would be sent to the LLM (for debugging) (Default: False)
+            save_team: Save the created team to a JSON file (Default: False)
+        """
+        
         try:
             print("🔄 Starting weekly FPL update...")
+            print(f"🔄 Using RAG mode: {rag_mode}")
+            
+            if rag_mode == "none":
+                use_enrichments = False
+                use_ranking = False
+            elif rag_mode == "enrichments":
+                use_enrichments = True
+                use_ranking = False
+            elif rag_mode == "ranked_enrichments":
+                use_enrichments = True
+                use_ranking = True
+            else:
+                raise ValueError(f"Invalid rag_mode: {rag_mode}")
             
             # Get all team context in one call (includes automatic free hit revert)
             team_context = self.team_manager.get_team_context(gameweek or 1)
             print(f"✅ Team context loaded for gameweek {team_context['gameweek']}")
             
-            # Get all gameweek data in one call
-            # For team updates, filter players to only show available ones
-            all_gameweek_data = self.data_service.get_all_gameweek_data(
-                gameweek=gameweek or 1,
-                use_cached=cached_only,  # Use cached data if requested
-                use_enrichments=not no_enrichments,
-                filter_players=True  # Filter to only available players for team updates
+            # Fetch all gameweek data in one call
+            # For team building, filter players to only show available ones
+            all_gameweek_data = self.fetch_fpl_data(
+                use_cached=cached_only, 
+                use_enrichments=use_enrichments, 
+                gameweek=gameweek, 
+                filter_unavailable_players=True
             )
+
             print(f"✅ Gameweek data loaded")
             
             # Get data for current team players
             current_team_player_data = self.data_service.get_current_team_player_data(
                 current_team=team_context['team'],
-                use_enrichments=not no_enrichments,
-                force_refresh=not cached_only
+                use_enrichments=use_enrichments,
+                use_cached=cached_only
             )
             print(f"✅ Current team player data loaded")
 
@@ -204,7 +337,8 @@ class FPLAgent:
             team_result = self.llm_strategy.update_team_weekly(
                 team_context=team_context,
                 all_gameweek_data=all_gameweek_data,
-                use_enrichments=not no_enrichments,
+                use_enrichments=use_enrichments,
+                use_ranking=use_ranking,
                 prompt_only=prompt_only
             )
             
@@ -302,8 +436,10 @@ def main():
     # Smart data flags
     parser.add_argument('--cached-only', action='store_true',
                        help='Use ONLY cached data (no API calls or enrichment). For fetch command: use stored data instead of fresh fetch.')
-    parser.add_argument('--no-enrichments', action='store_true',
-                       help='Do not use enrichments with expert insights or injury news, just basic data')
+    parser.add_argument('--use-enrichments', action='store_true',
+                       help='Use enrichments with expert insights or injury news, just basic data (default: True)')
+    parser.add_argument('--rag-mode', choices=['none', 'enrichments', 'ranked_enrichments'], default='ranked_enrichments',
+                       help='RAG mode to use for team building and weekly updates (default: ranked_enrichments)')
     
     # Common options
     parser.add_argument('--budget', type=float, default=100.0,
@@ -328,7 +464,7 @@ def main():
             # Fetch fresh FPL data (always fresh unless --cached flag)
             fpl_agent.fetch_fpl_data(
                 use_cached=args.cached_only, 
-                no_enrichments=args.no_enrichments
+                use_enrichments=args.use_enrichments
             )
             
         elif args.command == 'enrich':
@@ -340,7 +476,7 @@ def main():
                 budget=args.budget,
                 gameweek=args.gameweek,
                 cached_only=args.cached_only,
-                no_enrichments=args.no_enrichments,
+                rag_mode=args.rag_mode,
                 prompt_only=args.show_prompt
             )
             
@@ -352,7 +488,7 @@ def main():
             fpl_agent.gw_update(
                 gameweek=args.gameweek or 1,
                 cached_only=args.cached_only,
-                no_enrichments=args.no_enrichments,
+                rag_mode=args.rag_mode,
                 prompt_only=args.show_prompt
             )
             

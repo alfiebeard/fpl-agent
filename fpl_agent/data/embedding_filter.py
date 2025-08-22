@@ -206,32 +206,16 @@ class EmbeddingFilter:
             logger.error(f"Failed to encode queries: {e}")
             raise
     
-    def _get_player_positions(self, enriched_data: Dict[str, str], players_data: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+    def _get_player_positions(self, player_data: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
         """Extract player positions from enriched data"""
         player_positions = {}
         
-        # Extract positions from the players_data passed in
-        for player_name in enriched_data.keys():
-            if player_name in players_data:
-                position = players_data[player_name].get('position', 'UNK')
-                player_positions[player_name] = position
+        # Extract positions from the player_data passed in
+        for player_name in player_data.keys():
+            position = player_data[player_name].get('element_type', 'UNK')
+            player_positions[player_name] = position
         
         return player_positions
-    
-    def _get_structured_data_for_hybrid_scoring(self, enriched_data: Dict[str, str], players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Get structured data needed for hybrid scoring"""
-        try:
-            # Extract structured data from the players_data passed in
-            structured_data = {}
-            for player_name in enriched_data.keys():
-                if player_name in players_data:
-                    structured_data[player_name] = players_data[player_name]
-            
-            return structured_data
-            
-        except Exception as e:
-            logger.warning(f"Failed to get structured data for hybrid scoring: {e}")
-            return {}
     
     def _calculate_similarities(self, player_embeddings: Dict[str, np.ndarray], 
                               query_embeddings: Dict[str, np.ndarray],
@@ -471,8 +455,105 @@ class EmbeddingFilter:
         
         logger.info(f"Filtering complete: {len(filtered_data)} players selected from {len(enriched_data)} total")
         
-        return filtered_data 
+        return filtered_data
     
+    def calculate_player_embeddings(self, players_data: Dict[str, Dict[str, Any]], use_cached: bool = False) -> Dict[str, np.ndarray]:
+        """
+        Calculate embeddings for all players and save embeddings to player_embeddings.json.
+        
+        This method calculates embeddings and returns them for use in scoring.
+        Embeddings are saved to player_embeddings.json.
+        
+        Args:
+            players_data: Dictionary of player data to calculate embeddings for
+            use_cached: If True, use cached player embeddings. If False, generate fresh embeddings.
+            
+        Returns:
+            Dictionary mapping player names to their embedding vectors (numpy arrays)
+        """
 
+        try:
+            logger.info("Starting calculation of embedding scores for all players...")
+            
+            if use_cached:
+                # Load cached embeddings - error if not available
+                player_embeddings = self._load_cached_embeddings()
+                if not player_embeddings or 'embeddings' not in player_embeddings:
+                    raise ValueError("Cached embeddings requested but none available. Run with use_cached=False to generate fresh embeddings.")
+                logger.info("Using cached embeddings")
+                # Return the raw cached embeddings (will be converted below)
+                return player_embeddings['embeddings']
+            else:
+                # Always generate fresh embeddings
+                logger.info("Generating fresh embeddings from player data...")
+                try:
+                    # Generate embeddings for all players
+                    player_embeddings = self._encode_players(players_data)
+                    
+                    # Cache the new embeddings
+                    cacheable_embeddings = {}
+                    for player_name, embedding in player_embeddings.items():
+                        cacheable_embeddings[player_name] = json.dumps(embedding.tolist())
+                    
+                    self._save_embeddings_cache(cacheable_embeddings)
+                    logger.info(f"Generated and cached embeddings for {len(player_embeddings)} players")
+                    
+                    # Return the fresh embeddings directly (no need to reload)
+                    return player_embeddings
+                    
+                except Exception as e:
+                    logger.error(f"Failed to generate embeddings: {e}")
+                    raise
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate embeddings: {e}")
+            raise
     
- 
+    def calculate_player_embedding_scores(self, player_embeddings: Dict[str, np.ndarray], 
+                                        players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """
+        Calculate embedding scores for players using existing embeddings.
+        
+        Args:
+            player_embeddings: Dictionary of player embeddings (numpy arrays)
+            players_data: Dictionary of player data for context
+            
+        Returns:
+            Dictionary mapping player names to their scores and rankings
+        """
+        try:
+            logger.info("Starting calculation of embedding scores for players...")
+            
+            # Get position queries for similarity calculation
+            query_embeddings = self._encode_queries()
+            
+            # Get player positions directly from players_data
+            player_positions = self._get_player_positions(players_data)
+            
+            # Calculate similarities between players and position queries
+            similarities = self._calculate_similarities(player_embeddings, query_embeddings, player_positions)
+            
+            # Calculate hybrid scores
+            hybrid_scores = self._calculate_hybrid_scores(similarities, players_data)
+            
+            # Format and return results
+            player_scores = {}
+            scores_added = 0
+            
+            for ranked_players in hybrid_scores.values():
+                for rank, (player_name, hybrid_score, embedding_score, keyword_bonus) in enumerate(ranked_players, 1):
+                    if player_name in players_data:
+                        player_scores[player_name] = {
+                            'embedding_score': embedding_score,
+                            'keyword_bonus': keyword_bonus,
+                            'hybrid_score': hybrid_score,
+                            'position_rank': rank
+                        }
+                        scores_added += 1
+            
+            logger.info(f"Successfully calculated embedding scores for {scores_added} players")
+            return player_scores
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate embedding scores: {e}")
+            raise

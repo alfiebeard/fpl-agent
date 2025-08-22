@@ -52,27 +52,6 @@ class DataStore:
             logger.error(f"Failed to load player data: {e}")
             return None
     
-    def get_players_data(self) -> Optional[Dict[str, Dict[str, Any]]]:
-        """
-        Get just the players data from the stored file.
-        
-        Returns:
-            Dictionary of players keyed by full name, or None if no data
-        """
-        full_data = self.load_player_data()
-        if not full_data:
-            return None
-        
-        # Handle both old and new data formats
-        if 'players' in full_data:
-            return full_data['players']
-        elif 'player_data' in full_data:
-            # Legacy format - convert to new format
-            return full_data['player_data']
-        else:
-            # Assume the data itself is the players data
-            return full_data
-    
     def save_player_data(self, player_data: Dict[str, Any]) -> None:
         """
         Save player data to JSON file.
