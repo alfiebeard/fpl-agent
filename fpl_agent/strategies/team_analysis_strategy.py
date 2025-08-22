@@ -25,7 +25,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Args:
             config: FPL configuration object
         """
-        super().__init__(config, model_name="main")
+        super().__init__(config, model_name="lightweight")
         self.validator = FPLValidator("team_data")  # Use default data directory
     
     def get_strategy_name(self) -> str:
@@ -48,11 +48,8 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         logger.info(f"Getting hints and tips for {team_name}")
         
         try:
-            # Format players for the prompt
-            formatted_players = PromptFormatter.format_player_list(team_players, use_enrichments=True, use_ranking=False)
-            
             # Create the prompt
-            prompt = self._create_hints_tips_prompt(team_name, formatted_players, current_gameweek, fixture_info)
+            prompt = self._create_hints_tips_prompt(team_name, team_players, current_gameweek, fixture_info)
             
             # Debug: Log the prompt being sent
             logger.info(f"Prompt for hints/tips (length: {len(prompt)}): {prompt[:500]}...")
@@ -64,7 +61,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract insights for each player
-            return self._parse_hints_tips_response(response, formatted_players)
+            return self._parse_hints_tips_response(response)
             
         except Exception as e:
             logger.error(f"Failed to get hints and tips for {team_name}: {e}")
@@ -80,18 +77,15 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             team_players: List of player data for the team
             current_gameweek: Current gameweek number
             fixture_info: Dictionary containing fixture information
-            
+
         Returns:
             Dictionary mapping player names to injury news
         """
         logger.info(f"Getting injury news for {team_name}")
         
-        try:
-            # Format players for the prompt
-            formatted_players = PromptFormatter.format_player_list(team_players, use_enrichments=True, use_ranking=False)
-            
+        try:            
             # Create the prompt
-            prompt = self._create_injury_news_prompt(team_name, formatted_players, current_gameweek, fixture_info)
+            prompt = self._create_injury_news_prompt(team_name, team_players, current_gameweek, fixture_info)
             
             # Debug: Log the prompt being sent
             logger.info(f"Prompt for injury news (length: {len(prompt)}): {prompt[:500]}...")
@@ -103,15 +97,25 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract injury news for each player
-            return self._parse_injury_news_response(response, formatted_players)
+            return self._parse_injury_news_response(response)
             
         except Exception as e:
             logger.error(f"Failed to get injury news for {team_name}: {e}")
             # Return empty injury news on failure
             return {}
     
-    def _create_hints_tips_prompt(self, team_name: str, formatted_players: str, current_gameweek: int, fixture_info: dict) -> str:
-        """Create the hints and tips prompt"""
+    def _create_hints_tips_prompt(self, team_name: str, team_players: Dict[str, Any], current_gameweek: int, fixture_info: dict) -> str:
+        """Create the hints and tips prompt
+        
+        Args:
+            team_name: Name of the team
+            formatted_players: Formatted players for the prompt
+            current_gameweek: Current gameweek number
+            fixture_info: Dictionary containing fixture information
+
+        Returns:
+            The prompt as a string
+        """
         # Get fixture information
         fixture_str = fixture_info['fixture_str']
         is_double_gameweek = fixture_info['is_double_gameweek']
@@ -125,8 +129,8 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
 This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are facing {fixture_str}. {double_gameweek_text} The fixture difficulty for {team_name} is {fixture_difficulty}.
 
 Current {team_name} squad:
-{formatted_players}
 
+{PromptFormatter.format_player_list(team_players, use_enrichments=False, use_ranking=False, show_header=False)}
 For each player, provide a short sentence summarising the hints, tips and recommendations.
 
 The short sentence should be of the format: INSERT_PLAYER_TIP_STATUS - a short summary of the reason for the decision INSERT_PLAYER_TIP_STATUS based on your research on the players hints, tips and recommendations for the gameweek.
@@ -156,7 +160,7 @@ Keep each player's information brief but informative.
 
 IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure."""
     
-    def _create_injury_news_prompt(self, team_name: str, formatted_players: str, current_gameweek: int, fixture_info: dict) -> str:
+    def _create_injury_news_prompt(self, team_name: str, team_players: Dict[str, Any], current_gameweek: int, fixture_info: dict) -> str:
         """Create the injury news prompt"""
         # Get fixture information
         fixture_str = fixture_info['fixture_str']
@@ -171,8 +175,8 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
 This is gameweek {current_gameweek} of the 2025/2026 season and {team_name} are {fixture_str}. {double_gameweek_text} The fixture difficulty for {team_name} is {fixture_difficulty}. 
 
 Current {team_name} squad:
-{formatted_players}
 
+{PromptFormatter.format_player_list(team_players, use_enrichments=False, use_ranking=False, show_header=False)}
 For each player, provide a short sentence summarising the injury news and playing likelihood.
 
 The short sentence should be of the format: INSERT_PLAYING_LIKELIHOOD - a short summary of the reason for the decision INSERT_PLAYING_LIKELIHOOD based on your research on the players availability for the gameweek.
@@ -201,13 +205,18 @@ Keep each player's information brief but informative.
 
 IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure."""
     
-    def _parse_hints_tips_response(self, response: str, formatted_players: str) -> Dict[str, str]:
+    def _parse_hints_tips_response(self, response: str) -> Dict[str, str]:
         """Parse LLM response to extract hints and tips for each player."""
         try:
             import json
             
             # Debug: Log the raw response
             logger.info(f"Raw LLM response for hints/tips (length: {len(response)}): {repr(response[:500])}")
+            
+            # Check if response is an error message
+            if response.startswith('Error:'):
+                logger.error(f"LLM returned error: {response}")
+                return {}
             
             # Try to extract JSON from the response
             response_text = response.strip()
@@ -236,13 +245,18 @@ IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, e
             # Return empty dict on parsing failure
             return {}
     
-    def _parse_injury_news_response(self, response: str, formatted_players: str) -> Dict[str, str]:
+    def _parse_injury_news_response(self, response: str) -> Dict[str, str]:
         """Parse LLM response to extract injury news for each player."""
         try:
             import json
             
             # Debug: Log the raw response
             logger.info(f"Raw LLM response for injury news (length: {len(response)}): {repr(response[:500])}")
+            
+            # Check if response is an error message
+            if response.startswith('Error:'):
+                logger.error(f"LLM returned error: {response}")
+                return {}
             
             # Try to extract JSON from the response
             response_text = response.strip()

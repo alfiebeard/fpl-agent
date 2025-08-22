@@ -110,15 +110,36 @@ class LLMEngine:
             
             # Extract text from content parts
             content_parts = candidate.content.parts
-            if not content_parts:
+            if content_parts is None or not content_parts:
                 logger.warning(f"LLM response content has no parts. Content: {candidate.content}")
                 logger.debug(f"Content attributes: {dir(candidate.content)}")
-                # Try alternative ways to get text
-                if hasattr(candidate.content, 'text'):
+                
+                # When parts is None, try to get text directly from content
+                if hasattr(candidate.content, 'text') and candidate.content.text:
                     response_text = candidate.content.text.strip()
                     if response_text:
-                        logger.info("Found text in content.text")
+                        logger.info("Found text in content.text (parts was None)")
                         return response_text
+                
+                # Try other potential text attributes
+                for attr in ['text', 'content', 'message', 'response']:
+                    if hasattr(candidate.content, attr):
+                        attr_value = getattr(candidate.content, attr)
+                        if attr_value and isinstance(attr_value, str):
+                            response_text = attr_value.strip()
+                            if response_text:
+                                logger.info(f"Found text in content.{attr}")
+                                return response_text
+                
+                # If all else fails, try to convert the entire content object to string
+                try:
+                    content_str = str(candidate.content)
+                    if content_str and content_str != str(type(candidate.content)):
+                        logger.info("Extracted text from content string representation")
+                        return content_str
+                except:
+                    pass
+                
                 return "Error: Empty response parts from LLM"
             
             # Get text from the first part

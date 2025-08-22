@@ -15,23 +15,13 @@ from .fetch_fpl import FPLDataFetcher
 from .data_store import DataStore
 from .data_processor import DataProcessor
 from ..utils.fpl_calculations import calculate_fpl_sale_price
+from ..utils.keyword_extractor import extract_injury_status
 
 logger = logging.getLogger(__name__)
 
 
 class DataService:
     """Single interface for all FPL data operations"""
-    
-    # Default filters for available players
-    _DEFAULT_FILTERS = {
-        'exclude_injured': True,
-        'exclude_unavailable': True,
-        'min_chance_of_playing': 25,
-        'min_minutes': 0,
-        'max_price': float('inf'),
-        'min_form': float('-inf'),
-        'positions': ['GK', 'DEF', 'MID', 'FWD']
-    }
     
     def __init__(self, config: Config):
         """
@@ -46,21 +36,21 @@ class DataService:
         self.processor = DataProcessor(config)
 
     def get_all_gameweek_data(self, gameweek: int, use_cached: bool = False, 
-                             filter_unavailable_players: bool = False) -> Dict[str, Any]:
+                             filter_unavailable_players_mode: str = "no_filter") -> Dict[str, Any]:
         """
         Get all fpl and fixture data needed for a gameweek in one call.
         
         Args:
             gameweek: Gameweek number
             use_cached: If True, return cached data. If False, fetch fresh data.
-            filter_unavailable_players: If True, apply availability filters. If False, return all players.
+            filter_unavailable_players_mode: If "fpl_data_and_enrichments", apply availability filters using both FPL data and enrichments. If "fpl_data_only", apply availability filters using FPL data only. If "no_filter", return all players.
             
         Returns:
             Dictionary containing players and fixtures data
         """
         players = self.get_players(
             use_cached=use_cached,      # Use cache when use_cached is True
-            filter_unavailable_players=filter_unavailable_players  # Pass through filtering preference
+            filter_unavailable_players_mode=filter_unavailable_players_mode  # Pass through filtering preference
         )
         
         # Get raw fixtures data for the gameweek
@@ -74,6 +64,47 @@ class DataService:
             'players': players,
             'fixtures': gameweek_fixtures  # Raw fixture data for processing
         }
+    
+    def get_players(self, use_cached: bool = False, filter_unavailable_players_mode: str = "no_filter") -> Dict[str, Dict[str, Any]]:
+        """
+        Get players data with smart caching.
+        
+        Args:
+            use_cached: If True, use only cached data. If False, fetch fresh data.
+            filter_unavailable_players_mode: If "fpl_data_and_enrichments", apply availability filters using both FPL data and enrichments. If "fpl_data_only", apply availability filters using FPL data only. If "no_filter", return all players.
+            
+        Returns:
+            Dictionary of processed player data keyed by player name
+        """
+        
+        # Step 1: Fetch FPL data if needed
+        if not use_cached:
+            try:
+                logger.info("Fetching fresh FPL data...")
+                # Fetch fresh data from API
+                bootstrap_data = self.fetcher.get_fpl_static_data()
+                # Process the raw data
+                fresh_player_data = self.processor.process_fpl_data(bootstrap_data)
+                # Save the fresh data to the store
+                self.store.save_player_data(fresh_player_data)
+                logger.info("Fresh FPL data fetched and saved to store")
+            except Exception as e:
+                logger.error(f"Failed to fetch fresh FPL data: {e}")
+                raise
+        else:
+            logger.warning("Returning cached FPL data due to use_cached flag")
+        
+        # Step 2: Load player data for processing
+        players_data = self.store.load_player_data()
+        if not players_data:
+            raise ValueError("No player data available. Run 'fetch' command first.")
+        
+        players_data = players_data['players']
+
+        # Step 3: Filter players if requested
+        filtered_players = self._filter_out_unavailable_players(players_data, filter_unavailable_players_mode)
+        
+        return filtered_players
     
     def get_fixtures(self, use_cached: bool = False) -> Dict[str, Any]:
         """
@@ -112,69 +143,81 @@ class DataService:
             raise ValueError("No fixtures data available. Run 'fetch' command first.")
         
         return fixtures_data
-        
     
-    def get_players(self, use_cached: bool = False, 
-                             filter_unavailable_players: bool = False) -> Dict[str, Dict[str, Any]]:
+    def _filter_out_unavailable_players(self, players_data: Dict[str, Dict[str, Any]], filter_unavailable_players_mode: str = "no_filter") -> Dict[str, Dict[str, Any]]:
         """
-        Get players data with smart caching.
-        
-        Args:
-            use_cached: If True, use only cached data. If False, fetch fresh data.
-            filter_unavailable_players: If True, apply availability filters (injured, unavailable, etc.). 
-                          If False, return all players without filtering.
-            
-        Returns:
-            Dictionary of processed player data keyed by player name
-        """
-        
-        # Step 1: Fetch FPL data if needed
-        if not use_cached:
-            try:
-                logger.info("Fetching fresh FPL data...")
-                # Fetch fresh data from API
-                bootstrap_data = self.fetcher.get_fpl_static_data()
-                # Process the raw data
-                fresh_player_data = self.processor.process_fpl_data(bootstrap_data)
-                # Save the fresh data to the store
-                self.store.save_player_data(fresh_player_data)
-                logger.info("Fresh FPL data fetched and saved to store")
-            except Exception as e:
-                logger.error(f"Failed to fetch fresh FPL data: {e}")
-                raise
-        else:
-            logger.warning("Returning cached FPL data due to use_cached flag")
-        
-        # Step 2: Load player data for processing
-        players_data = self.store.load_player_data()
-        if not players_data:
-            raise ValueError("No player data available. Run 'fetch' command first.")
-        
-        players_data = players_data['players']
-        
-        # TODO: Should this be a separate function? This is more processing than fetching?
+        Filter players based on the filter_unavailable_players_mode.
 
-        # Step 3: Determine embedding usage
-        use_embeddings = self.config.get_embeddings_config().get('use_embeddings', False)
-        if use_embeddings:
-            logger.info("Using embedding filtering and enrichments")
-        else:
-            logger.info("Embedding filtering and enrichments disabled")
-        
-        # Step 4: Filter players only if requested
+        Args:
+            players_data: Dictionary of processed player data
+            filter_unavailable_players_mode: If "fpl_data_and_enrichments", apply availability filters using both FPL data and enrichments. If "fpl_data_only", apply availability filters using FPL data only. If "no_filter", return all players.
+
+        Returns:
+            Dictionary of filtered player data
+        """
+
         # TODO: Add a filter using default filters - manual, then an approach using enrichment results.
 
-        if filter_unavailable_players:
-            filtered_players = self.processor.filter_available_players(
-                players_data, use_embeddings=use_embeddings
-            )
-            logger.info(f"Applied player filtering: {len(filtered_players)} players available from {len(players_data)} total")
-        else:
-            filtered_players = players_data
-            logger.info(f"No filtering applied: {len(filtered_players)} players returned")
+        if filter_unavailable_players_mode == "no_filter":
+            return players_data
         
-        return filtered_players
+        if filter_unavailable_players_mode != "fpl_data_only" and filter_unavailable_players_mode != "fpl_data_and_enrichments":
+            raise ValueError(f"Invalid filter_unavailable_players_mode: {filter_unavailable_players_mode}")
+        
+        # Basic filtering - remove players who can't play according to FPL data
+        available_players = self._filter_available_players_by_chance_of_playing(players_data)
 
+        if filter_unavailable_players_mode == "fpl_data_only":
+            logger.info(f"Basic filtering: {len(available_players)} players available from {len(players_data)} total")
+            return available_players
+        
+        # Enrichments filtering - remove players who can't play according to enrichments
+        available_players = self._filter_by_injury_news(available_players)
+        logger.info(f"Enrichments filtering: {len(available_players)} players available from {len(players_data)} total")
+
+        return available_players
+    
+    def _filter_available_players_by_chance_of_playing(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Filter out players who can't play (e.g., injured, suspended, etc.) according to FPL data
+        Args:
+            players_data: Dictionary of processed player data
+
+        Returns:
+            Dictionary of filtered player data
+        """
+        available_players = {}
+        
+        for player_name, player_data in players_data.items():
+            # Check chance of playing (25% threshold)
+            chance_of_playing = player_data.get('chance_of_playing', 100)
+            if chance_of_playing is not None and chance_of_playing < 25:
+                continue
+            
+            available_players[player_name] = player_data
+        
+        return available_players
+    
+    def _filter_by_injury_news(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Filter out players marked as 'Out' in injury news
+
+        Args:
+            players_data: Dictionary of processed player data
+
+        Returns:
+            Dictionary of filtered player data
+        """
+        available_players = {}
+        
+        for player_name, player_data in players_data.items():
+            # Use the shared keyword extraction utility
+            injury_status = extract_injury_status(player_name, {player_name: player_data})
+            
+            # Filter out players marked as "out"
+            if not injury_status or injury_status != "out":
+                available_players[player_name] = player_data
+        
+        return available_players
+        
     def show_data_status(self, data_store: DataStore) -> Dict[str, Any]:
         """
         Display current data status.
@@ -378,9 +421,7 @@ class DataService:
                 if embeddings_file.exists():
                     try:
                         # Apply embedding filtering
-                        filtered_players = self.processor.filter_available_players(
-                            all_players, use_embeddings=True
-                        )
+                        filtered_players = self._filter_out_unavailable_players(all_players, "fpl_data_and_enrichments")
                         
                         # Get the processed player data that includes chance of playing and other fields
                         # This ensures both sections have consistent data

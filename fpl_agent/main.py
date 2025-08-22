@@ -17,6 +17,7 @@ from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
 from .utils.display import display_comprehensive_team_result, display_fetch_results
 from .data.embedding_filter import EmbeddingFilter
+from .utils.prompt_formatter import PromptFormatter
 
 
 # Configure logging
@@ -57,7 +58,7 @@ class FPLAgent:
             self._llm_strategy = TeamBuildingStrategy(self.config)
         return self._llm_strategy
     
-    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = True, gameweek: Optional[int] = None, filter_unavailable_players: Optional[bool] = False) -> None:
+    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False, gameweek: Optional[int] = None, filter_unavailable_players: Optional[bool] = False) -> None:
         """Fetch both FPL player data and fixtures data"""
         try:
             if use_cached:
@@ -68,14 +69,22 @@ class FPLAgent:
             if gameweek is None:
                 gameweek = self.data_service.fetcher.get_current_gameweek() or 1
 
+            if filter_unavailable_players:
+                if use_enrichments:
+                    filter_unavailable_players_mode = "fpl_data_and_enrichments"
+                else:
+                    filter_unavailable_players_mode = "fpl_data_only"
+            else:
+                filter_unavailable_players_mode = "no_filter"
+
             # For fetch command, don't filter players - show all data
             all_gameweek_data = self.data_service.get_all_gameweek_data(
                 gameweek=gameweek,
                 use_cached=use_cached,
-                filter_unavailable_players=filter_unavailable_players  # Show all players, not just available ones
+                filter_unavailable_players_mode=filter_unavailable_players_mode
             )
 
-            if use_enrichments:
+            if not use_cached and use_enrichments:
                 # If using enrichments, gets ranking by default too.
                 self.enrich(all_gameweek_data, gameweek)
             
@@ -91,7 +100,7 @@ class FPLAgent:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True) -> Dict[str, Any]:
+    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False) -> Dict[str, Any]:
         """Enrich player data with LLM insights including expert insights and injury news"""
         try:
             logger.info("Enriching player data with LLM insights...")
@@ -100,11 +109,11 @@ class FPLAgent:
                 gameweek = self.data_service.fetcher.get_current_gameweek() or 1
 
             if all_gameweek_data is None:
-                # Fetch all gameweek data in one call
+                # Fetch all gameweek data in one call - when enriching used cached data - the flow should be fetch then enrich or use fetch with --use-enrichments for all.
                 # For team building, filter players to only show available ones
                 all_gameweek_data = self.fetch_fpl_data(
-                    use_cached=False, 
-                    use_enrichments=True, 
+                    use_cached=True, 
+                    use_enrichments=False, 
                     gameweek=gameweek, 
                     filter_unavailable_players=False
                 )
@@ -113,20 +122,56 @@ class FPLAgent:
             team_players = group_players_by_team(all_gameweek_data['players'])
 
             # Get enrichments by team
-            print(f"📊 Enriching {len(all_gameweek_data['players'])} players from {len(set(player.get('team_name') for player in all_gameweek_data['players'].values()))} teams...")
+            print(f"📊 Enriching {len(all_gameweek_data['players'])} players from {len(team_players)} teams...")
 
             team_analysis_strategy = TeamAnalysisStrategy(self.config)
+            
+            # Handle prompt-only mode for first team
+            if prompt_only:
+                # Get the first team for prompt display
+                first_team_players = team_players[0]
+                first_team_name = list(first_team_players.values())[0].get('team_name')
+                first_team_fixtures = get_team_fixture_info(first_team_name, all_gameweek_data['fixtures'], gameweek)
+                
+                print(f"📝 Showing prompts for first team: {first_team_name}")
+                print("\n" + "="*50)
+                print("🔍 HINTS & TIPS PROMPT:")
+                print("="*50)
+                
+                # Get and display hints & tips prompt
+                hints_prompt = team_analysis_strategy._create_hints_tips_prompt(
+                    first_team_name, 
+                    first_team_players,
+                    gameweek, 
+                    first_team_fixtures
+                )
+                print(hints_prompt)
+                
+                print("\n" + "="*50)
+                print("🏥 INJURY NEWS PROMPT:")
+                print("="*50)
+                
+                # Get and display injury news prompt
+                injury_prompt = team_analysis_strategy._create_injury_news_prompt(
+                    first_team_name, 
+                    first_team_players,
+                    gameweek, 
+                    first_team_fixtures
+                )
+                print(injury_prompt)
+                
+                print("\n" + "="*50)
+                print("✅ Prompt display complete!")
+                return {"prompt_only": True, "team_name": first_team_name}
             
             logger.info(f"Processing {len(team_players)} Premier League teams for enrichment")
             
             # Process each team sequentially
-            for i, team_name in enumerate(team_players.keys(), 1):
+            for team_player_list in [team_players[0]]:
                 try:
-                    logger.info(f"Processing team {i}/{len(team_players)}: {team_name}")
-                    print(f"🔄 Processing {team_name}... ({i}/{len(team_players)} teams)")
-                    
-                    # Get players for this team
-                    team_player_list = team_players[team_name]
+                    team_name = list(team_player_list.values())[0].get('team_name')
+                    logger.info(f"Processing team {team_name}")
+                    print(f"🔄 Processing {team_name}...")
                     
                     # Get fixture information for this team
                     fixture_info = get_team_fixture_info(team_name, all_gameweek_data['fixtures'], gameweek)
@@ -137,8 +182,11 @@ class FPLAgent:
                     # Get injury news from LLM strategy
                     injury_news = team_analysis_strategy.get_team_injury_news(team_name, team_player_list, gameweek, fixture_info)
                     
+                    # Convert team_player_list to list of player dictionaries
+                    team_players_list = list(team_player_list.values())
+                    
                     # Apply enriched data to players
-                    self._add_enrichments_to_players(all_gameweek_data['players'], team_player_list, expert_insights, injury_news)
+                    self._add_enrichments_to_players(all_gameweek_data['players'], team_players_list, expert_insights, injury_news)
                     
                     print(f"   ✅ Team data enriched for {team_name}")
                     
@@ -153,7 +201,7 @@ class FPLAgent:
                 # Calculate embedding scores using EmbeddingFilter
                 embedding_filter = EmbeddingFilter(self.config)
                 player_embeddings = embedding_filter.calculate_player_embeddings(all_gameweek_data['players'], use_cached=False)
-                player_embedding_scores = embedding_filter.calculate_player_embedding_scores(player_embeddings)
+                player_embedding_scores = embedding_filter.calculate_player_embedding_scores(player_embeddings, all_gameweek_data['players'])
                 
                 # Add embedding scores to players
                 if player_embeddings:
@@ -169,7 +217,7 @@ class FPLAgent:
             }
             
             self.data_service.store.save_player_data(enriched_data)
-            print(f"✅ Successfully enriched player data for {len(team_players)} teams")
+            print(f"✅ Successfully enriched player data for {len(all_gameweek_data['players'])} teams")
                 
         except Exception as e:
             logger.error(f"Failed to enrich player data: {e}")
@@ -437,9 +485,11 @@ def main():
     parser.add_argument('--cached-only', action='store_true',
                        help='Use ONLY cached data (no API calls or enrichment). For fetch command: use stored data instead of fresh fetch.')
     parser.add_argument('--use-enrichments', action='store_true',
-                       help='Use enrichments with expert insights or injury news, just basic data (default: True)')
+                       help='Use enrichments with expert insights or injury news, just basic data (default: False)')
     parser.add_argument('--rag-mode', choices=['none', 'enrichments', 'ranked_enrichments'], default='ranked_enrichments',
                        help='RAG mode to use for team building and weekly updates (default: ranked_enrichments)')
+    parser.add_argument('--filter-unavailable-players', action='store_true',
+                       help='Filter out unavailable players from the data (default: False)')
     
     # Common options
     parser.add_argument('--budget', type=float, default=100.0,
@@ -464,11 +514,16 @@ def main():
             # Fetch fresh FPL data (always fresh unless --cached flag)
             fpl_agent.fetch_fpl_data(
                 use_cached=args.cached_only, 
-                use_enrichments=args.use_enrichments
+                use_enrichments=args.use_enrichments,
+                gameweek=args.gameweek,
+                filter_unavailable_players=args.filter_unavailable_players
             )
             
         elif args.command == 'enrich':
-            fpl_agent.enrich()
+            fpl_agent.enrich(
+                gameweek=args.gameweek,
+                prompt_only=args.show_prompt
+            )
 
         elif args.command == 'build-team':
             # Build new team

@@ -13,7 +13,7 @@ class PromptFormatter:
     """Utility class for formatting data into LLM prompts"""
     
     @staticmethod
-    def format_player_list(players_data: Dict[str, Dict[str, Any]], use_enrichments: bool = True, use_ranking: bool = True) -> str:
+    def format_player_list(players_data: Dict[str, List[Dict[str, Any]]], use_enrichments: bool = True, use_ranking: bool = True, show_header: bool = True) -> str:
         """
         Format player data for LLM prompts in TeamBuildingStrategy.
         Lists all the players data in paragraphs, grouped by team orposition.
@@ -21,12 +21,14 @@ class PromptFormatter:
         If use_ranking, players are sorted by position rank.
         
         Args:
-            players: Dictionary of player data from data service
+            players_data: Dictionary of player data grouped by team or position
             use_enrichments: Whether to include expert insights and injury news
             use_ranking: Whether to include ranking numbers
+            show_header: Whether to include a header for the team or position
         Returns:
             Formatted string for LLM prompts
         """
+
         try:
             if not use_ranking:
                 group_by = "grouped_by_team"
@@ -56,8 +58,9 @@ class PromptFormatter:
             formatted_data = []
             
             for player_group, players in sorted(players_data_grouped.items()):
-                formatted_data.append(player_group.upper())
-                formatted_data.append("")  # Empty line between team or position heading
+                if show_header:
+                    formatted_data.append(player_group.upper())
+                    formatted_data.append("")  # Empty line between team or position heading
                 
                 if group_by == "grouped_by_team":
                     # Sort players by position (GK, DEF, MID, FWD) then by total points
@@ -72,6 +75,7 @@ class PromptFormatter:
                 
                 for player in sorted_players:
                     formatted_data.append(PromptFormatter.format_player(player, player_type=group_by, include_enrichments=use_enrichments, include_rankings=use_ranking))
+                    formatted_data.append("")  # Empty line between players
                 
                 formatted_data.append("")  # Empty line between teams or positions
             
@@ -211,9 +215,9 @@ class PromptFormatter:
             raise ValueError(f"Invalid player_group: {player_type}")
 
         if include_sale_prices:
-            first_line += f", Sale Price: £{player_data.get('sale_price', 0.0)}m, Purchased For: £{player_data.get('purchase_price', 0.0)}m"
+            first_line += f", Sale Price: £{player_data.get('sale_price', 0.0)}m, Purchased For: £{player_data.get('purchase_price', 0.0)}m)"
         else:
-            first_line += f", £{player_data.get('now_cost', 0) / 10.0}m"
+            first_line += f", £{player_data.get('now_cost', 0.0) / 10.0}m)"
         
         # Include ranking prefix if requested, e.g., "1. Player Name (Team)"
         if include_rankings:
@@ -265,17 +269,17 @@ class PromptFormatter:
             keyword_bonus = player_data.get('keyword_bonus', 0.0)
             hybrid_score = player_data.get('hybrid_score', 0.0)
             
-            score_line = f"[SCORE]: {hybrid_score:.3f} (Embedding: {embedding_score:.3f}, Bonus: {keyword_bonus:+.3f})"
+            score_line = f"[HYBRID EMBEDDING SCORE] {hybrid_score:.3f} (Embedding: {embedding_score:.3f}, Keyword Bonus: {keyword_bonus:+.3f})"
             formatted_parts.append(score_line)
         
         if include_enrichments:
             # Add expert insights (if available)
             if player_data.get('expert_insights') and player_data['expert_insights'] != 'None':
-                formatted_parts.append(f"[EXPERT INSIGHTS]: {player_data['expert_insights']}")
+                formatted_parts.append(f"[EXPERT INSIGHTS] {player_data['expert_insights']}")
         
             # Add injury news (if available)
             if player_data.get('injury_news') and player_data['injury_news'] != 'None':
-                formatted_parts.append(f"[INJURY NEWS]: {player_data['injury_news']}")
+                formatted_parts.append(f"[INJURY NEWS] {player_data['injury_news']}")
         
         return "\n".join(formatted_parts)
     

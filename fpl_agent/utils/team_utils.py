@@ -4,9 +4,10 @@ Team utility functions for FPL data processing.
 
 from typing import Dict, List, Any
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
-def group_players_by_team(players_data: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+def group_players_by_team(players_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Dict[str, Any]]]:
     """
     Group players by team name.
     
@@ -14,17 +15,19 @@ def group_players_by_team(players_data: Dict[str, Dict[str, Any]]) -> Dict[str, 
         players_data: Dictionary of player data keyed by player name
         
     Returns:
-        Dictionary mapping team names to lists of player data
+        List of dictionaries, where each dictionary contains players for one team
     """
     team_players = {}
     
+    # First, group players by team
     for player_name, player_data in players_data.items():
         team_name = player_data.get('team_name', 'Unknown Team')
         if team_name not in team_players:
-            team_players[team_name] = []
-        team_players[team_name].append(player_data)
+            team_players[team_name] = {}
+        team_players[team_name][player_name] = player_data
     
-    return team_players
+    # Convert to list of team dicts
+    return list(team_players.values())
 
 
 def get_team_fixture_info(team_name: str, fixtures_data: List[Dict[str, Any]], 
@@ -55,6 +58,10 @@ def get_team_fixture_info(team_name: str, fixtures_data: List[Dict[str, Any]],
                 try:
                     # Parse the ISO format date from FPL API
                     fixture_date = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
+                    # Convert UTC to BST (British Summer Time)
+                    utc_tz = ZoneInfo('UTC')
+                    bst_tz = ZoneInfo('Europe/London')
+                    fixture_date = fixture_date.replace(tzinfo=utc_tz).astimezone(bst_tz)
                     # Format as "Sunday 22nd May 2025 at 14:00"
                     day = fixture_date.day
                     suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')

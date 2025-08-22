@@ -76,6 +76,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
     def update_team_weekly(self, team_context: Dict[str, Any], 
                            all_gameweek_data: Dict[str, Any], 
                            use_enrichments: bool = False,
+                           use_ranking: bool = False,
                            prompt_only: bool = False) -> Dict[str, Any]:
         """
         Update team using consolidated data from main.py
@@ -91,8 +92,9 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
-                current_team, gameweek, chips_data, transfers_data, 
-                all_gameweek_data['players'], all_gameweek_data['fixtures'], use_enrichments, current_team_player_data
+                current_team, current_team_player_data, gameweek, chips_data, 
+                all_gameweek_data['players'], transfers_data, all_gameweek_data['fixtures'], 
+                use_enrichments, use_ranking
             )
             
             if prompt_only:
@@ -135,16 +137,17 @@ CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any 
 You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
 You must strictly follow all official FPL rules and constraints when building the team:
-* The total budget must not exceed £{budget} million.
+* The total budget must not exceed £{budget}m.
 {PromptFormatter.get_team_constraints_prompt(self.config)}
 * A maximum of 3 players are allowed from any single Premier League club.
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
 
 The fixtures this gameweek are:
-{PromptFormatter.format_fixtures(fixtures_data, gameweek)}
 
+{PromptFormatter.format_fixtures(fixtures_data, gameweek)}
 {self._get_prompt_intro(use_enrichments=use_enrichments)}
+
 {PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking)}
 
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
@@ -234,7 +237,7 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
                                      gameweek: int, chips_data: Dict, players_data: Dict[str, Dict[str, Any]], 
                                      transfers_data: Dict, fixtures_data: List[Dict[str, Any]],
                                      use_enrichments: bool = True,
-                                     use_rankings: bool = True
+                                     use_ranking: bool = True
                                    ) -> str:
         """Create the weekly update prompt using consolidated data"""
         
@@ -264,7 +267,7 @@ The fixtures this gameweek are:
 {PromptFormatter.format_fixtures(fixtures_data, gameweek)}
 
 {self._get_prompt_intro(use_enrichments, is_weekly_update=True)}
-{PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_rankings=use_rankings)}
+{PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking)}
 
 The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player you must use the following formula to calculate the sale price:
 If Current Price > Purchase Price: Transfer Out Price = Purchase Price + floor((Current Price - Purchase Price) / 2). Rounded down to the nearest £0.1m.
@@ -279,10 +282,10 @@ If a player is injured, suspended or has a low likelihood of playing, you must b
 Transfer rules:
 * You have {transfers_data.get('free_transfers', 1)} free transfers this week.
 * If unused, 1 transfer can be carried over (maximum 2).
-* Additional transfers cost -4 points each, and should only be used if they are likely to generate greater value.
+* Additional transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
 * To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).
 
-You also have access to the following chips and wildcards: {PromptFormatter.format_chips_for_prompt(chips_data)}
+At the moment youhave access to the following chips and wildcards: {PromptFormatter.format_chips_for_prompt(chips_data)}
 
 Chip and wildcard rules:
 * You can use one chip or wildcard per gameweek.
@@ -394,9 +397,9 @@ Each player must have a detailed, informative reason for their selection.
 
 REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure."""
     
-    def _get_prompt_intro(self, has_enrichments: bool, is_weekly_update: bool = False) -> str:
+    def _get_prompt_intro(self, use_enrichments: bool, is_weekly_update: bool = False) -> str:
         """Get the appropriate prompt introduction based on available data"""
-        if has_enrichments:
+        if use_enrichments:
             base_text = """The list of available players by each position, their costs, basic stats, preliminary score, expert insights and injury news are below. You should use this information to make your decisions, but use this as a starting point for wider research and don't only use this. The players are ranked based on a loose scoring system, which takes their expert insights into account using embeddings, you may use this as a starting point if you find it helpful, but don't only use this."""
         else:
             base_text = """The list of available players by each position, their costs and basic stats are below. You should use this information to make your decisions, but use this as a starting point for wider research and don't only use this."""

@@ -11,6 +11,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..core.config import Config
+from ..utils.keyword_extractor import extract_expert_bonus
 
 logger = logging.getLogger(__name__)
 
@@ -153,17 +154,45 @@ class EmbeddingFilter:
         except Exception as e:
             logger.error(f"Failed to save embeddings cache: {e}")
     
-    def _encode_players(self, enriched_data: Dict[str, str]) -> Dict[str, np.ndarray]:
+    def _encode_players(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, np.ndarray]:
         """Encode all players' enriched data into embeddings"""
         if self.model is None:
             self._load_embeddings_model()
         
-        logger.info(f"Encoding {len(enriched_data)} players...")
+        logger.info(f"Encoding {len(players_data)} players...")
         
         try:
-            # Prepare texts for encoding
-            player_names = list(enriched_data.keys())
-            player_texts = list(enriched_data.values())
+            # Extract text fields from player data for encoding
+            player_names = []
+            player_texts = []
+            
+            for player_name, player_data in players_data.items():
+                # Combine relevant text fields for embedding
+                text_parts = []
+                
+                # Add basic player info
+                if isinstance(player_data.get('full_name'), str):
+                    text_parts.append(player_data['full_name'])
+                if isinstance(player_data.get('team_name'), str):
+                    text_parts.append(player_data['team_name'])
+                if isinstance(player_data.get('element_type'), str):
+                    text_parts.append(player_data['element_type'])
+                
+                # Add enriched data if available
+                if isinstance(player_data.get('expert_insights'), str):
+                    text_parts.append(player_data['expert_insights'])
+                if isinstance(player_data.get('injury_news'), str):
+                    text_parts.append(player_data['injury_news'])
+                
+                # Combine all text parts
+                if text_parts:
+                    combined_text = " | ".join(text_parts)
+                    player_names.append(player_name)
+                    player_texts.append(combined_text)
+            
+            if not player_texts:
+                logger.warning("No valid text data found for encoding")
+                return {}
             
             # Encode all texts at once (more efficient)
             embeddings_config = self.config.get_embeddings_config()
@@ -257,67 +286,6 @@ class EmbeddingFilter:
         
         return similarities
     
-    def _extract_keyword_status(self, player_name: str, structured_data: Dict, 
-                               field_name: str, keyword_map: Dict[str, Any]) -> Any:
-        """Extract keyword status from the first keyword before the dash"""
-        try:
-            if player_name in structured_data:
-                field_text = structured_data[player_name].get(field_name, '')
-                if field_text and ' - ' in field_text:  # Look for space-dash-space
-                    # Split on first occurrence of " - " (space-dash-space)
-                    first_part = field_text.split(' - ', 1)[0].strip().lower()
-                    
-                    # Look for exact keyword match in the first part
-                    for keyword, value in keyword_map.items():
-                        if first_part == keyword.lower():
-                            return value
-            
-            return None  # Default if no keyword found
-            
-        except Exception as e:
-            logger.warning(f"Failed to extract keyword status for {player_name}: {e}")
-            return None
-    
-    def _extract_keyword_bonus(self, player_name: str, structured_data: Dict) -> float:
-        """Extract keyword bonus from expert_insights (existing functionality)"""
-        keyword_map = {
-            "must-have": 0.5,
-            "recommended": 0.3,
-            "rotation risk": -0.2,
-            "avoid": -0.5
-        }
-        result = self._extract_keyword_status(player_name, structured_data, 'expert_insights', keyword_map)
-        return result if result is not None else 0.0
-    
-    def _extract_injury_status(self, player_name: str, structured_data: Dict) -> str:
-        """Extract injury status from injury_news - only care about 'Out'"""
-        status_map = {
-            "out": "out"  # Only filter out "Out" players
-        }
-        return self._extract_keyword_status(player_name, structured_data, 'injury_news', status_map)
-    
-    def _has_enrichments(self, players_data: Dict[str, Dict[str, Any]]) -> bool:
-        """Check if players have enriched data (expert insights or injury news)"""
-        for player_data in players_data.values():
-            if player_data.get('expert_insights') or player_data.get('injury_news'):
-                return True
-        return False
-    
-    def _filter_by_injury_news(self, players_data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Filter out players marked as 'Out' in injury news"""
-        available_players = {}
-        
-        for player_name, player_data in players_data.items():
-            # Use the existing keyword extraction system
-            injury_status = self._extract_injury_status(player_name, {player_name: player_data})
-            
-            # If we can't determine status or player is NOT "out", include them
-            if not injury_status or injury_status != "out":
-                available_players[player_name] = player_data
-            # If marked as "out", filter them out
-        
-        return available_players
-    
     def _calculate_hybrid_scores(self, similarities: Dict[str, List[Tuple[str, float]]], 
                                structured_data: Dict) -> Dict[str, List[Tuple[str, float, float, float]]]:
         """Calculate hybrid scores combining embeddings with keyword bonuses"""
@@ -328,7 +296,7 @@ class EmbeddingFilter:
             
             for player_name, embedding_score in player_scores:
                 # Get keyword bonus from expert_insights
-                keyword_bonus = self._extract_keyword_bonus(player_name, structured_data)
+                keyword_bonus = extract_expert_bonus(player_name, structured_data)
                 
                 # Calculate final hybrid score using configurable weights
                 embeddings_config = self.config.get_embeddings_config()
@@ -376,86 +344,6 @@ class EmbeddingFilter:
         
         logger.info(f"Total selected players: {len(selected_players)}")
         return selected_players
-    
-    def filter_players_by_position(self, enriched_data: Dict[str, str], 
-                                 players_data: Dict[str, Dict[str, Any]],
-                                 force_refresh: bool = False) -> Dict[str, str]:
-        """
-        Filter players using embedding-based similarity scoring.
-        
-        Args:
-            enriched_data: Dictionary of enriched player data
-            force_refresh: If True, ignore cache and recompute embeddings
-            
-        Returns:
-            Filtered dictionary of enriched player data
-        """
-        logger.info("Starting embedding-based player filtering...")
-        
-        # Try to load cached embeddings first
-        if not force_refresh:
-            cached_data = self._load_cached_embeddings()
-            if cached_data:
-                player_embeddings = cached_data.get('embeddings', {})
-                if player_embeddings:
-                    # Convert string representations back to numpy arrays
-                    converted_embeddings = {}
-                    for player_name, embedding_str in player_embeddings.items():
-                        try:
-                            embedding_array = np.array(json.loads(embedding_str))
-                            converted_embeddings[player_name] = embedding_array
-                        except Exception as e:
-                            logger.warning(f"Failed to convert embedding for {player_name}: {e}")
-                    
-                    if len(converted_embeddings) == len(enriched_data):
-                        logger.info("Using cached embeddings for filtering")
-                        player_embeddings = converted_embeddings
-                    else:
-                        logger.info("Cached embeddings don't match current data, recomputing...")
-                        player_embeddings = None
-                else:
-                    player_embeddings = None
-            else:
-                player_embeddings = None
-        else:
-            player_embeddings = None
-        
-        # Encode players if needed
-        if player_embeddings is None:
-            player_embeddings = self._encode_players(enriched_data)
-            
-            # Cache the embeddings
-            cacheable_embeddings = {}
-            for player_name, embedding in player_embeddings.items():
-                cacheable_embeddings[player_name] = json.dumps(embedding.tolist())
-            
-            self._save_embeddings_cache(cacheable_embeddings)
-        
-        # Encode queries
-        query_embeddings = self._encode_queries()
-        
-        # Get player positions
-        player_positions = self._get_player_positions(enriched_data, players_data)
-        
-        # Calculate similarities
-        similarities = self._calculate_similarities(player_embeddings, query_embeddings, player_positions)
-        
-        # Get structured data for hybrid scoring
-        structured_data = self._get_structured_data_for_hybrid_scoring(enriched_data, players_data)
-        
-        # Select top players using hybrid scoring
-        selected_player_names = self._select_top_players(similarities, structured_data)
-        
-        # Filter enriched data to only include selected players
-        filtered_data = {
-            player_name: enriched_data[player_name]
-            for player_name in selected_player_names
-            if player_name in enriched_data
-        }
-        
-        logger.info(f"Filtering complete: {len(filtered_data)} players selected from {len(enriched_data)} total")
-        
-        return filtered_data
     
     def calculate_player_embeddings(self, players_data: Dict[str, Dict[str, Any]], use_cached: bool = False) -> Dict[str, np.ndarray]:
         """
