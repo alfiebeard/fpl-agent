@@ -3,7 +3,7 @@ FPL team manager using LLM for comprehensive team management
 """
 
 import logging
-from typing import Dict, Optional, Any, List
+from typing import Dict, Any, List
 
 from ..core.config import Config
 from ..core.team_manager import TeamManager
@@ -38,8 +38,18 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                     use_ranking: bool = False,
                     prompt_only: bool = False) -> Dict[str, Any]:
         """
-        Create new team using consolidated data from main.py
-        Returns team data (does NOT save)
+        Create new team using LLM and provided input information.
+
+        Args:
+            budget: The budget for the team
+            gameweek: The gameweek to create the team for
+            all_gameweek_data: All gameweek data for that week
+            use_enrichments: Whether to use enrichments in the prompt
+            use_ranking: Whether to use ranking in the prompt
+            prompt_only: Whether to return the prompt only
+
+        Returns:
+            The team data
         """
         try:
             # Create the team creation prompt
@@ -55,7 +65,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Parse and validate LLM response
             validator = FPLValidator()
-            team_data = validator.parse_team_response(response)
+            team_data = validator.parse_llm_json_response(response, expected_type="team_data")
             
             # Validate team structure
             logger.info("Validating team structure...")
@@ -79,7 +89,15 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                            use_ranking: bool = False,
                            prompt_only: bool = False) -> Dict[str, Any]:
         """
-        Update team using consolidated data from main.py
+        Update team using LLM and provided input information.
+
+        Args:
+            team_context: All data on the current team, including the team, chips, transfers, and current team player data
+            all_gameweek_data: All gameweek data for that week
+            use_enrichments: Whether to use enrichments in the prompt
+            use_ranking: Whether to use ranking in the prompt
+            prompt_only: Whether to return the prompt only
+        
         Returns team data (does NOT save or handle business logic)
         """
         try:
@@ -105,7 +123,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Parse and validate LLM response
             validator = FPLValidator()
-            team_data = validator.parse_team_response(response)
+            team_data = validator.parse_llm_json_response(response)
             
             # Validate team structure
             logger.info("Validating team structure...")
@@ -128,7 +146,19 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                                     fixtures_data: List[Dict[str, Any]],
                                     use_enrichments: bool = True,
                                     use_ranking: bool = True) -> str:
-        """Create the team creation prompt using consolidated data"""
+        """Create the team creation prompt
+        
+        Args:
+            budget: The budget for the team
+            gameweek: The gameweek to create the team for
+            players_data: All player data for that week
+            fixtures_data: All fixture data for that week
+            use_enrichments: Whether to use enrichments in the prompt
+            use_ranking: Whether to use ranking in the prompt
+
+        Returns:
+            The team creation prompt
+        """
         
         return f"""You are a Fantasy Premier League (FPL) team building expert. Your task is to create the optimal FPL team for Gameweek {gameweek}.
 
@@ -138,7 +168,7 @@ You must research and analyse the top Fantasy Premier League (FPL) strategies, t
 
 You must strictly follow all official FPL rules and constraints when building the team:
 * The total budget must not exceed £{budget}m.
-{PromptFormatter.get_team_constraints_prompt(self.config)}
+{PromptFormatter.format_team_constraints(self.config)}
 * A maximum of 3 players are allowed from any single Premier League club.
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
@@ -239,7 +269,22 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
                                      use_enrichments: bool = True,
                                      use_ranking: bool = True
                                    ) -> str:
-        """Create the weekly update prompt using consolidated data"""
+        """Create the weekly update prompt
+        
+        Args:
+            current_team: The current team, including the starting 11 and substitutes
+            current_team_player_data: All player data for the current team
+            gameweek: The gameweek to update the team for
+            chips_data: All chip data for that week
+            players_data: All player data for that week
+            transfers_data: All transfer data for that week
+            fixtures_data: All fixture data for that week
+            use_enrichments: Whether to use enrichments in the prompt
+            use_ranking: Whether to use ranking in the prompt
+
+        Returns:
+            The weekly update prompt
+        """
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {PromptFormatter.format_team(current_team, current_team_player_data)}
@@ -285,7 +330,7 @@ Transfer rules:
 * Additional transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
 * To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).
 
-At the moment youhave access to the following chips and wildcards: {PromptFormatter.format_chips_for_prompt(chips_data)}
+At the moment youhave access to the following chips and wildcards: {PromptFormatter.format_chips(chips_data)}
 
 Chip and wildcard rules:
 * You can use one chip or wildcard per gameweek.
@@ -398,7 +443,16 @@ Each player must have a detailed, informative reason for their selection.
 REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, no text outside the JSON structure."""
     
     def _get_prompt_intro(self, use_enrichments: bool, is_weekly_update: bool = False) -> str:
-        """Get the appropriate prompt introduction based on available data"""
+        """Get the appropriate prompt introduction based on available data
+        
+        Args:
+            use_enrichments: Whether to use enrichments in the prompt
+            is_weekly_update: Whether this is a weekly update prompt
+
+        Returns:
+            The prompt introduction
+        """
+
         if use_enrichments:
             base_text = """The list of available players by each position, their costs, basic stats, preliminary score, expert insights and injury news are below. You should use this information to make your decisions, but use this as a starting point for wider research and don't only use this. The players are ranked based on a loose scoring system, which takes their expert insights into account using embeddings, you may use this as a starting point if you find it helpful, but don't only use this."""
         else:

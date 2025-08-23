@@ -25,11 +25,13 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Args:
             config: FPL configuration object
         """
+
         super().__init__(config, model_name="lightweight")
         self.validator = FPLValidator("team_data")  # Use default data directory
     
     def get_strategy_name(self) -> str:
         """Return the name of this strategy."""
+
         return "TeamAnalysisStrategy"
     
     def get_team_hints_tips(self, team_name: str, team_players: List[Dict[str, Any]], current_gameweek: int, fixture_info: dict) -> Dict[str, str]:
@@ -61,7 +63,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract insights for each player
-            return self._parse_hints_tips_response(response)
+            self.validator.parse_llm_json_response(response, raise_on_error=False, expected_type="hints/tips")
             
         except Exception as e:
             logger.error(f"Failed to get hints and tips for {team_name}: {e}")
@@ -97,7 +99,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract injury news for each player
-            return self._parse_injury_news_response(response)
+            return self.validator.parse_llm_json_response(response, raise_on_error=False, expected_type="injury news")
             
         except Exception as e:
             logger.error(f"Failed to get injury news for {team_name}: {e}")
@@ -114,7 +116,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             fixture_info: Dictionary containing fixture information
 
         Returns:
-            The prompt as a string
+            The hints and tips prompt as a string
         """
         # Get fixture information
         fixture_str = fixture_info['fixture_str']
@@ -161,7 +163,17 @@ Keep each player's information brief but informative.
 IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure."""
     
     def _create_injury_news_prompt(self, team_name: str, team_players: Dict[str, Any], current_gameweek: int, fixture_info: dict) -> str:
-        """Create the injury news prompt"""
+        """Create the injury news prompt
+        
+        Args:
+            team_name: Name of the team
+            team_players: List of player data for the team
+            current_gameweek: Current gameweek number
+            fixture_info: Dictionary containing fixture information
+
+        Returns:
+            The injury news prompt as a string
+        """
         # Get fixture information
         fixture_str = fixture_info['fixture_str']
         is_double_gameweek = fixture_info['is_double_gameweek']
@@ -204,83 +216,3 @@ Format your response as a concise sentence for every player in the squad above, 
 Keep each player's information brief but informative.
 
 IMPORTANT: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure."""
-    
-    def _parse_hints_tips_response(self, response: str) -> Dict[str, str]:
-        """Parse LLM response to extract hints and tips for each player."""
-        try:
-            import json
-            
-            # Debug: Log the raw response
-            logger.info(f"Raw LLM response for hints/tips (length: {len(response)}): {repr(response[:500])}")
-            
-            # Check if response is an error message
-            if response.startswith('Error:'):
-                logger.error(f"LLM returned error: {response}")
-                return {}
-            
-            # Try to extract JSON from the response
-            response_text = response.strip()
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]
-            
-            # Debug: Log the cleaned response
-            logger.info(f"Cleaned response text (length: {len(response_text)}): {repr(response_text[:500])}")
-            
-            # Check if response is empty
-            if not response_text:
-                logger.error("Response is empty after cleaning")
-                return {}
-            
-            parsed = json.loads(response_text)
-            
-            # The response should be a direct mapping of player names to insights
-            # No need for 'player_insights' wrapper since your prompts don't use it
-            return parsed
-            
-        except Exception as e:
-            logger.error(f"Failed to parse hints and tips response: {e}")
-            logger.error(f"Response that failed to parse: {repr(response)}")
-            # Return empty dict on parsing failure
-            return {}
-    
-    def _parse_injury_news_response(self, response: str) -> Dict[str, str]:
-        """Parse LLM response to extract injury news for each player."""
-        try:
-            import json
-            
-            # Debug: Log the raw response
-            logger.info(f"Raw LLM response for injury news (length: {len(response)}): {repr(response[:500])}")
-            
-            # Check if response is an error message
-            if response.startswith('Error:'):
-                logger.error(f"LLM returned error: {response}")
-                return {}
-            
-            # Try to extract JSON from the response
-            response_text = response.strip()
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]
-            
-            # Debug: Log the cleaned response
-            logger.info(f"Cleaned response text (length: {len(response_text)}): {repr(response_text[:500])}")
-            
-            # Check if response is empty
-            if not response_text:
-                logger.error("Response is empty after cleaning")
-                return {}
-            
-            parsed = json.loads(response_text)
-            
-            # The response should be a direct mapping of player names to injury news
-            # No need for 'player_injuries' wrapper since your prompts don't use it
-            return parsed
-            
-        except Exception as e:
-            logger.error(f"Failed to parse injury news response: {e}")
-            logger.error(f"Response that failed to parse: {repr(response)}")
-            # Return empty dict on parsing failure
-            return {}

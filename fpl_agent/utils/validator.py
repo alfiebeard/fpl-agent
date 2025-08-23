@@ -106,54 +106,6 @@ class FPLValidator:
         
         return errors
     
-    def validate_files_consistency(self, gameweek: int) -> List[str]:
-        """
-        Validate consistency between team file, meta.json, and FPL rules
-        
-        Args:
-            gameweek: Gameweek to validate
-            
-        Returns:
-            List of validation errors (empty if valid)
-        """
-        errors = []
-        
-        # Check if files exist
-        team_file = self.data_dir / f"gw{gameweek:02d}.json"
-        if not team_file.exists():
-            errors.append(f"Team file gw{gameweek:02d}.json not found")
-            return errors
-        
-        if not self.meta_file.exists():
-            errors.append("meta.json file not found")
-            return errors
-        
-        # Load team data
-        try:
-            with open(team_file, 'r') as f:
-                team_data = json.load(f)
-        except Exception as e:
-            errors.append(f"Failed to load team file: {str(e)}")
-            return errors
-        
-        # Load meta data
-        try:
-            with open(self.meta_file, 'r') as f:
-                meta_data = json.load(f)
-        except Exception as e:
-            errors.append(f"Failed to load meta.json: {str(e)}")
-            return errors
-        
-        # Validate team data
-        team_errors = self.validate_team_data(team_data['team'], gameweek)
-        errors.extend(team_errors)
-        
-        # Check meta consistency
-        meta_errors = self._validate_meta_consistency(meta_data, gameweek, team_data['team'])
-        errors.extend(meta_errors)
-        
-        return errors
-    
     def _validate_basic_structure(self, team_data: Dict[str, Any]) -> List[str]:
         """Validate basic team structure"""
         errors = []
@@ -434,79 +386,88 @@ class FPLValidator:
         else:
             sell_price = current_price
         return round(sell_price, 1)  # Round to 1 decimal place
-
-
-    def validate_llm_response(self, response: str, gameweek: int, available_players: Dict[str, Dict[str, Any]] = None) -> List[str]:
-        """
-        Validate LLM response for team creation/update
+    
+    def parse_llm_json_response(self, response: str, raise_on_error: bool = True, 
+                               expected_type: str = "any") -> Dict[str, Any]:
+        """Parse LLM response to extract JSON data with robust error handling.
         
         Args:
-            response: LLM response string
-            gameweek: Current gameweek
-            available_players: Available players data (for bank validation)
-            
+            response: The LLM response as a string
+            raise_on_error: Whether to raise exceptions on failure (True) or return empty dict (False)
+            expected_type: Description of expected response type for logging
+
         Returns:
-            List of validation errors (empty if valid)
+            A dictionary with the parsed JSON data
+            
+        Raises:
+            ValueError: If raise_on_error is True and parsing fails
         """
-        errors = []
-        
         try:
-            # Extract JSON from response
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
+            # Debug: Log the raw response
+            logger.info(f"Raw LLM response for {expected_type} (length: {len(response)}): {repr(response[:500])}")
             
-            if json_start == -1 or json_end == 0:
-                errors.append("No JSON found in response")
-                return errors
+            # Check if response is an error message
+            if response.startswith('Error:'):
+                error_msg = f"LLM returned error: {response}"
+                logger.error(error_msg)
+                if raise_on_error:
+                    raise ValueError(error_msg)
+                return {}
             
-            json_str = response[json_start:json_end]
-            team_data = json.loads(json_str)
+            # Try to extract JSON from the response
+            response_text = response.strip()
             
-            # Validate team data
-            validator = FPLValidator()
-            errors.extend(validator.validate_team_data(team_data, gameweek))
+            # Handle markdown code blocks
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
             
-            # Validate bank if available players provided
-            if available_players and 'transfers' in team_data:
-                bank_errors = validator.validate_bank_calculation(
-                    team_data, gameweek, team_data.get('transfers', []), available_players
-                )
-                errors.extend(bank_errors)
+            # Extract JSON content between braces (fallback method)
+            if not response_text or response_text.find('{') == -1:
+                # Try to find JSON content in the response
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                
+                if json_start == -1 or json_end == 0:
+                    error_msg = f"No JSON found in response for {expected_type}"
+                    logger.error(f"{error_msg}. Response: {response}")
+                    if raise_on_error:
+                        raise ValueError(error_msg)
+                    return {}
+                
+                response_text = response[json_start:json_end]
+            
+            # Debug: Log the cleaned response
+            logger.info(f"Cleaned response text for {expected_type} (length: {len(response_text)}): {repr(response_text[:500])}")
+            
+            # Check if response is empty
+            if not response_text:
+                error_msg = f"Response is empty after cleaning for {expected_type}"
+                logger.error(error_msg)
+                if raise_on_error:
+                    raise ValueError(error_msg)
+                return {}
+            
+            parsed = json.loads(response_text)
+            logger.debug(f"Successfully parsed {expected_type} response: {parsed}")
+            
+            return parsed
             
         except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON in response: {str(e)}")
+            error_msg = f"Failed to parse JSON response for {expected_type}: {e}"
+            logger.error(error_msg)
+            logger.error(f"JSON string: {response_text if 'response_text' in locals() else 'Not available'}")
+            if raise_on_error:
+                raise ValueError(error_msg)
+            return {}
         except Exception as e:
-            errors.append(f"Validation failed: {str(e)}")
-        
-            return errors
-    
-    def parse_team_response(self, response: str) -> Dict[str, Any]:
-        """Parse the LLM response into team data"""
-        try:
-            # Extract JSON from the response
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            
-            if json_start == -1 or json_end == 0:
-                logger.error(f"No JSON found in response. Response: {response}")
-                raise ValueError("No JSON found in response")
-            
-            json_str = response[json_start:json_end]
-            logger.debug(f"Extracted JSON: {json_str}")
-            
-            team_data = json.loads(json_str)
-            logger.debug(f"Parsed team data: {team_data}")
-            
-            return team_data
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.error(f"JSON string: {json_str if 'json_str' in locals() else 'Not available'}")
-            raise ValueError(f"Invalid JSON response: {e}")
-        except Exception as e:
-            logger.error(f"Failed to parse team response: {e}")
-            logger.error(f"Response: {response}")
-            raise
+            error_msg = f"Failed to parse {expected_type} response: {e}"
+            logger.error(error_msg)
+            logger.error(f"Response that failed to parse: {repr(response)}")
+            if raise_on_error:
+                raise
+            return {}
     
     def validate_team_data_comprehensive(self, team_data: Dict[str, Any], config) -> List[str]:
         """Validate that the team data meets FPL constraints"""

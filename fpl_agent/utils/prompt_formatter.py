@@ -6,6 +6,8 @@ from datetime import datetime
 import logging
 from typing import Dict, List, Any
 
+from ..core.config import Config
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,7 +89,7 @@ class PromptFormatter:
 
     @staticmethod
     def format_team(team: Dict, team_player_data: Dict) -> str:
-        """Format current team data for the prompt with enhanced player information
+        """Format current team data, with starting 11 and substitutes, for the prompt with enhanced player information
         
         Args:
             team: Dictionary containing the current team data, all players, substitutes and captains/vice captains.
@@ -285,8 +287,7 @@ class PromptFormatter:
     
     @staticmethod
     def format_fixtures(fixtures_data: List[Dict[str, Any]], gameweek: int) -> str:
-        """
-        Format fixtures data for LLM prompts.
+        """Format fixtures data for LLM prompts.
         
         Args:
             fixtures_data: List of fixture data for the gameweek
@@ -334,8 +335,15 @@ class PromptFormatter:
         return "\n".join(formatted_lines)
         
     @staticmethod
-    def format_chips_for_prompt(chips_data: Dict) -> str:
-        """Format available chips for the prompt"""
+    def format_chips(chips_data: Dict) -> str:
+        """Format available chips for the prompt
+        
+        Args:
+            chips_data: Dictionary containing the chips data
+
+        Returns:
+            Formatted string of available chips for the prompt
+        """
         available_chips = []
         used_chips = chips_data.get('used', [])
         
@@ -347,8 +355,15 @@ class PromptFormatter:
         return ", ".join(available_chips) if available_chips else "none"
     
     @staticmethod
-    def get_team_constraints_prompt(config) -> str:
-        """Generate team constraints prompt from config"""
+    def format_team_constraints(config: Config) -> str:
+        """Generate team constraints prompt from config
+        
+        Args:
+            config: Configuration
+            
+        Returns:
+            Formatted string of team constraints for the prompt
+        """
         position_limits = config.get_position_limits()
         formation_constraints = config.get_formation_constraints()
         
