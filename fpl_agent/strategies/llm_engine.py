@@ -3,8 +3,6 @@ Unified LLM Engine for Gemini API communication
 """
 
 import logging
-import json
-import re
 
 from google import genai
 from google.genai import types
@@ -73,13 +71,12 @@ class LLMEngine:
             logger.error(f"Failed to initialize Gemini model: {e}")
             raise
     
-    def query(self, prompt: str, extract_json: bool = False) -> str:
+    def query(self, prompt: str) -> str:
         """
         Query the LLM with a given prompt.
         
         Args:
             prompt: The prompt to send to the LLM
-            extract_json: Whether to extract and clean JSON from response
             
         Returns:
             String containing the LLM response
@@ -95,111 +92,14 @@ class LLMEngine:
                 config=self.generation_config
             )
             
-            # Check if response has text content
-            if not hasattr(response, 'candidates') or not response.candidates:
-                logger.warning(f"LLM response has no candidates. Response type: {type(response)}")
-                logger.debug(f"Response attributes: {dir(response)}")
-                return "Error: Empty response from LLM"
+            # Simple text extraction - LLM should return json
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content.parts:
+                    return candidate.content.parts[0].text.strip()
             
-            # Extract text from the first candidate
-            candidate = response.candidates[0]
-            if not hasattr(candidate, 'content') or not candidate.content:
-                logger.warning(f"LLM response candidate has no content. Candidate: {candidate}")
-                logger.debug(f"Candidate attributes: {dir(candidate)}")
-                return "Error: Empty response content from LLM"
-            
-            # Extract text from content parts
-            content_parts = candidate.content.parts
-            if content_parts is None or not content_parts:
-                logger.warning(f"LLM response content has no parts. Content: {candidate.content}")
-                logger.debug(f"Content attributes: {dir(candidate.content)}")
-                
-                # When parts is None, try to get text directly from content
-                if hasattr(candidate.content, 'text') and candidate.content.text:
-                    response_text = candidate.content.text.strip()
-                    if response_text:
-                        logger.info("Found text in content.text (parts was None)")
-                        return response_text
-                
-                # Try other potential text attributes
-                for attr in ['text', 'content', 'message', 'response']:
-                    if hasattr(candidate.content, attr):
-                        attr_value = getattr(candidate.content, attr)
-                        if attr_value and isinstance(attr_value, str):
-                            response_text = attr_value.strip()
-                            if response_text:
-                                logger.info(f"Found text in content.{attr}")
-                                return response_text
-                
-                # If all else fails, try to convert the entire content object to string
-                try:
-                    content_str = str(candidate.content)
-                    if content_str and content_str != str(type(candidate.content)):
-                        logger.info("Extracted text from content string representation")
-                        return content_str
-                except:
-                    pass
-                
-                return "Error: Empty response parts from LLM"
-            
-            # Get text from the first part
-            first_part = content_parts[0]
-            if not hasattr(first_part, 'text'):
-                logger.warning(f"LLM response part has no text. Part: {first_part}")
-                return "Error: No text in response part"
-            
-            response_text = first_part.text.strip()
-            
-            if not response_text:
-                logger.warning("LLM response text is empty")
-                return "Error: Empty response text from LLM"
-            
-            # Debug: Log the response text
-            logger.info(f"LLM response text (length: {len(response_text)}): {repr(response_text[:200])}")
-            
-            # Extract JSON if requested
-            if extract_json:
-                return self._extract_json_from_response(response_text)
-            
-            return response_text
+            return "Error: Invalid response format from LLM"
                 
         except Exception as e:
-            logger.error(f"Failed to query LLM: {e}")
-            return f"Error: Could not get LLM response: {e}"
-    
-    def _extract_json_from_response(self, response_text: str) -> str:
-        """Extract and clean JSON from LLM response"""
-        try:
-            # Look for JSON object in the response (robust pattern)
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
-            if json_match:
-                try:
-                    # Validate that it's proper JSON
-                    json_str = json_match.group(0)
-                    # Clean up common issues
-                    json_str = json_str.replace('\n', ' ').replace('\r', ' ')
-                    json.loads(json_str)  # Test if it's valid JSON
-                    return json_str
-                except json.JSONDecodeError:
-                    # Try simpler extraction
-                    try:
-                        start = response_text.find('{')
-                        end = response_text.rfind('}')
-                        if start != -1 and end != -1 and end > start:
-                            json_str = response_text[start:end+1]
-                            json.loads(json_str)  # Test if it's valid JSON
-                            return json_str
-                    except json.JSONDecodeError:
-                        pass
-                    # If JSON extraction fails, return the full response
-                    return response_text
-            else:
-                # If no JSON found, return the full response
-                return response_text
-                
-        except Exception as e:
-            logger.error(f"Failed to extract JSON from response: {e}")
-            return response_text
-    
-
-    
+            logger.error(f"LLM query failed: {e}")
+            return f"Error: {e}"
