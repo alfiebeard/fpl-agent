@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
 
 from ..core.config import Config
 from ..utils.keyword_extractor import extract_expert_bonus
@@ -63,8 +64,6 @@ class EmbeddingFilter:
     def _load_embeddings_model(self):
         """Load the sentence-transformers model from configuration"""
         try:
-            from sentence_transformers import SentenceTransformer
-            
             # Get model configuration
             embeddings_config = self.config.get_embeddings_config()
             model_name = embeddings_config.get('model', 'BAAI/bge-base-en-v1.5')

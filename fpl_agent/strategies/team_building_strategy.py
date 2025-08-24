@@ -8,7 +8,7 @@ from typing import Dict, Any, List
 from ..core.config import Config
 from ..core.team_manager import TeamManager
 from .base_strategy import BaseLLMStrategy
-from ..utils.validator import FPLValidator
+from ..utils.validator import Validator
 from ..utils.prompt_formatter import PromptFormatter
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
     def __init__(self, config: Config):
         super().__init__(config, model_name="main")
         self.team_manager = TeamManager()
+        self.validator = Validator(config)
     
     def get_strategy_name(self) -> str:
         """Return the name of this strategy."""
@@ -64,12 +65,11 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             response = self.llm_engine.query(prompt)
             
             # Parse and validate LLM response
-            validator = FPLValidator()
-            team_data = validator.parse_llm_json_response(response, expected_type="team_data")
+            team_data = self.validator.parse_llm_json_response(response)
             
             # Validate team structure
             logger.info("Validating team structure...")
-            validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
+            validation_errors = self.validator.validate_team_data(team_data, budget)
             
             if validation_errors:
                 error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
@@ -108,6 +108,9 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             transfers_data = team_context['transfers']
             current_team_player_data = team_context['current_team_player_data']
             
+            # Calculate team budget - used to validate generated team meets budget constraints
+            team_budget = self.team_manager.calculate_team_budget(current_team, current_team_player_data)
+            
             # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
                 current_team, current_team_player_data, gameweek, chips_data, 
@@ -122,12 +125,11 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             response = self.llm_engine.query(prompt)
             
             # Parse and validate LLM response
-            validator = FPLValidator()
-            team_data = validator.parse_llm_json_response(response)
+            team_data = self.validator.parse_llm_json_response(response)
             
             # Validate team structure
             logger.info("Validating team structure...")
-            validation_errors = validator.validate_team_data_comprehensive(team_data, self.config)
+            validation_errors = self.validator.validate_team_data(team_data, team_budget)
             
             if validation_errors:
                 error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)

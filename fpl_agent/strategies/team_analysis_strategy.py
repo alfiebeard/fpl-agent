@@ -8,7 +8,7 @@ import logging
 from typing import Dict, List, Any, Optional
 
 from ..core.config import Config
-from ..utils.validator import FPLValidator
+from ..utils.validator import Validator
 from ..utils.prompt_formatter import PromptFormatter
 from .base_strategy import BaseLLMStrategy
 
@@ -27,7 +27,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         """
 
         super().__init__(config, model_name="lightweight")
-        self.validator = FPLValidator("team_data")  # Use default data directory
+        self.validator = Validator(config)
     
     def get_strategy_name(self) -> str:
         """Return the name of this strategy."""

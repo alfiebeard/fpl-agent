@@ -6,40 +6,28 @@ Validates FPL teams against official rules and checks bank calculations
 import json
 import logging
 from typing import Dict, List, Any, Optional
-from pathlib import Path
-from enum import Enum
+from ..core.config import Config
 
 logger = logging.getLogger(__name__)
 
-
-class Position(Enum):
-    GK = "GK"
-    DEF = "DEF"
-    MID = "MID"
-    FWD = "FWD"
-
-
-class ValidationError(Exception):
-    """Custom exception for validation errors"""
-    pass
-
-
-class FPLValidator:
+class Validator:
     """
     Validates FPL teams against official rules and checks bank calculations
+
+    Args:
+        config: Configuration
     """
     
-    def __init__(self, data_dir: str = "team_data"):
-        self.data_dir = Path(data_dir)
-        self.meta_file = self.data_dir / "meta.json"
+    def __init__(self, config: Config):
+        self.config = config
     
-    def validate_team_data(self, team_data: Dict[str, Any], gameweek: int) -> List[str]:
+    def validate_team_data(self, team_data: Dict[str, Any], budget: float) -> List[str]:
         """
         Validate team data against FPL rules
         
         Args:
             team_data: Team data to validate
-            gameweek: Current gameweek
+            budget: Current budget, team sale value + bank value
             
         Returns:
             List of validation errors (empty if valid)
@@ -50,7 +38,7 @@ class FPLValidator:
         errors.extend(self._validate_basic_structure(team_data))
         
         # FPL rules validation
-        errors.extend(self._validate_fpl_rules(team_data))
+        errors.extend(self._validate_fpl_rules(team_data, budget))
         
         # Formation validation
         errors.extend(self._validate_formation(team_data))
@@ -63,51 +51,15 @@ class FPLValidator:
         
         return errors
     
-    def validate_bank_calculation(self, team_data: Dict[str, Any], gameweek: int, 
-                                transfers: List[Dict[str, str]], 
-                                available_players: Dict[str, Dict[str, Any]]) -> List[str]:
-        """
-        Validate bank calculation based on transfers and price changes
+    def _validate_basic_structure(self, team_data: Dict[str, Any]) -> List[str]:
+        """Validate basic team structure
         
         Args:
-            team_data: New team data
-            gameweek: Current gameweek
-            transfers: List of transfers made
-            available_players: Current available players with prices
+            team_data: Team data to validate
             
         Returns:
             List of validation errors (empty if valid)
         """
-        errors = []
-        
-        try:
-            # Get previous team data
-            previous_team = self._get_previous_team(gameweek)
-            if not previous_team:
-                errors.append(f"No previous team found for Gameweek {gameweek - 1}")
-                return errors
-            
-            # Calculate expected bank
-            expected_bank = self._calculate_expected_bank(
-                previous_team, team_data, transfers, available_players
-            )
-            
-            # Compare with actual bank
-            actual_bank = team_data.get('bank', 0.0)
-            
-            if abs(expected_bank - actual_bank) > 0.05:  # Allow small rounding differences
-                errors.append(
-                    f"Bank calculation error: Expected £{expected_bank:.1f}m, "
-                    f"got £{actual_bank:.1f}m (difference: £{abs(expected_bank - actual_bank):.1f}m)"
-                )
-            
-        except Exception as e:
-            errors.append(f"Bank calculation failed: {str(e)}")
-        
-        return errors
-    
-    def _validate_basic_structure(self, team_data: Dict[str, Any]) -> List[str]:
-        """Validate basic team structure"""
         errors = []
         
         # Required keys
@@ -128,8 +80,15 @@ class FPLValidator:
         
         return errors
     
-    def _validate_fpl_rules(self, team_data: Dict[str, Any]) -> List[str]:
-        """Validate FPL rules"""
+    def _validate_fpl_rules(self, team_data: Dict[str, Any], budget: float) -> List[str]:
+        """Validate FPL rules
+        
+        Args:
+            team_data: Team data to validate
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
         errors = []
         
         if 'team' not in team_data:
@@ -141,7 +100,6 @@ class FPLValidator:
         # Get constraints from config
         position_limits = self.config.get_position_limits()
         squad_size = self.config.get_team_config().get('squad_size', 15)
-        budget = self.config.get_team_config().get('budget', 100.0)
         max_players_per_team = self.config.get_team_config().get('max_players_per_team', 3)
         
         # Check squad size
@@ -178,11 +136,21 @@ class FPLValidator:
         total_cost = team_data.get('total_cost', 0)
         if total_cost > budget:
             errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
+
+        if total_cost + team_data.get('bank', 0) == budget:
+            errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
         
         return errors
     
     def _validate_formation(self, team_data: Dict[str, Any]) -> List[str]:
-        """Validate formation is legal"""
+        """Validate formation is legal
+        
+        Args:
+            team_data: Team data to validate
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
         errors = []
         
         if 'team' not in team_data:
@@ -214,7 +182,14 @@ class FPLValidator:
         return errors
     
     def _validate_captain(self, team_data: Dict[str, Any]) -> List[str]:
-        """Validate captain and vice-captain"""
+        """Validate captain and vice-captain
+        
+        Args:
+            team_data: Team data to validate
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
         errors = []
         
         captain = team_data.get('captain')
@@ -241,7 +216,14 @@ class FPLValidator:
         return errors
     
     def _validate_substitutes(self, team_data: Dict[str, Any]) -> List[str]:
-        """Validate substitute order"""
+        """Validate substitute order
+        
+        Args:
+            team_data: Team data to validate
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
         errors = []
         
         if 'team' not in team_data:
@@ -275,7 +257,16 @@ class FPLValidator:
     
     def _validate_meta_consistency(self, meta_data: Dict[str, Any], gameweek: int, 
                                  team_data: Dict[str, Any]) -> List[str]:
-        """Validate meta.json consistency"""
+        """Validate meta.json consistency
+        
+        Args:
+            meta_data: Meta data to validate
+            gameweek: Current gameweek
+            team_data: Team data to validate
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
         errors = []
         
         # Check current gameweek
@@ -297,21 +288,48 @@ class FPLValidator:
         
         return errors
     
-    def _get_previous_team(self, gameweek: int) -> Optional[Dict[str, Any]]:
-        """Get previous team data"""
-        if gameweek <= 1:
-            return None
+    def validate_bank_calculation(self, team_data: Dict[str, Any], gameweek: int, 
+                                transfers: List[Dict[str, str]], previous_team: Dict[str, Any],
+                                available_players: Dict[str, Dict[str, Any]]) -> List[str]:
+        """
+        Validate bank calculation based on transfers and price changes
         
-        prev_file = self.data_dir / f"gw{gameweek-1:02d}.json"
-        if not prev_file.exists():
-            return None
+        Args:
+            team_data: New team data
+            gameweek: Current gameweek
+            transfers: List of transfers made
+            previous_team: Previous team data
+            available_players: Current available players with prices
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
+        errors = []
         
         try:
-            with open(prev_file, 'r') as f:
-                data = json.load(f)
-            return data['team']
-        except Exception:
-            return None
+            # Get previous team data
+            if not previous_team:
+                errors.append(f"No previous team found for Gameweek {gameweek - 1}")
+                return errors
+            
+            # Calculate expected bank
+            expected_bank = self._calculate_expected_bank(
+                previous_team, team_data, transfers, available_players
+            )
+            
+            # Compare with actual bank
+            actual_bank = team_data.get('bank', 0.0)
+            
+            if abs(expected_bank - actual_bank) > 0.05:  # Allow small rounding differences
+                errors.append(
+                    f"Bank calculation error: Expected £{expected_bank:.1f}m, "
+                    f"got £{actual_bank:.1f}m (difference: £{abs(expected_bank - actual_bank):.1f}m)"
+                )
+            
+        except Exception as e:
+            errors.append(f"Bank calculation failed: {str(e)}")
+        
+        return errors
     
     def _calculate_expected_bank(self, previous_team: Dict[str, Any], 
                                new_team: Dict[str, Any], 
@@ -358,14 +376,30 @@ class FPLValidator:
         return expected_bank
     
     def _get_player_price(self, player_name: str, available_players: Dict[str, Dict[str, Any]]) -> Optional[float]:
-        """Get player price from available players"""
+        """Get player price from available players
+        
+        Args:
+            player_name: Name of the player
+            available_players: Current available players with prices
+            
+        Returns:
+            Player price
+        """
         for player_data in available_players.values():
             if player_data.get('name') == player_name:
                 return player_data.get('price')
         return None
     
     def _get_player_price_in_team(self, player_name: str, team_data: Dict[str, Any]) -> Optional[float]:
-        """Get player price from team data"""
+        """Get player price from team data
+        
+        Args:
+            player_name: Name of the player
+            team_data: Team data
+            
+        Returns:
+            Player price
+        """
         all_players = team_data.get('team', {}).get('starting', []) + team_data.get('team', {}).get('substitutes', [])
         for player in all_players:
             if player.get('name') == player_name:
@@ -378,6 +412,13 @@ class FPLValidator:
         If Current Price > Purchase Price: Transfer Out Price = Purchase Price + floor((Current Price - Purchase Price) / 2)
         Rounded down to the nearest £0.1m
         If Current Price <= Purchase Price: Transfer Out Price = Current Price
+        
+        Args:
+            current_price: Current price of the player
+            purchase_price: Purchase price of the player
+            
+        Returns:
+            Sell price
         """
         if current_price > purchase_price:
             price_diff = current_price - purchase_price
@@ -389,7 +430,7 @@ class FPLValidator:
     
     def parse_llm_json_response(self, response: str, raise_on_error: bool = True, 
                                expected_type: str = "any") -> Dict[str, Any]:
-        """Parse LLM response to extract JSON data with robust error handling.
+        """Parse LLM response to extract JSON data with robust error handling
         
         Args:
             response: The LLM response as a string
@@ -397,10 +438,11 @@ class FPLValidator:
             expected_type: Description of expected response type for logging
 
         Returns:
-            A dictionary with the parsed JSON data
+            Dictionary with the parsed JSON data
             
         Raises:
             ValueError: If raise_on_error is True and parsing fails
+            Exception: If an error occurs during parsing
         """
         try:
             # Debug: Log the raw response
@@ -467,97 +509,4 @@ class FPLValidator:
             logger.error(f"Response that failed to parse: {repr(response)}")
             if raise_on_error:
                 raise
-            return {}
-    
-    def validate_team_data_comprehensive(self, team_data: Dict[str, Any], config) -> List[str]:
-        """Validate that the team data meets FPL constraints"""
-        errors = []
-        
-        # Basic structure validation
-        required_keys = ['captain', 'vice_captain', 'total_cost', 'bank', 'team']
-        for key in required_keys:
-            if key not in team_data:
-                errors.append(f"Missing required key: {key}")
-        
-        team = team_data.get('team', {})
-        if 'starting' not in team or 'substitutes' not in team:
-            errors.append("Team must have 'starting' and 'substitutes' sections")
-            return errors
-        
-        # Count players
-        starting = team['starting']
-        substitutes = team['substitutes']
-        
-        if len(starting) != 11:
-            errors.append(f"Must have exactly 11 starting players, got {len(starting)}")
-        
-        if len(substitutes) != 4:
-            errors.append(f"Must have exactly 4 substitutes, got {len(substitutes)}")
-        
-        # Check budget
-        total_cost = team_data.get('total_cost', 0)
-        if total_cost > 100.0:
-            errors.append(f"Total cost £{total_cost}m exceeds budget of £100.0m")
-        
-        # Check team composition (basic validation)
-        all_players = starting + substitutes
-        
-        # Get constraints from config
-        position_limits = config.get_position_limits()
-        
-        # Count positions
-        gk_count = sum(1 for p in all_players if p.get('position') == 'GK')
-        def_count = sum(1 for p in all_players if p.get('position') == 'DEF')
-        mid_count = sum(1 for p in all_players if p.get('position') == 'MID')
-        fwd_count = sum(1 for p in all_players if p.get('position') == 'FWD')
-        
-        # Validate against config
-        if gk_count != position_limits['GK']:
-            errors.append(f"Must have exactly {position_limits['GK']} goalkeepers, got {gk_count}")
-        if def_count != position_limits['DEF']:
-            errors.append(f"Must have exactly {position_limits['DEF']} defenders, got {def_count}")
-        if mid_count != position_limits['MID']:
-            errors.append(f"Must have exactly {position_limits['MID']} midfielders, got {mid_count}")
-        if fwd_count != position_limits['FWD']:
-            errors.append(f"Must have exactly {position_limits['FWD']} forwards, got {fwd_count}")
-        
-        if not errors:
-            logger.info("Team data validation passed")
-        
-        return errors 
-
-    def validate_transfers_and_bank_workflow(self, team_result: Dict[str, Any], gameweek: int, 
-                                           team_context: Dict[str, Any], 
-                                           available_players: Dict[str, Dict[str, Any]]) -> None:
-        """
-        Complete workflow for validating transfers and bank calculations.
-        Moved from main.py to consolidate validation logic.
-        
-        Args:
-            team_result: Team result from LLM strategy
-            gameweek: Current gameweek
-            team_context: Team context including previous team data
-            available_players: Current available players with prices
-        """
-        # Only validate if transfers were made
-        if not team_result.get('transfers'):
-            print("✅ No transfers made - bank validation skipped")
-            return
-        
-        # Validate bank calculation
-        bank_errors = self.validate_bank_calculation(
-            team_result, 
-            gameweek,
-            team_result['transfers'],
-            available_players
-        )
-        
-        # Display validation results
-        if bank_errors:
-            print("⚠️  Bank calculation errors:")
-            for error in bank_errors:
-                print(f"   • {error}")
-        else:
-            print("✅ Bank calculation validation passed")
-        
-        print("✅ Transfer and bank validation complete") 
+            return {} 

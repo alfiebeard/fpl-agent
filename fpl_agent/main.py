@@ -438,7 +438,7 @@ class FPLAgent:
                 print(f"✅ {chip_type.title()} chip is available - proceeding with team rebuild...")
                 
                 # Get budget from current team
-                available_budget = self.team_manager.calculate_team_value(
+                available_budget = self.team_manager.calculate_team_budget(
                     team_context['team'], 
                     self.data_service.get_players(force_refresh=False)
                 )

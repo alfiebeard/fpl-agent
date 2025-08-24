@@ -183,8 +183,16 @@ class TeamManager:
                     return True
         return False
     
-    def calculate_team_value(self, team_data: Dict[str, Any], current_players: Dict[str, Dict[str, Any]]) -> float:
-        """Calculate available budget for wildcard/free hit using correct FPL sale price formula"""
+    def calculate_team_budget(self, team_data: Dict[str, Any], current_players: Dict[str, Dict[str, Any]]) -> float:
+        """Calculate available budget for wildcard/free hit using correct FPL sale price formula
+        
+        Args:
+            team_data: Team data
+            current_players: Current players data
+            
+        Returns:
+            Available budget
+        """
         total_value = 0.0
         
         for player in team_data['starting'] + team_data['substitutes']:
