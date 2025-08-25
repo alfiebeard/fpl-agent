@@ -315,35 +315,6 @@ class EmbeddingFilter:
         
         return hybrid_scores
     
-    def _select_top_players(self, similarities: Dict[str, List[Tuple[str, float]]], 
-                          structured_data: Dict = None) -> List[str]:
-        """Select top players per position based on hybrid scores or embedding scores"""
-        selected_players = []
-        
-        if structured_data:
-            # Use hybrid scoring
-            hybrid_scores = self._calculate_hybrid_scores(similarities, structured_data)
-            
-            for position, player_scores in hybrid_scores.items():
-                count = self.selection_counts.get(position, 0)
-                top_players = player_scores[:count]
-                
-                selected_players.extend([player_name for player_name, _, _, _ in top_players])
-                
-                logger.info(f"Selected top {len(top_players)} players for {position} using hybrid scoring")
-        else:
-            # Fallback to original embedding-only scoring
-            for position, position_similarities in similarities.items():
-                count = self.selection_counts.get(position, 0)
-                top_players = position_similarities[:count]
-                
-                selected_players.extend([player_name for player_name, _ in top_players])
-                
-                logger.info(f"Selected top {len(top_players)} players for {position} using embedding-only scoring")
-        
-        logger.info(f"Total selected players: {len(selected_players)}")
-        return selected_players
-    
     def calculate_player_embeddings(self, players_data: Dict[str, Dict[str, Any]], use_cached: bool = False) -> Dict[str, np.ndarray]:
         """
         Calculate embeddings for all players and save embeddings to player_embeddings.json.
