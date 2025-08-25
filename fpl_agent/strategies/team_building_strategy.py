@@ -162,6 +162,12 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             The team creation prompt
         """
         
+        # Get selection counts from config if using ranking
+        selection_counts = None
+        if use_ranking:
+            embeddings_config = self.config.get_embeddings_config()
+            selection_counts = embeddings_config.get('selection_counts')
+        
         return f"""You are a Fantasy Premier League (FPL) team building expert. Your task is to create the optimal FPL team for Gameweek {gameweek}.
 
 CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure. Your entire response must be a single, valid JSON object.
@@ -180,7 +186,7 @@ The fixtures this gameweek are:
 {PromptFormatter.format_fixtures(fixtures_data, gameweek)}
 {self._get_prompt_intro(use_enrichments=use_enrichments)}
 
-{PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking)}
+{PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking, selection_counts=selection_counts)}
 
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
@@ -287,6 +293,11 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
         Returns:
             The weekly update prompt
         """
+        # Get selection counts from config if using ranking
+        selection_counts = None
+        if use_ranking:
+            embeddings_config = self.config.get_embeddings_config()
+            selection_counts = embeddings_config.get('selection_counts')
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
 {PromptFormatter.format_team(current_team, current_team_player_data)}
@@ -314,7 +325,8 @@ The fixtures this gameweek are:
 {PromptFormatter.format_fixtures(fixtures_data, gameweek)}
 
 {self._get_prompt_intro(use_enrichments, is_weekly_update=True)}
-{PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking)}
+
+{PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking, selection_counts=selection_counts)}
 
 The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player you must use the following formula to calculate the sale price:
 If Current Price > Purchase Price: Transfer Out Price = Purchase Price + floor((Current Price - Purchase Price) / 2). Rounded down to the nearest £0.1m.

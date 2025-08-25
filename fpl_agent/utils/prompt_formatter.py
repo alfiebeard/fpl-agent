@@ -4,7 +4,7 @@ Prompt formatting utilities for FPL strategies
 
 from datetime import datetime
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from ..core.config import Config
 
@@ -15,18 +15,19 @@ class PromptFormatter:
     """Utility class for formatting data into LLM prompts"""
     
     @staticmethod
-    def format_player_list(players_data: Dict[str, List[Dict[str, Any]]], use_enrichments: bool = True, use_ranking: bool = True, show_header: bool = True) -> str:
+    def format_player_list(players_data: Dict[str, List[Dict[str, Any]]], use_enrichments: bool = True, use_ranking: bool = True, show_header: bool = True, selection_counts: Optional[Dict[str, int]] = None) -> str:
         """
         Format player data for LLM prompts in TeamBuildingStrategy.
-        Lists all the players data in paragraphs, grouped by team orposition.
+        Lists all the players data in paragraphs, grouped by team or position.
         If not use_ranking, players are sorted by position and total points.
-        If use_ranking, players are sorted by position rank.
+        If use_ranking, players are sorted by position rank and filtered to top players.
         
         Args:
             players_data: Dictionary of player data grouped by team or position
             use_enrichments: Whether to include expert insights and injury news
-            use_ranking: Whether to include ranking numbers
+            use_ranking: Whether to include ranking numbers and filter to top players
             show_header: Whether to include a header for the team or position
+            selection_counts: Dictionary of position -> count for filtering (e.g., {'GK': 15, 'DEF': 60}). If None, uses defaults.
         Returns:
             Formatted string for LLM prompts
         """
@@ -74,7 +75,12 @@ class PromptFormatter:
                 elif group_by == "grouped_by_position":
                     # Sort players by ranking
                     sorted_players = sorted(players, key=lambda p: (p.get('position_rank', 0)), reverse=True)
-                
+
+                    # Filter to top K players for this position based on config selection_counts.
+                    if use_ranking and selection_counts:
+                        count = selection_counts.get(player_group, 0)  # player_group is the position name
+                        sorted_players = sorted_players[:count]
+                    
                 for player in sorted_players:
                     formatted_data.append(PromptFormatter.format_player(player, player_type=group_by, include_enrichments=use_enrichments, include_rankings=use_ranking))
                     formatted_data.append("")  # Empty line between players
