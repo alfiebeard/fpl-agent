@@ -234,6 +234,14 @@ class EmbeddingFilter:
             logger.error(f"Failed to encode queries: {e}")
             raise
     
+    def _has_enrichments(self, player_data: Dict[str, Any]) -> bool:
+        """Check if player has meaningful enrichments"""
+        expert_insights = player_data.get('expert_insights', '')
+        injury_news = player_data.get('injury_news', '')
+        
+        return (expert_insights and expert_insights != "No expert insights available" and
+                injury_news and injury_news != "No injury news available")
+    
     def _get_player_positions(self, player_data: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
         """Extract player positions from enriched data"""
         player_positions = {}
@@ -333,6 +341,14 @@ class EmbeddingFilter:
         try:
             logger.info("Starting calculation of embedding scores for all players...")
             
+            # Filter to only enriched players BEFORE processing
+            enriched_players = {name: data for name, data in players_data.items() 
+                               if self._has_enrichments(data)}
+            
+            if len(enriched_players) != len(players_data):
+                logger.warning(f"Filtered {len(players_data) - len(enriched_players)} players without enrichments")
+                logger.info(f"Processing {len(enriched_players)} enriched players")
+            
             if use_cached:
                 # Load cached embeddings - error if not available
                 player_embeddings = self._load_cached_embeddings()
@@ -343,10 +359,10 @@ class EmbeddingFilter:
                 return player_embeddings['embeddings']
             else:
                 # Always generate fresh embeddings
-                logger.info("Generating fresh embeddings from player data...")
+                logger.info("Generating fresh embeddings from enriched player data...")
                 try:
-                    # Generate embeddings for all players
-                    player_embeddings = self._encode_players(players_data)
+                    # Generate embeddings for enriched players only
+                    player_embeddings = self._encode_players(enriched_players)
                     
                     # Cache the new embeddings
                     cacheable_embeddings = {}
@@ -354,7 +370,7 @@ class EmbeddingFilter:
                         cacheable_embeddings[player_name] = json.dumps(embedding.tolist())
                     
                     self._save_embeddings_cache(cacheable_embeddings)
-                    logger.info(f"Generated and cached embeddings for {len(player_embeddings)} players")
+                    logger.info(f"Generated and cached embeddings for {len(player_embeddings)} enriched players")
                     
                     # Return the fresh embeddings directly (no need to reload)
                     return player_embeddings
@@ -382,17 +398,24 @@ class EmbeddingFilter:
         try:
             logger.info("Starting calculation of embedding scores for players...")
             
+            # Filter to only enriched players for scoring
+            enriched_players = {name: data for name, data in players_data.items() 
+                               if self._has_enrichments(data)}
+            
+            if len(enriched_players) != len(players_data):
+                logger.info(f"Calculating scores for {len(enriched_players)} enriched players (filtered from {len(players_data)} total)")
+            
             # Get position queries for similarity calculation
             query_embeddings = self._encode_queries()
             
-            # Get player positions directly from players_data
-            player_positions = self._get_player_positions(players_data)
+            # Get player positions directly from enriched_players
+            player_positions = self._get_player_positions(enriched_players)
             
             # Calculate similarities between players and position queries
             similarities = self._calculate_similarities(player_embeddings, query_embeddings, player_positions)
             
             # Calculate hybrid scores
-            hybrid_scores = self._calculate_hybrid_scores(similarities, players_data)
+            hybrid_scores = self._calculate_hybrid_scores(similarities, enriched_players)
             
             # Format and return results
             player_scores = {}

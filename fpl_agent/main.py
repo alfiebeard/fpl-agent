@@ -166,7 +166,7 @@ class FPLAgent:
             logger.info(f"Processing {len(team_players)} Premier League teams for enrichment")
             
             # Process each team sequentially
-            for team_player_list in [team_players[0]]:
+            for team_player_list in team_players:
                 try:
                     team_name = list(team_player_list.values())[0].get('team_name')
                     logger.info(f"Processing team {team_name}")
