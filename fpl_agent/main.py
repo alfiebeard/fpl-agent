@@ -17,12 +17,11 @@ from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
 from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status
 from .data.embedding_filter import EmbeddingFilter
-from .utils.prompt_formatter import PromptFormatter
 
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,  # Default to normal mode (WARNING + ERROR only)
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
@@ -177,22 +176,30 @@ class FPLAgent:
                     fixture_info = get_team_fixture_info(team_name, all_gameweek_data['fixtures'], gameweek)
                     
                     # Get expert insights from LLM strategy
+                    print(f"   🔍 Getting expert insights for {team_name}...")
                     expert_insights = team_analysis_strategy.get_team_hints_tips(team_name, team_player_list, gameweek, fixture_info)
+                    print(f"   📊 Expert insights received: {len(expert_insights)} players")
                     
                     # Get injury news from LLM strategy
+                    print(f"   🏥 Getting injury news for {team_name}...")
                     injury_news = team_analysis_strategy.get_team_injury_news(team_name, team_player_list, gameweek, fixture_info)
+                    print(f"   📊 Injury news received: {len(injury_news)} players")
                     
                     # Convert team_player_list to list of player dictionaries
                     team_players_list = list(team_player_list.values())
+                    print(f"   👥 Team players list: {len(team_players_list)} players")
                     
                     # Apply enriched data to players
+                    print(f"   🔄 Applying enrichments to players...")
                     self._add_enrichments_to_players(all_gameweek_data['players'], team_players_list, expert_insights, injury_news)
                     
                     print(f"   ✅ Team data enriched for {team_name}")
                     
                 except Exception as e:
-                    logger.error(f"Failed to process team {team_name}: {e}")
-                    print(f"   ❌ Team processing failed for {team_name}: {e}")
+                    logger.error(f"Failed to process team: {e}")
+                    print(f"   ❌ Team processing failed: {e}")
+                    import traceback
+                    traceback.print_exc()
                     continue
             
             logger.info("Player enrichment completed")
@@ -217,7 +224,7 @@ class FPLAgent:
             }
             
             self.data_service.store.save_player_data(enriched_data)
-            print(f"✅ Successfully enriched player data for {len(all_gameweek_data['players'])} teams")
+            print(f"✅ Successfully enriched player data for {len(all_gameweek_data['players'])} players")
                 
         except Exception as e:
             logger.error(f"Failed to enrich player data: {e}")
@@ -525,7 +532,24 @@ def main():
     parser.add_argument('--show-prompt', action='store_true',
                        help='Show the prompt that would be sent to the LLM (for debugging)')
     
+    # Logging level options
+    parser.add_argument('--debug', action='store_true',
+                       help='Show debug-level logging (most detailed)')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Show verbose logging (medium detail)')
+    
     args = parser.parse_args()
+    
+    # Set logging level based on flags
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        print("🔍 Debug mode enabled - showing all logs")
+    elif args.verbose:
+        logging.getLogger().setLevel(logging.INFO)
+        print("📊 Verbose mode enabled - showing detailed progress")
+    else:
+        # Default: Normal mode (WARNING + ERROR only)
+        logging.getLogger().setLevel(logging.WARNING)
     
     try:
         fpl_agent = FPLAgent()
