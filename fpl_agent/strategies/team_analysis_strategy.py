@@ -63,7 +63,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             logger.info(f"LLM response received (length: {len(response)}): {repr(response[:200])}")
             
             # Parse the response to extract insights for each player
-            self.validator.parse_llm_json_response(response, raise_on_error=False, expected_type="hints/tips")
+            return self.validator.parse_llm_json_response(response, raise_on_error=False, expected_type="hints/tips")
             
         except Exception as e:
             logger.error(f"Failed to get hints and tips for {team_name}: {e}")

@@ -474,7 +474,10 @@ class Validator:
                 
                 if json_start == -1 or json_end == 0:
                     error_msg = f"No JSON found in response for {expected_type}"
-                    logger.error(f"{error_msg}. Response: {response}")
+                    logger.error(f"{error_msg}")
+                    logger.error(f"Response content: {repr(response)}")
+                    logger.error(f"Response length: {len(response)}")
+                    logger.error(f"Response starts with: {repr(response[:100])}")
                     if raise_on_error:
                         raise ValueError(error_msg)
                     return {}
@@ -488,6 +491,8 @@ class Validator:
             if not response_text:
                 error_msg = f"Response is empty after cleaning for {expected_type}"
                 logger.error(error_msg)
+                logger.error(f"Original response: {repr(response)}")
+                logger.error(f"Cleaned response: {repr(response_text)}")
                 if raise_on_error:
                     raise ValueError(error_msg)
                 return {}
@@ -500,7 +505,8 @@ class Validator:
         except json.JSONDecodeError as e:
             error_msg = f"Failed to parse JSON response for {expected_type}: {e}"
             logger.error(error_msg)
-            logger.error(f"JSON string: {response_text if 'response_text' in locals() else 'Not available'}")
+            logger.error(f"JSON string that failed to parse: {response_text if 'response_text' in locals() else 'Not available'}")
+            logger.error(f"Full response: {repr(response)}")
             if raise_on_error:
                 raise ValueError(error_msg)
             return {}
@@ -508,6 +514,7 @@ class Validator:
             error_msg = f"Failed to parse {expected_type} response: {e}"
             logger.error(error_msg)
             logger.error(f"Response that failed to parse: {repr(response)}")
+            logger.error(f"Exception type: {type(e).__name__}")
             if raise_on_error:
                 raise
             return {} 

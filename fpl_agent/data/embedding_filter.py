@@ -240,7 +240,7 @@ class EmbeddingFilter:
         
         # Extract positions from the player_data passed in
         for player_name in player_data.keys():
-            position = player_data[player_name].get('element_type', 'UNK')
+            position = player_data[player_name].get('position', 'UNK')
             player_positions[player_name] = position
         
         return player_positions
@@ -402,9 +402,9 @@ class EmbeddingFilter:
                 for rank, (player_name, hybrid_score, embedding_score, keyword_bonus) in enumerate(ranked_players, 1):
                     if player_name in players_data:
                         player_scores[player_name] = {
-                            'embedding_score': embedding_score,
-                            'keyword_bonus': keyword_bonus,
-                            'hybrid_score': hybrid_score,
+                            'embedding_score': float(embedding_score),
+                            'keyword_bonus': float(keyword_bonus),
+                            'hybrid_score': float(hybrid_score),
                             'position_rank': rank
                         }
                         scores_added += 1
