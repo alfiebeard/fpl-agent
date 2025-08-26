@@ -208,50 +208,6 @@ class DataProcessor:
         except (ValueError, TypeError):
             return 0.0
     
-    def get_available_players(self, players_data: Dict[str, Dict[str, Any]], 
-                            min_minutes: int = 0, 
-                            max_price: Optional[float] = None,
-                            positions: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
-        """
-        Get available players based on criteria.
-        
-        Args:
-            players_data: Dictionary of player data
-            min_minutes: Minimum minutes played
-            max_price: Maximum price in millions
-            positions: List of positions to include
-            
-        Returns:
-            Filtered dictionary of available players
-        """
-        available_players = {}
-        
-        for player_name, player_data in players_data.items():
-            # Check minutes
-            if player_data.get('minutes', 0) < min_minutes:
-                continue
-            
-            # Check price
-            if max_price is not None:
-                player_price = player_data.get('now_cost', 0) / 10.0  # Convert to millions
-                if player_price > max_price:
-                    continue
-            
-            # Check position
-            if positions and player_data.get('position') not in positions:
-                continue
-            
-            available_players[player_name] = player_data
-        
-        return available_players
-    
-    # Enrichment methods moved to EnrichmentService
-    # This class now focuses on basic data processing only
-    
-    # Team grouping and enrichment methods moved to EnrichmentService
-    
-    # Fixture info method moved to team_utils.py
-    
     def get_gameweek_fixtures(self, gameweek: int, fixtures_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Get all fixtures for a specific gameweek from cached fixtures data.
@@ -356,23 +312,3 @@ class DataProcessor:
                     formatted_lines.append("")
         
         return "\n".join(formatted_lines)
-    
-    def format_players_for_llm_prompt(self, players_data: Dict[str, Dict[str, Any]], 
-                                    use_embeddings: bool = False) -> str:
-        """
-        Format players for LLM prompts with position grouping and rankings.
-        
-        Args:
-            players_data: Dictionary of player data
-            use_embeddings: Whether embedding filtering was used
-            
-        Returns:
-            Formatted string for LLM prompt
-        """
-        # Use the common formatting method with config default for rankings and scores when using embeddings
-        return self.format_players_by_position_ranked(
-            players_data, 
-            use_embeddings=use_embeddings, 
-            include_rankings=None,  # Use config default
-            include_scores=use_embeddings  # Include scores when using embeddings (same as show-players)
-        )

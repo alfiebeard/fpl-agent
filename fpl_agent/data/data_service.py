@@ -218,9 +218,9 @@ class DataService:
         
         return available_players
         
-    def show_data_status(self, data_store: DataStore) -> Dict[str, Any]:
+    def get_data_status(self, data_store: DataStore) -> Dict[str, Any]:
         """
-        Display current data status.
+        Get current data status information.
         
         Args:
             data_store: DataStore instance for loading player data
@@ -282,14 +282,12 @@ class DataService:
             return data_status
                         
         except Exception as e:
-            logger.error(f"Failed to show data status: {e}")
-            print(f"❌ Error showing data status: {e}")
+            logger.error(f"Failed to get data status: {e}")
             raise
 
-    def show_players_status(self, data_store: DataStore, config: Config) -> Dict[str, Any]:
+    def get_players_status(self, data_store: DataStore, config: Config) -> Dict[str, Any]:
         """
-        Display available players breakdown showing filtering process.
-        Moved from main.py to consolidate player status operations.
+        Get available players breakdown showing filtering process.
         
         Args:
             data_store: DataStore instance for loading player data
@@ -298,17 +296,18 @@ class DataService:
         Returns:
             Dictionary containing player status information
         """
-
-        # TODO: sort this mess out - common too long, move some to display. Work out what it's trying to do.
         try:
-            print("👥 FPL Players Status")
-            print("=" * 50)
-            
             # Load player data
             players_data = data_store.load_player_data()
             if not players_data:
-                print("❌ No player data available. Run 'fetch' command first.")
-                return {}
+                return {
+                    'error': 'No player data available. Run \'fetch\' command first.',
+                    'total_players': 0,
+                    'available_players': 0,
+                    'unavailable_players': 0,
+                    'use_embeddings': False,
+                    'completed_at': datetime.now().isoformat()
+                }
             
             # Extract player data
             if 'players' in players_data:
@@ -319,103 +318,28 @@ class DataService:
                 all_players = players_data
             
             total_players = len(all_players)
-            print(f"📊 Total players in data: {total_players}")
             
             # Apply basic filtering to separate available vs unavailable
-            available_players = self.processor._filter_available_players(all_players)
+            available_players = self._filter_available_players_by_chance_of_playing(all_players)
             unavailable_players = {
                 name: data for name, data in all_players.items() 
                 if name not in available_players
             }
             
-            print(f"\n🚫 Not Available Players: {len(unavailable_players)}")
-            print("-" * 30)
-            print("   (Filtered out by: chance_of_playing < 25% OR marked as 'Out' in injury news)")
-            print()
-            
-            # Debug: Check if we have any unavailable players
-            if len(unavailable_players) == 0:
-                print("   No unavailable players found")
-            else:
-                print(f"   Found {len(unavailable_players)} unavailable players")
-                # Show first few names as debug
-                first_names = list(unavailable_players.keys())[:5]
-                print(f"   First few: {first_names}")
-            
-            # Group by position for better organization
-            position_groups = {}
-            for name, data in unavailable_players.items():
-                position = data.get('element_type', 'Unknown')
-                
-                # Handle different possible element_type formats
-                if position == 1 or position == '1' or position == 'GK':
-                    position = 'GK'
-                elif position == 2 or position == '2' or position == 'DEF':
-                    position = 'DEF'
-                elif position == 3 or position == '3' or position == 'MID':
-                    position = 'MID'
-                elif position == 4 or position == '4' or position == 'FWD':
-                    position = 'FWD'
-                else:
-                    # If we can't determine position, try to infer from other data
-                    # Check if player has any position-related fields
-                    if 'element_type' in data and data['element_type'] not in ['Unknown', None, '']:
-                        position = 'Unknown'  # Keep as unknown if we have some data
-                    else:
-                        # Try to infer from team or other fields, default to 'Unknown'
-                        position = 'Unknown'
-                
-                if position not in position_groups:
-                    position_groups[position] = []
-                position_groups[position].append((name, data))
-            
-            print(f"   Position groups: {list(position_groups.keys())}")
-            
-            # Format using the common method for consistency
-            # First try the standard positions
-            for position in ['GK', 'DEF', 'MID', 'FWD']:
-                if position in position_groups:
-                    players = position_groups[position]
-                    print(f"   {position} ({len(players)} players):")
-                    
-                    # Use the common formatting method to ensure chance of playing is included
-                    position_data = dict(players)
-                    formatted_output = self.processor.format_players_by_position_ranked(
-                        position_data,
-                        use_embeddings=True,  # Show injury news and expert insights if available
-                        include_rankings=True,
-                        include_scores=False
-                    )
-                    print(formatted_output)
-                else:
-                    print(f"   No {position} players found")
-            
-            # Handle any remaining players (including 'Unknown' position)
-            for position in position_groups.keys():
-                if position not in ['GK', 'DEF', 'MID', 'FWD']:
-                    players = position_groups[position]
-                    print(f"   {position} ({len(players)} players):")
-                    
-                    # Use the common formatting method to ensure chance of playing is included
-                    position_data = dict(players)
-                    formatted_output = self.processor.format_players_by_position_ranked(
-                        position_data,
-                        use_embeddings=True,  # Show injury news and expert insights if available
-                        include_rankings=True,
-                        include_scores=False
-                    )
-                    print(formatted_output)
-            
-            print(f"\n✅ Available Players: {len(available_players)}")
-            print("-" * 30)
-            
             # Check if embedding filtering is available and configured
             embeddings_config = config.get_embeddings_config()
             use_embeddings = embeddings_config.get('use_embeddings', False)
             
+            # Initialize result data
+            result = {
+                'total_players': total_players,
+                'available_players': available_players,
+                'unavailable_players': unavailable_players,
+                'use_embeddings': use_embeddings,
+                'completed_at': datetime.now().isoformat()
+            }
+            
             if use_embeddings:
-                print(f"🔍 Embedding filtering: ENABLED")
-                
                 # Check if embeddings cache exists
                 embeddings_file = Path("team_data/player_embeddings.json")
                 if embeddings_file.exists():
@@ -423,102 +347,28 @@ class DataService:
                         # Apply embedding filtering
                         filtered_players = self._filter_out_unavailable_players(all_players, "fpl_data_and_enrichments")
                         
-                        # Get the processed player data that includes chance of playing and other fields
-                        # This ensures both sections have consistent data
-                        processed_players_data = {}
-                        for name, data in all_players.items():
-                            if name in filtered_players:
-                                # For top players, use the filtered data
-                                processed_players_data[name] = filtered_players[name]
-                            elif name in available_players:
-                                # For filtered out players, ensure they have the same fields
-                                processed_data = data.copy()
-                                # Ensure chance_of_playing is properly set
-                                if 'chance_of_playing' not in processed_data or processed_data['chance_of_playing'] is None:
-                                    processed_data['chance_of_playing'] = 100
-                                processed_players_data[name] = processed_data
-                        
                         # Calculate players filtered out by embeddings
                         embedding_filtered_out = {
-                            name: processed_players_data[name] for name in available_players.keys() 
+                            name: data for name, data in available_players.items() 
                             if name not in filtered_players
                         }
                         
-                        print(f"\n🎯 Top Players (Embedding Selected): {len(filtered_players)}")
-                        print("-" * 40)
-                        print("   (Selected by embedding similarity + keyword bonuses)")
-                        print()
-                        
-                        # Use the common formatting method for top players with scores
-                        formatted_top_players = self.processor.format_players_by_position_ranked(
-                            filtered_players, 
-                            use_embeddings=True, 
-                            include_rankings=True,
-                            include_scores=True
-                        )
-                        print(formatted_top_players)
-                        
-                        print(f"\n🚫 Filtered Out by Embedding: {len(embedding_filtered_out)}")
-                        print("-" * 40)
-                        print("   (Available but didn't make top N per position)")
-                        print()
-                        
-                        # Use the common formatting method for filtered out players with scores
-                        formatted_filtered_out = self.processor.format_players_by_position_ranked(
-                            embedding_filtered_out, 
-                            use_embeddings=True, 
-                            include_rankings=True,
-                            include_scores=True
-                        )
-                        print(formatted_filtered_out)
+                        result.update({
+                            'filtered_players': filtered_players,
+                            'embedding_filtered_out': embedding_filtered_out
+                        })
                         
                     except Exception as e:
-                        print(f"   ❌ Embedding filtering failed: {e}")
-                        print(f"   📋 Falling back to basic players summary...")
-                        self._show_basic_players_summary(available_players)
-                else:
-                    print(f"   📁 No embeddings cache found. Run 'enrich' command first.")
-                    print(f"   📋 Falling back to basic players summary...")
-                    self._show_basic_players_summary(available_players)
-            else:
-                print(f"🔍 Embedding filtering: DISABLED")
-                self._show_basic_players_summary(available_players)
+                        logger.warning(f"Embedding filtering failed: {e}")
+                        # Continue without embedding data
+                        pass
             
-            return {
-                'total_players': total_players if 'total_players' in locals() else 0,
-                'available_players': len(available_players) if 'available_players' in locals() else 0,
-                'unavailable_players': len(unavailable_players) if 'unavailable_players' in locals() else 0,
-                'use_embeddings': use_embeddings,
-                'completed_at': datetime.now().isoformat()
-            }
+            return result
             
         except Exception as e:
-            logger.error(f"Failed to show players status: {e}")
-            print(f"❌ Error showing players status: {e}")
+            logger.error(f"Failed to get players status: {e}")
             raise
 
-    def _show_basic_players_summary(self, available_players: Dict[str, Dict[str, Any]]):
-        """
-        Show summary of available players when no embedding filtering.
-        Moved from main.py to consolidate player display operations.
-        
-        Args:
-            available_players: Dictionary of available players
-        """
-        print(f"\n📋 Basic Players Summary:")
-        print("-" * 30)
-        
-        # Use the common formatting method from DataProcessor
-        formatted_output = self.processor.format_players_by_position_ranked(
-            available_players, 
-            use_embeddings=False, 
-            include_rankings=True
-        )
-        print(formatted_output)
-        
-        # Note: These players would go into LLM prompts with basic stats only
-        print(f"\n📝 Note: These players would go into LLM prompts with basic stats only (no expert insights or injury news)")
-    
     def get_current_team_player_data(self, current_team: Dict[str, Any], 
                                     use_enrichments: bool = False,
                                     use_cached: bool = False) -> Dict[str, Dict[str, Any]]:

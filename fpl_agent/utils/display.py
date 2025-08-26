@@ -81,6 +81,7 @@ def display_data_status(data_status: Dict[str, Any]) -> None:
         print("   • Then 'enrich' to add insights")
         print("   • Finally 'build-team' or 'gw-update'")
 
+
 def display_fetch_results(result: Dict[str, Any], use_cached: bool = False) -> None:
     """Display fetch operation results to the user"""
     if use_cached:
@@ -209,3 +210,277 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
     print("=" * 80)
     print(f"Comprehensive team operation completed at: {datetime.now()}")
     print("=" * 80)
+
+
+def display_players_status(players_status: Dict[str, Any]) -> None:
+    """
+    Display comprehensive players status information.
+    
+    Args:
+        players_status: Dictionary containing players status information
+    """
+    print("👥 FPL Players Status")
+    print("=" * 50)
+    
+    # Basic counts
+    total_players = players_status.get('total_players', 0)
+    available_players = players_status.get('available_players', 0)
+    unavailable_players = players_status.get('unavailable_players', 0)
+    
+    print(f"📊 Total players in data: {total_players}")
+    print(f"✅ Available Players: {available_players}")
+    print(f"🚫 Not Available Players: {unavailable_players}")
+    
+    # Embedding status
+    use_embeddings = players_status.get('use_embeddings', False)
+    if use_embeddings:
+        print(f"🔍 Embedding filtering: ENABLED")
+    else:
+        print(f"🔍 Embedding filtering: DISABLED")
+    
+    # Completion info
+    completed_at = players_status.get('completed_at')
+    if completed_at:
+        print(f"⏰ Status checked at: {completed_at}")
+
+
+def display_detailed_players_status(
+    total_players: int,
+    available_players: Dict[str, Dict[str, Any]],
+    unavailable_players: Dict[str, Dict[str, Any]],
+    filtered_players: Dict[str, Dict[str, Any]] = None,
+    embedding_filtered_out: Dict[str, Dict[str, Any]] = None,
+    use_embeddings: bool = False
+) -> None:
+    """
+    Display detailed players status with breakdowns.
+    
+    Args:
+        total_players: Total number of players
+        available_players: Dictionary of available players
+        unavailable_players: Dictionary of unavailable players
+        filtered_players: Dictionary of top players selected by embeddings
+        embedding_filtered_out: Dictionary of players filtered out by embeddings
+        use_embeddings: Whether embedding filtering is enabled
+    """
+    print("👥 FPL Players Status")
+    print("=" * 50)
+    
+    print(f"📊 Total players in data: {total_players}")
+    
+    # Show unavailable players
+    print(f"\n🚫 Not Available Players: {len(unavailable_players)}")
+    print("-" * 30)
+    print("   (Filtered out by: chance_of_playing < 25% OR marked as 'Out' in injury news)")
+    print()
+    
+    if len(unavailable_players) == 0:
+        print("   No unavailable players found")
+    else:
+        print(f"   Found {len(unavailable_players)} unavailable players")
+        # Show first few names as debug
+        first_names = list(unavailable_players.keys())[:5]
+        print(f"   First few: {first_names}")
+    
+    # Group unavailable players by position and show details
+    position_groups = {}
+    for name, data in unavailable_players.items():
+        position = data.get('position', 'Unknown')
+        if position not in position_groups:
+            position_groups[position] = []
+        position_groups[position].append((name, data))
+    
+    print(f"   Position groups: {list(position_groups.keys())}")
+    
+    # Show detailed breakdown of unavailable players by position
+    for position in ['GK', 'DEF', 'MID', 'FWD']:
+        if position in position_groups:
+            players = position_groups[position]
+            print(f"\n   {position} ({len(players)} players):")
+            print("   " + "-" * 40)
+            
+            # Sort by name for readability
+            sorted_players = sorted(players, key=lambda x: x[0])
+            for name, data in sorted_players[:10]:  # Show first 10
+                team = data.get('team_name', 'Unknown')
+                chance = data.get('chance_of_playing', 'Unknown')
+                news = data.get('news', '')
+                print(f"   • {name:<25} | {team:<15} | Chance: {chance}%")
+                if news:
+                    print(f"     └─ {news}")
+            
+            if len(sorted_players) > 10:
+                print(f"   ... and {len(sorted_players) - 10} more {position} players")
+    
+    # Show available players
+    print(f"\n✅ Available Players: {len(available_players)}")
+    print("-" * 30)
+    
+    if use_embeddings:
+        print(f"🔍 Embedding filtering: ENABLED")
+        
+        if filtered_players:
+            print(f"\n🎯 Top Players (Embedding Selected): {len(filtered_players)}")
+            print("-" * 40)
+            print("   (Selected by embedding similarity + keyword bonuses)")
+            print()
+            
+            # Show breakdown of top players by position
+            top_position_groups = {}
+            for name, data in filtered_players.items():
+                position = data.get('position', 'Unknown')
+                if position not in top_position_groups:
+                    top_position_groups[position] = []
+                top_position_groups[position].append((name, data))
+            
+            for position in ['GK', 'DEF', 'MID', 'FWD']:
+                if position in top_position_groups:
+                    players = top_position_groups[position]
+                    print(f"   {position} ({len(players)} players):")
+                    print("   " + "-" * 40)
+                    
+                    # Sort by hybrid_score (highest first) and show ranking
+                    sorted_players = sorted(players, key=lambda x: x[1].get('hybrid_score', 0), reverse=True)
+                    for rank, (name, data) in enumerate(sorted_players[:10], 1):  # Show top 10
+                        team = data.get('team_name', 'Unknown')
+                        hybrid_score = data.get('hybrid_score', 0)
+                        position_rank = data.get('position_rank', 'N/A')
+                        points = data.get('total_points', 0)
+                        form = data.get('form', 0)
+                        price = data.get('now_cost', 0)
+                        
+                        # Format price (convert from pence to pounds)
+                        price_pounds = f"£{price/10:.1f}m" if price else "N/A"
+                        
+                        print(f"   {rank:2d}. {name:<25} | {team:<15} | Score: {hybrid_score:.3f} | Rank: {position_rank}")
+                        print(f"       Stats: {points} pts | Form: {form} | Price: {price_pounds}")
+                        
+                        # Show injury news if available
+                        injury_news = data.get('injury_news', '')
+                        if injury_news and injury_news != 'None':
+                            print(f"       🚑 Injury: {injury_news}")
+                        
+                        # Show expert insights if available
+                        expert_insights = data.get('expert_insights', '')
+                        if expert_insights and expert_insights != 'None':
+                            print(f"       💡 Tips: {expert_insights}")
+                        
+                        # Show chance of playing if available
+                        chance = data.get('chance_of_playing', None)
+                        if chance is not None and chance != 100:
+                            print(f"       ⚠️  Chance: {chance}%")
+                        
+                        print()  # Empty line between players
+                    
+                    if len(sorted_players) > 10:
+                        print(f"   ... and {len(sorted_players) - 10} more {position} players")
+        
+        if embedding_filtered_out:
+            print(f"\n🚫 Filtered Out by Embedding: {len(embedding_filtered_out)}")
+            print("-" * 40)
+            print("   (Available but didn't make top N per position)")
+            print()
+            
+            # Show breakdown of filtered out players by position
+            filtered_position_groups = {}
+            for name, data in embedding_filtered_out.items():
+                position = data.get('position', 'Unknown')
+                if position not in filtered_position_groups:
+                    filtered_position_groups[position] = []
+                filtered_position_groups[position].append((name, data))
+            
+            for position in ['GK', 'DEF', 'MID', 'FWD']:
+                if position in filtered_position_groups:
+                    players = filtered_position_groups[position]
+                    print(f"   {position} ({len(players)} players):")
+                    print("   " + "-" * 40)
+                    
+                    # Sort by hybrid_score (highest first) to show why they were filtered out
+                    sorted_players = sorted(players, key=lambda x: x[1].get('hybrid_score', 0), reverse=True)
+                    for rank, (name, data) in enumerate(sorted_players[:10], 1):  # Show top 10
+                        team = data.get('team_name', 'Unknown')
+                        hybrid_score = data.get('hybrid_score', 0)
+                        position_rank = data.get('position_rank', 'N/A')
+                        points = data.get('total_points', 0)
+                        form = data.get('form', 0)
+                        price = data.get('now_cost', 0)
+                        
+                        # Format price (convert from pence to pounds)
+                        price_pounds = f"£{price/10:.1f}m" if price else "N/A"
+                        
+                        print(f"   {rank:2d}. {name:<25} | {team:<15} | Score: {hybrid_score:.3f} | Rank: {position_rank}")
+                        print(f"       Stats: {points} pts | Form: {form} | Price: {price_pounds}")
+                        
+                        # Show injury news if available
+                        injury_news = data.get('injury_news', '')
+                        if injury_news and injury_news != 'None':
+                            print(f"       🚑 Injury: {injury_news}")
+                        
+                        # Show expert insights if available
+                        expert_insights = data.get('expert_insights', '')
+                        if expert_insights and expert_insights != 'None':
+                            print(f"       💡 Tips: {expert_insights}")
+                        
+                        # Show chance of playing if available
+                        chance = data.get('chance_of_playing', None)
+                        if chance is not None and chance != 100:
+                            print(f"       ⚠️  Chance: {chance}%")
+                        
+                        print()  # Empty line between players
+                    
+                    if len(sorted_players) > 10:
+                        print(f"   ... and {len(sorted_players) - 10} more {position} players")
+    else:
+        print(f"🔍 Embedding filtering: DISABLED")
+        print(f"\n📋 Basic Players Summary:")
+        print("-" * 30)
+        
+        # Show breakdown of available players by position
+        available_position_groups = {}
+        for name, data in available_players.items():
+            position = data.get('position', 'Unknown')
+            if position not in available_position_groups:
+                available_position_groups[position] = []
+            available_position_groups[position].append((name, data))
+        
+        for position in ['GK', 'DEF', 'MID', 'FWD']:
+            if position in available_position_groups:
+                players = available_position_groups[position]
+                print(f"   {position} ({len(players)} players):")
+                print("   " + "-" * 40)
+                
+                # Sort by total points (highest first) when no embedding scores available
+                sorted_players = sorted(players, key=lambda x: x[1].get('total_points', 0), reverse=True)
+                for rank, (name, data) in enumerate(sorted_players[:10], 1):  # Show top 10
+                    team = data.get('team_name', 'Unknown')
+                    points = data.get('total_points', 0)
+                    form = data.get('form', 0)
+                    price = data.get('now_cost', 0)
+                    
+                    # Format price (convert from pence to pounds)
+                    price_pounds = f"£{price/10:.1f}m" if price else "N/A"
+                    
+                    print(f"   {rank:2d}. {name:<25} | {team:<15} | Points: {points}")
+                    print(f"       Stats: {points} pts | Form: {form} | Price: {price_pounds}")
+                    
+                    # Show injury news if available
+                    injury_news = data.get('injury_news', '')
+                    if injury_news and injury_news != 'None':
+                        print(f"       🚑 Injury: {injury_news}")
+                    
+                    # Show expert insights if available
+                    expert_insights = data.get('expert_insights', '')
+                    if expert_insights and expert_insights != 'None':
+                        print(f"       💡 Tips: {expert_insights}")
+                    
+                    # Show chance of playing if available
+                    chance = data.get('chance_of_playing', None)
+                    if chance is not None and chance != 100:
+                        print(f"       ⚠️  Chance: {chance}%")
+                    
+                    print()  # Empty line between players
+                
+                if len(sorted_players) > 10:
+                    print(f"   ... and {len(sorted_players) - 10} more {position} players")
+        
+        print(f"\n📝 Note: These players would go into LLM prompts with basic stats only (no expert insights or injury news)")

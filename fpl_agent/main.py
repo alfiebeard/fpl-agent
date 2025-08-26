@@ -15,7 +15,7 @@ from .data.data_store import DataStore
 from .utils.team_utils import group_players_by_team, get_team_fixture_info
 from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
-from .utils.display import display_comprehensive_team_result, display_fetch_results
+from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status
 from .data.embedding_filter import EmbeddingFilter
 from .utils.prompt_formatter import PromptFormatter
 
@@ -472,6 +472,26 @@ class FPLAgent:
         
         return updated_team
 
+    def show_data(self):
+        """Show current data status"""
+        return display_data_status(self.data_service.get_data_status(self.data_store))
+
+    def show_players(self):
+        """Show available players breakdown"""
+        players_status = self.data_service.get_players_status(self.data_store, self.config)
+
+        if 'error' in players_status:
+            print(f"❌ {players_status['error']}")
+        else:
+            display_detailed_players_status(
+                total_players=players_status['total_players'],
+                available_players=players_status['available_players'],
+                unavailable_players=players_status['unavailable_players'],
+                filtered_players=players_status.get('filtered_players'),
+                embedding_filtered_out=players_status.get('embedding_filtered_out'),
+                use_embeddings=players_status['use_embeddings']
+            )
+
 def main():
     """Main entry point with simplified command structure"""
     parser = argparse.ArgumentParser(description='FPL Agent')
@@ -551,12 +571,10 @@ def main():
                 print("✅ Weekly update complete!")
             
         elif args.command == 'show-data':
-            # Show current data status
-            fpl_agent.data_service.show_data_status(fpl_agent.data_store)
+            fpl_agent.show_data()
             
         elif args.command == 'show-players':
-            # Show available players breakdown
-            fpl_agent.data_service.show_players_status(fpl_agent.data_store, fpl_agent.config)
+            fpl_agent.show_players()
         
     except Exception as e:
         logger.error(f"Command failed: {e}")
