@@ -148,13 +148,20 @@ To make your decision, you should consider the following:
 
 Search for the most recent and reliable information from official sources, team announcements, and trusted football news outlets.
 
-Use hints, tips and recommendations you discover first and foremost, but if you think the stats help support the decision, then use them.
+Use hints, tips and recommendations you discover first and foremost, but if you think the stats help support the decision, then use them, but stats should take more of a back seat.
 
-Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure.
-You must include every player from the squad list above in the JSON. Do not add extra players. Do not omit any player. Copy each player's name exactly as written in the squad list (including spelling, accents, and punctuation). Do not retype or alter names in any way.
-Use the following JSON skeleton, filling in the empty strings for every player with your short sentence for the player in the required format:
+If the gameweek number is low, e.g., less than 6, it's early in the season and you should be more cautious with relying heavily on stats and the sample size is so small.
 
+Format your response as a JSON object with the structure below, you must loop through every player in the structure below and fill in the empty strings for each player with your short sentence for the player in the required format using the information above and your research.
+You must include every player from the squad list in the JSON. Do not add extra players. Do not omit any player. Copy each player's name exactly as written in the squad list (including spelling, accents, and punctuation). Do not retype or alter names in any way.
+
+First, produce the full JSON with empty strings for every player as shown. Then, fill in each value with the injury summary. Do not skip this step.
+1. Include all players. 2. Do not change any names. 3. Only output valid JSON. No extra text, markdown, or commentary.
+
+Output in this JSON structure, filling in the empty strings:
 {PromptFormatter.format_team_analysis_output_prompt_structure(team_players)}
+
+You MUST use every player name exactly as listed. Do not rename, skip, or add any players. Copy the keys exactly.
 
 Keep each player's information brief but informative.
 
@@ -203,11 +210,18 @@ To make your decision, you should consider the following:
 
 Search for the most recent and reliable information from official sources, team announcements, and trusted football news outlets.
 
-Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure.
-You must include every player from the squad list above in the JSON. Do not add extra players. Do not omit any player. Copy each player's name exactly as written in the squad list (including spelling, accents, and punctuation). Do not retype or alter names in any way.
-Use the following JSON skeleton, filling in the empty strings for every player with your short sentence for the player in the required format:
+If the gameweek number is low, e.g., less than 6, it's early in the season and you should be more cautious with relying heavily on stats and the sample size is so small.
 
+Format your response as a JSON object with the structure below, you must loop through every player in the structure below and fill in the empty strings for each player with your short sentence for the player in the required format using the information above and your research.
+You must include every player from the squad list in the JSON. Do not add extra players. Do not omit any player. Copy each player's name exactly as written in the squad list (including spelling, accents, and punctuation). Do not retype or alter names in any way.
+
+First, produce the full JSON with empty strings for every player as shown. Then, fill in each value with the injury summary. Do not skip this step.
+1. Include all players. 2. Do not change any names. 3. Only output valid JSON. No extra text, markdown, or commentary.
+
+Output in this JSON structure, filling in the empty strings:
 {PromptFormatter.format_team_analysis_output_prompt_structure(team_players)}
+
+You MUST use every player name exactly as listed. Do not rename, skip, or add any players. Copy the keys exactly.
 
 Keep each player's information brief but informative.
 
