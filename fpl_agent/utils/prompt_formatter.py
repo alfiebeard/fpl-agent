@@ -5,6 +5,7 @@ Prompt formatting utilities for FPL strategies
 from datetime import datetime
 import logging
 from typing import Dict, List, Any, Optional
+import json
 
 from ..core.config import Config
 
@@ -17,7 +18,7 @@ class PromptFormatter:
     @staticmethod
     def format_player_list(players_data: Dict[str, List[Dict[str, Any]]], use_enrichments: bool = True, use_ranking: bool = True, show_header: bool = True, selection_counts: Optional[Dict[str, int]] = None) -> str:
         """
-        Format player data for LLM prompts in TeamBuildingStrategy.
+        Format player data for LLM prompts.
         Lists all the players data in paragraphs, grouped by team or position.
         If not use_ranking, players are sorted by position and total points.
         If use_ranking, players are sorted by position rank and filtered to top players.
@@ -92,6 +93,25 @@ class PromptFormatter:
         except Exception as e:
             logger.error(f"Failed to format players for LLM: {e}")
             return "Error: Could not format player data"
+        
+    @staticmethod
+    def format_team_analysis_output_prompt_structure(player_data: Dict[str, Any]) -> str:
+        """Format player data for the output prompt structure in TeamAnalysisStrategy.
+        
+        Args:
+            player_data: Dictionary of player data
+            
+        Returns:
+            Formatted output prompt structure as a JSON string with all players and empty strings
+        """
+        
+        # Create a dictionary with all players and empty strings as values
+        output_structure = {}
+        for player_name in player_data.keys():
+            output_structure[player_name] = ""
+        
+        # Return as a formatted JSON string
+        return json.dumps(output_structure, indent=2)
 
     @staticmethod
     def format_team(team: Dict, team_player_data: Dict) -> str:

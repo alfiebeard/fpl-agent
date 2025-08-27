@@ -150,13 +150,11 @@ Search for the most recent and reliable information from official sources, team 
 
 Use hints, tips and recommendations you discover first and foremost, but if you think the stats help support the decision, then use them.
 
-Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure:
+Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure.
+You must include every player from the squad list above in the JSON. Do not add extra players. Do not omit any player. Copy each player's name exactly as written in the squad list (including spelling, accents, and punctuation). Do not retype or alter names in any way.
+Use the following JSON skeleton, filling in the empty strings for every player with your short sentence for the player in the required format:
 
-{{
-    "Player Name 1": "INSERT_PLAYER_TIP_STATUS - a short summary of the reason for the decision INSERT_PLAYER_TIP_STATUS based on your research on the players hints, tips and recommendations for the gameweek.",
-    "Player Name 2": "INSERT_PLAYER_TIP_STATUS - a short summary of the reason for the decision INSERT_PLAYER_TIP_STATUS based on your research on the players hints, tips and recommendations for the gameweek.",
-    ...
-}}
+{PromptFormatter.format_team_analysis_output_prompt_structure(team_players)}
 
 Keep each player's information brief but informative.
 
@@ -205,13 +203,11 @@ To make your decision, you should consider the following:
 
 Search for the most recent and reliable information from official sources, team announcements, and trusted football news outlets.
 
-Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure:
+Format your response as a concise sentence for every player in the squad above, with the ouput formatted as a JSON object with the following structure.
+You must include every player from the squad list above in the JSON. Do not add extra players. Do not omit any player. Copy each player's name exactly as written in the squad list (including spelling, accents, and punctuation). Do not retype or alter names in any way.
+Use the following JSON skeleton, filling in the empty strings for every player with your short sentence for the player in the required format:
 
-{{
-    "Player Name 1": "INSERT_PLAYING_LIKELIHOOD - a short summary of the reason for the decision INSERT_PLAYING_LIKELIHOOD based on your research on the players availability for the gameweek.",
-    "Player Name 2": "INSERT_PLAYING_LIKELIHOOD - a short summary of the reason for the decision INSERT_PLAYING_LIKELIHOOD based on your research on the players availability for the gameweek.",
-    ...
-}}
+{PromptFormatter.format_team_analysis_output_prompt_structure(team_players)}
 
 Keep each player's information brief but informative.
 
