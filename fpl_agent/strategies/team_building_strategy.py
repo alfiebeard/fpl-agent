@@ -385,8 +385,10 @@ FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No othe
   "chip_reason": "Detailed explanation of why this chip is being used (or why no chip is needed)",
   "transfers": [
     {{
-      "out": "Player Out Name",
-      "in": "Player In Name",
+      "player_in": "Player In Name",
+      "player_in_price": 8.0,
+      "player_out": "Player Out Name",
+      "player_out_price": 7.0,
       "reason": "Detailed explanation of why this transfer is being made, including form, fixtures, injuries, value, and expert recommendations"
     }}
     // Multiple allowed if using wildcard or taking points hit
