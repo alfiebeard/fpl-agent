@@ -110,8 +110,8 @@ class PromptFormatter:
         for player_name in player_data.keys():
             output_structure[player_name] = ""
         
-        # Return as a formatted JSON string
-        return json.dumps(output_structure, indent=2)
+        # Return as a formatted JSON string with ensure_ascii=False to preserve Unicode characters
+        return json.dumps(output_structure, indent=2, ensure_ascii=False)
 
     @staticmethod
     def format_team(team: Dict, team_player_data: Dict) -> str:
