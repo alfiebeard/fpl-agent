@@ -113,7 +113,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             # Return empty injury news on failure
             return {}
     
-    def get_mixed_team_expert_insights(self, player_names: List[str], current_gameweek: int, fixture_info: dict) -> Dict[str, str]:
+    def get_mixed_team_expert_insights(self, player_data: Dict[str, Dict[str, Any]], current_gameweek: int, fixtures_data: List[Dict[str, Any]]) -> Dict[str, str]:
         """
         Get expert insights for a mixed group of players from different teams.
         
@@ -125,17 +125,17 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Returns:
             Dictionary mapping player names to their expert insights
         """
-        logger.info(f"Getting mixed team expert insights for {len(player_names)} players")
+        logger.info(f"Getting mixed team expert insights for {len(player_data)} players")
         
         try:
             # Create the mixed team prompt for expert insights
-            prompt = self._create_mixed_team_expert_insights_prompt(player_names, current_gameweek, fixture_info)
+            prompt = self._create_mixed_hints_tips_prompt(player_data, current_gameweek, fixtures_data)
             
             # Debug: Log the prompt being sent
             logger.info(f"Prompt for mixed team expert insights (length: {len(prompt)}): {prompt[:500]}...")
             
             # Define LLM response schema for expert insights (same as existing team analysis)
-            response_schema = create_player_schema(player_names)
+            response_schema = create_player_schema(list(player_data.keys()))
             
             # Get LLM response
             response = self.llm_engine.query(prompt, response_schema)
@@ -158,7 +158,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
             # Return empty results on failure
             return {}
     
-    def get_mixed_team_injury_news(self, player_names: List[str], current_gameweek: int, fixture_info: dict) -> Dict[str, str]:
+    def get_mixed_team_injury_news(self, player_data: Dict[str, Dict[str, Any]], current_gameweek: int, fixtures_data: List[Dict[str, Any]]) -> Dict[str, str]:
         """
         Get injury news for a mixed group of players from different teams.
         
@@ -170,17 +170,17 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Returns:
             Dictionary mapping player names to their injury news
         """
-        logger.info(f"Getting mixed team injury news for {len(player_names)} players")
+        logger.info(f"Getting mixed team injury news for {len(player_data)} players")
         
         try:
             # Create the mixed team prompt for injury news
-            prompt = self._create_mixed_team_injury_news_prompt(player_names, current_gameweek, fixture_info)
+            prompt = self._create_mixed_team_injury_news_prompt(player_data, current_gameweek, fixtures_data)
             
             # Debug: Log the prompt being sent
             logger.info(f"Prompt for mixed team injury news (length: {len(prompt)}): {prompt[:500]}...")
             
             # Define LLM response schema for injury news (same as existing team analysis)
-            response_schema = create_player_schema(player_names)
+            response_schema = create_player_schema(list(player_data.keys()))
             
             # Get LLM response
             response = self.llm_engine.query(prompt, response_schema)
@@ -359,63 +359,53 @@ Important: You MUST respond with ONLY valid JSON. Do not include any markdown, e
 FINAL CHECK: 
 Before returning your answer, double-check that your output is valid JSON, that it includes every player exactly as listed, and that no names are changed, skipped, or added."""
 
-    def _create_mixed_team_expert_insights_prompt(self, player_names: List[str], current_gameweek: int, fixture_info: dict) -> str:
+    def _create_mixed_hints_tips_prompt(self, player_data: Dict[str, Dict[str, Any]], current_gameweek: int, fixtures_data: List[Dict[str, Any]]) -> str:
         """Create the mixed team expert insights prompt.
         
         Args:
-            player_names: List of player names to analyze
+            player_data: Dictionary of player data to analyze
             current_gameweek: Current gameweek number
-            fixture_info: Dictionary containing fixture information
+            fixtures_data: List of fixture data for the gameweek
 
         Returns:
             The mixed team expert insights prompt as a string
         """
-        # Get fixture information
-        fixture_str = fixture_info['fixture_str']
-        is_double_gameweek = fixture_info['is_double_gameweek']
-        fixture_difficulty = fixture_info['fixture_difficulty']
         
-        # Create double gameweek text
-        double_gameweek_text = "This is a double gameweek." if is_double_gameweek else ""
-        
-        # Create player list for the prompt
-        player_list_text = "\n".join([f"- {player_name}" for player_name in player_names])
-        
-        return f"""You're task is to collate the Fantasy Premier League (FPL) hints, tips, and recommendations for a mixed group of players. Your outputs will be used to assess whether each player is a strong pick for the upcoming gameweek.
+        return f"""You're task is to collate the Fantasy Premier League (FPL) hints, tips, and recommendations for a set of players. Your outputs will be used to assess whether each player is a strong pick for the upcoming gameweek.
 
         
 GAMEWEEK CONTEXT:
 - Season: 2025/2026
 - Gameweek: {current_gameweek}
-- Fixture: {fixture_str}
-- Fixture difficulty: {fixture_difficulty}
-{"- Double gameweek: " + double_gameweek_text if is_double_gameweek else ""}
+
+{PromptFormatter.format_fixtures(fixtures_data, current_gameweek)}
 
 PLAYERS TO ANALYZE:
 
-{player_list_text}
-
+{PromptFormatter.format_player_list(player_data, use_enrichments=False, use_ranking=False, show_header=False)}
 YOUR TASK
-For each player in the list, provide expert insights:
+For each player listed provide one short sentence summarising the hints, tips and recommendations for the player in the format:
+INSERT_PLAYER_TIP_STATUS - <short sentence summarising the hints, tips, and recommendations for the player>
 
-1. EXPERT INSIGHTS: One sentence in the format: INSERT_PLAYER_TIP_STATUS - <short sentence summarising the hints, tips, and recommendations for the player>
+- INSERT_PLAYER_TIP_STATUS must be one of: Must-have, Recommended, Avoid, Rotation risk.
+- The sentence after the dash is mandatory and should explain why the player received that status, based on your research, recent form, expected minutes, fixture difficulty, and tactical insights.
+- Do not return only the status. A sentence is required for every player.
+- Example: Must-have - Haaland is starting every match, in excellent form, and has a favorable fixture.
 
-- INSERT_PLAYER_TIP_STATUS must be one of: Must-have, Recommended, Avoid, Rotation risk
-- The sentence after the dash is mandatory and should explain why the player received that status
-- Base your analysis on recent form, expected minutes, fixture difficulty, and tactical insights
-- Do not return only the status. A sentence is required for every player
 
 DECISION MAKING CRITERIA:
-1. Use the latest news, tips, and recommendations from trusted sources. You may use your web search tool to fetch the most recent information.
+1. Use the latest news, tips, and recommendations from trusted sources (official FPL, reliable football news outlets, manager press conferences). You may use your web search tool to fetch the most recent information.
 2. If it is early in the season (Gameweek < 6), be cautious with stats since the sample size is small.
-3. Factors to weigh include:
-   - Recent form and performance
-   - Expected role and minutes
-   - Set-piece duties
-   - Fixture difficulty and schedule
-   - Transfer advice (buy/hold/sell)
-   - Tactical or rotation news
-4. No player should be skipped. If information is limited, make the best possible judgment.
+3. Stats should support decisions, but do not over-prioritize them over expert/insider insights.
+4. Factors to weigh include:
+    - Recent form and performance
+    - Expected role and minutes
+    - Set-piece duties
+    - Fixture difficulty and schedule
+    - Transfer advice (buy/hold/sell)
+    - Tactical or rotation news
+5. No player should be skipped. If information is limited, make the best possible judgment (for example, mark as "Rotation risk" if uncertain about playtime).
+
 
 OUTPUT INSTRUCTIONS:
 - You must return only valid JSON.
@@ -423,74 +413,66 @@ OUTPUT INSTRUCTIONS:
 - The output must strictly follow the JSON structure below.
 - Every player from the squad list must be included exactly as written (copy keys exactly).
 - Do not rename, re-order, or omit any player.
+
 
 JSON STRUCTURE:
 (First, produce the JSON with empty strings for each player. Then, fill them in with your recommendation.)
 
-{PromptFormatter.format_team_analysis_output_prompt_structure(player_names)}
+{PromptFormatter.format_team_analysis_output_prompt_structure(player_data)}
 
 Important: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure.
 
+
 FINAL CHECK: 
 Before returning your answer, double-check that your output is valid JSON, that it includes every player exactly as listed, and that no names are changed, skipped, or added."""
-
-    def _create_mixed_team_injury_news_prompt(self, player_names: List[str], current_gameweek: int, fixture_info: dict) -> str:
+    
+    def _create_mixed_team_injury_news_prompt(self, player_data: Dict[str, Dict[str, Any]], current_gameweek: int, fixtures_data: List[Dict[str, Any]]) -> str:
         """Create the mixed team injury news prompt.
         
         Args:
-            player_names: List of player names to analyze
+            player_data: Dictionary of player data to analyze
             current_gameweek: Current gameweek number
-            fixture_info: Dictionary containing fixture information
+            fixtures_data: List of fixture data for the gameweek
 
         Returns:
             The mixed team injury news prompt as a string
         """
-        # Get fixture information
-        fixture_str = fixture_info['fixture_str']
-        is_double_gameweek = fixture_info['is_double_gameweek']
-        fixture_difficulty = fixture_info['fixture_difficulty']
         
-        # Create double gameweek text
-        double_gameweek_text = "This is a double gameweek." if is_double_gameweek else ""
-        
-        # Create player list for the prompt
-        player_list_text = "\n".join([f"- {player_name}" for player_name in player_names])
-        
-        return f"""You're task is to collate the latest injury news on players in a mixed group. Your outputs will be used to assess whether each player is fit for the upcoming gameweek.
+        return f"""You're task is to collate the latest injury news for a set of players. Your outputs will be used to assess whether each player is fit for the upcoming gameweek.
 
         
 GAMEWEEK CONTEXT:
 - Season: 2025/2026
 - Gameweek: {current_gameweek}
-- Fixture: {fixture_str}
-- Fixture difficulty: {fixture_difficulty}
-{"- Double gameweek: " + double_gameweek_text if is_double_gameweek else ""}
+
+{PromptFormatter.format_fixtures(fixtures_data, current_gameweek)}
 
 PLAYERS TO ANALYZE:
 
-{player_list_text}
+{PromptFormatter.format_player_list(player_data, use_enrichments=False, use_ranking=False, show_header=False)}
 
 YOUR TASK
-For each player in the list, provide injury news:
-
-1. INJURY NEWS: One sentence in the format: INSERT_PLAYER_AVAILABILITY_STATUS - <short sentence summarising the injury news and playing likelihood for the player>
+For each player listed provide one short sentence summarising the injury news and playing likelihood for the player in the format:
+INSERT_PLAYER_AVAILABILITY_STATUS - <short sentence summarising the injury news and playing likelihood for the player>
 
 - INSERT_PLAYER_AVAILABILITY_STATUS must be one of: Fit, Minor doubt, Major doubt, Out
-- The sentence after the dash is mandatory and should explain why the player received that status
-- Base your analysis on recent form, expected minutes, fixture difficulty, and tactical insights
-- Do not return only the status. A sentence is required for every player
+- The sentence after the dash is mandatory and should explain why the player received that status, based on your research and injury news.
+- Do not return only the status. A sentence is required for every player.
+- Example: Fit - Haaland is fit and available for selection.
+
 
 DECISION MAKING CRITERIA:
-1. Use the latest news, tips, and recommendations from trusted sources. You may use your web search tool to fetch the most recent information.
+1. Use the latest news, tips, and recommendations from trusted sources (official FPL, reliable football news outlets, manager press conferences). You may use your web search tool to fetch the most recent information.
 2. If it is early in the season (Gameweek < 6), be cautious with stats since the sample size is small.
 3. Factors to weigh include:
-   - Current availability of the player as of gameweek {current_gameweek}. E.g., currently injured, currently suspended, currently on international duty, etc.
-   - Current injury status of the player. E.g., minor injury, major injury, long term injury, etc.
-   - Likelihood of playing in the next gameweek (percentage).
-   - Expected return date.
-   - Any reasons for whether the player could be rested for the this gameweek.
-   - Any reason the player is currently out of the squad and not included, e.g., long term suspension, banned,injury or personal issues.
+    - Current availability of the player as of gameweek {current_gameweek}. E.g., currently injured, currently suspended, currently on international duty, etc.
+    - Current injury status of the player. E.g., minor injury, major injury, long term injury, etc.
+    - Likelihood of playing in the next gameweek (percentage).
+    - Expected return date.
+    - Any reasons for whether the player could be rested for the this gameweek.
+    - Any reason the player is currently out of the squad and not included, e.g., long term suspension, banned,injury or personal issues.
 
+    
 OUTPUT INSTRUCTIONS:
 - You must return only valid JSON.
 - No commentary, no markdown, no extra text.
@@ -498,12 +480,14 @@ OUTPUT INSTRUCTIONS:
 - Every player from the squad list must be included exactly as written (copy keys exactly).
 - Do not rename, re-order, or omit any player.
 
+
 JSON STRUCTURE:
 (First, produce the JSON with empty strings for each player. Then, fill them in with your injury news.)
 
-{PromptFormatter.format_team_analysis_output_prompt_structure(player_names)}
+{PromptFormatter.format_team_analysis_output_prompt_structure(player_data)}
 
 Important: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure.
+
 
 FINAL CHECK: 
 Before returning your answer, double-check that your output is valid JSON, that it includes every player exactly as listed, and that no names are changed, skipped, or added."""

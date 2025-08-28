@@ -79,7 +79,7 @@ class PromptFormatter:
                     valid_players = [p for p in players if p.get('hybrid_score', -1) > -1]
                     
                     # Sort players by hybrid embedding score (highest first) within each position
-                    sorted_players = sorted(players, key=lambda p: p.get('hybrid_score', -1), reverse=True)
+                    sorted_players = sorted(valid_players, key=lambda p: p.get('hybrid_score', -1), reverse=True)
                     
                     # Filter to top K players for this position based on config selection_counts.
                     if use_ranking and selection_counts:

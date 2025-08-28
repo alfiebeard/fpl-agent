@@ -15,6 +15,7 @@ from .utils.team_utils import group_players_by_team, get_team_fixture_info
 from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
 from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status
+from .utils.missing_enrichments import get_missing_enrichments_from_data
 from .data.embedding_filter import EmbeddingFilter
 
 
@@ -37,7 +38,7 @@ class FPLAgent:
         self.config = Config()
         self.data_service = DataService(self.config)
         self.llm_strategy = TeamBuildingStrategy(self.config)
-        self.team_manager = TeamManager(self.config)
+        self.team_manager = TeamManager()
         self.data_store = DataStore()
         
     def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False, 
@@ -193,7 +194,7 @@ class FPLAgent:
             # Complete any missing enrichments for players not returned by team-specific enrichment
             print("🔄 Completing missing enrichments for players not returned by team-specific enrichment...")
             try:
-                self._process_missing_enrichments_with_retries(all_gameweek_data, gameweek, rank_players)
+                self._process_missing_enrichments_with_retries(all_gameweek_data, gameweek)
             except Exception as e:
                 logger.error(f"Failed to complete missing enrichments: {e}")
                 print(f"⚠️  Warning: Could not complete missing enrichments: {e}")
@@ -227,10 +228,10 @@ class FPLAgent:
             print(f"❌ Error enriching player data: {e}")
             raise
 
-    def _process_missing_enrichments_with_retries(self, all_gameweek_data: Dict[str, Any], gameweek: Optional[int], rank_players: bool) -> None:
+    def _process_missing_enrichments_with_retries(self, all_gameweek_data: Dict[str, Any], gameweek: Optional[int]) -> None:
         """Orchestrate multiple passes of missing enrichment processing."""
         # Get configuration for retry logic
-        max_passes = self.config.get_embeddings_config().get('missing_enrichment_retries', {}).get('max_passes', 5)
+        max_passes = self.config.get_embeddings_config().get('missing_enrichment_retries', {}).get('max_passes', 3)
         
         print(f"🔄 Starting missing enrichment processing with max {max_passes} passes...")
         
@@ -238,7 +239,7 @@ class FPLAgent:
         
         for pass_num in range(max_passes):
             # Check if there are any missing enrichments
-            missing_enrichment_results = self.data_service.get_missing_enrichments()
+            missing_enrichment_results = get_missing_enrichments_from_data(all_gameweek_data['players'])
             current_total = len(missing_enrichment_results['expert_insights']) + len(missing_enrichment_results['injury_news'])
             
             if current_total == 0:
@@ -254,7 +255,7 @@ class FPLAgent:
                 break
             
             # Process this pass
-            self._process_missing_enrichments(all_gameweek_data, gameweek, rank_players)
+            self._process_missing_enrichments(all_gameweek_data, missing_enrichment_results, gameweek)
             
             # Update progress tracking
             previous_total_missing = current_total
@@ -266,7 +267,7 @@ class FPLAgent:
                     print("   🔄 Continuing to next pass...")
         
         # Final check and summary
-        final_missing = self.data_service.get_missing_enrichments()
+        final_missing = get_missing_enrichments_from_data(all_gameweek_data['players'])
         final_total = len(final_missing['expert_insights']) + len(final_missing['injury_news'])
         
         if final_total == 0:
@@ -274,32 +275,26 @@ class FPLAgent:
         else:
             print(f"⚠️  Enrichment complete. {final_total} players still missing data after {max_passes} passes.")
         
-    def _process_missing_enrichments(self, all_gameweek_data: Dict[str, Any], gameweek: Optional[int], rank_players: bool) -> None:
+    def _process_missing_enrichments(self, all_gameweek_data: Dict[str, Any], missing_enrichment_results: Dict[str, List[str]], gameweek: Optional[int]) -> None:
         """Process missing enrichments for one pass only."""
-        missing_enrichment_results = self.data_service.get_missing_enrichments()
         
+        team_analysis_strategy = TeamAnalysisStrategy(self.config)
+        current_gameweek = gameweek or 1
+        fixtures_data = all_gameweek_data.get('fixtures', [])
+
         # Process all missing expert insights in one go
         if missing_enrichment_results['expert_insights']:
             print(f"   🧠 Processing expert insights for {len(missing_enrichment_results['expert_insights'])} players...")
-            team_analysis_strategy = TeamAnalysisStrategy(self.config)
-            current_gameweek = gameweek or 1
-            fixture_info = {
-                'fixture_str': 'playing in various fixtures',
-                'is_double_gameweek': False,
-                'fixture_difficulty': 'mixed'
-            }
-            
+            # Create player data subset for the missing players
+            missing_players_data = {name: all_gameweek_data['players'][name] for name in missing_enrichment_results['expert_insights']}
             expert_insights = team_analysis_strategy.get_mixed_team_expert_insights(
-                missing_enrichment_results['expert_insights'], 
+                missing_players_data, 
                 current_gameweek, 
-                fixture_info
+                fixtures_data
             )
             
             if expert_insights:
-                # Update player data with new expert insights
-                for player_name, insight in expert_insights.items():
-                    if player_name in all_gameweek_data['players']:
-                        all_gameweek_data['players'][player_name]['expert_insights'] = insight
+                self._add_enrichments_to_players(all_gameweek_data['players'], list(expert_insights.keys()), expert_insights, None)
                 print(f"   ✅ Updated {len(expert_insights)} players with expert insights")
             else:
                 print("   ⚠️  No expert insights returned from LLM")
@@ -307,35 +302,43 @@ class FPLAgent:
         # Process all missing injury news in one go
         if missing_enrichment_results['injury_news']:
             print(f"   🏥 Processing injury news for {len(missing_enrichment_results['injury_news'])} players...")
+            # Create player data subset for the missing players
+            missing_players_data = {name: all_gameweek_data['players'][name] for name in missing_enrichment_results['injury_news']}
             injury_news = team_analysis_strategy.get_mixed_team_injury_news(
-                missing_enrichment_results['injury_news'], 
+                missing_players_data, 
                 current_gameweek, 
-                fixture_info
+                fixtures_data
             )
             
             if injury_news:
-                # Update player data with new injury news
-                for player_name, news in injury_news.items():
-                    if player_name in all_gameweek_data['players']:
-                        all_gameweek_data['players'][player_name]['injury_news'] = news
+                self._add_enrichments_to_players(all_gameweek_data['players'], list(injury_news.keys()), None, injury_news)
                 print(f"   ✅ Updated {len(injury_news)} players with injury news")
             else:
                 print("   ⚠️  No injury news returned from LLM")
     
     def _add_enrichments_to_players(self, players_data: Dict[str, Dict[str, Any]], 
-                                      team_players: List[Dict[str, Any]], 
+                                      players: List, 
                                       expert_insights: Dict[str, str],
                                       injury_news: Dict[str, str]) -> None:
-        """Apply enriched data to player records."""
-        for player in team_players:
-            player_name = player['full_name']
-            if player_name in players_data:
-                players_data[player_name]['expert_insights'] = expert_insights.get(
-                    player_name, "No expert insights available"
-                )
-                players_data[player_name]['injury_news'] = injury_news.get(
-                    player_name, "No injury news available"
-                )
+        """Apply enriched data to player records.
+        
+        Args:
+            players_data: Dictionary of player data
+            players: List of either player names (str) or player dicts with 'full_name' key
+            expert_insights: Dictionary of expert insights for each player
+            injury_news: Dictionary of injury news for each player
+        """
+        for player in players:
+            # Handle both player names (str) and player dicts with 'full_name'
+            player_name = player if isinstance(player, str) else player.get('full_name')
+            if player_name and player_name in players_data:
+                # Only update expert_insights if provided
+                if expert_insights and player_name in expert_insights:
+                    players_data[player_name]['expert_insights'] = expert_insights[player_name]
+                
+                # Only update injury_news if provided
+                if injury_news and player_name in injury_news:
+                    players_data[player_name]['injury_news'] = injury_news[player_name]
     
     def _add_embedding_scores_to_players(self, players_data: Dict[str, Dict[str, Any]], 
                                         embedding_scores: Dict[str, Dict[str, Any]]) -> None:

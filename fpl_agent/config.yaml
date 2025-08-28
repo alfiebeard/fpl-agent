@@ -62,7 +62,7 @@ embeddings:
   
   # Missing enrichment retry configuration
   missing_enrichment_retries:
-    max_passes: 5  # Maximum number of passes to attempt
+    max_passes: 3  # Maximum number of passes to attempt
     min_progress_threshold: 1  # Minimum players that must be processed to continue
   
   # Position-specific queries for embedding similarity
