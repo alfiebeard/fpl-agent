@@ -104,8 +104,6 @@ class LLMEngine:
                     contents=prompt,
                     config=generation_config
                 )
-
-                print(response)
                 
                 # Extract the response text
                 text_response = self._extract_json_response(response)
