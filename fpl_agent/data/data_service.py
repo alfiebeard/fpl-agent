@@ -508,3 +508,87 @@ class DataService:
         except Exception as e:
             logger.warning(f"Failed to load team enrichments: {e}")
             return {}
+
+    def get_missing_enrichments(self) -> Dict[str, List[str]]:
+        """
+        Get players missing expert_insights or injury_news.
+        
+        Returns:
+            Dictionary with 'expert_insights' and 'injury_news' keys, each containing
+            a list of player names missing that enrichment type
+        """
+        logger.info("Starting complete missing enrichments process...")
+        
+        try:
+            missing_enrichments = self._identify_missing_enrichments()
+            
+            if not missing_enrichments['expert_insights'] and not missing_enrichments['injury_news']:
+                logger.info("All players already have complete enrichment data")
+                return {"expert_insights": [], "injury_news": []}
+            
+            total_missing_insights = len(missing_enrichments['expert_insights'])
+            total_missing_injury = len(missing_enrichments['injury_news'])
+            
+            logger.info(f"Found {total_missing_insights} players missing expert insights")
+            logger.info(f"Found {total_missing_injury} players missing injury news")
+            
+            return missing_enrichments
+            
+        except Exception as e:
+            logger.error(f"Failed to complete missing enrichments: {e}")
+            raise
+    
+    def _identify_missing_enrichments(self) -> Dict[str, List[str]]:
+        """
+        Identify players missing expert_insights or injury_news.
+        
+        Returns:
+            Dictionary with 'expert_insights' and 'injury_news' keys, each containing
+            a list of player names missing that enrichment type
+        """
+        try:
+            # Load current player data
+            players_data = self.store.load_player_data()
+            if not players_data or 'players' not in players_data:
+                logger.warning("No player data available for enrichment analysis")
+                return {"expert_insights": [], "injury_news": []}
+            
+            players = players_data['players']
+            missing_by_type = {
+                'expert_insights': [],
+                'injury_news': []
+            }
+            
+            for player_name, player_data in players.items():
+                # Check expert insights
+                has_expert_insights = (
+                    player_data.get('expert_insights') and 
+                    player_data['expert_insights'] != 'None' and
+                    player_data['expert_insights'] != 'No expert insights available' and
+                    player_data['expert_insights'].strip()
+                )
+                
+                # Check injury news
+                has_injury_news = (
+                    player_data.get('injury_news') and 
+                    player_data['injury_news'] != 'None' and
+                    player_data['injury_news'] != 'No injury news available' and
+                    player_data['injury_news'].strip()
+                )
+                
+                # Add to missing lists if needed
+                if not has_expert_insights:
+                    missing_by_type['expert_insights'].append(player_name)
+                
+                if not has_injury_news:
+                    missing_by_type['injury_news'].append(player_name)
+            
+            # Log summary
+            logger.info(f"Identified {len(missing_by_type['expert_insights'])} players missing expert insights")
+            logger.info(f"Identified {len(missing_by_type['injury_news'])} players missing injury news")
+            
+            return missing_by_type
+            
+        except Exception as e:
+            logger.error(f"Failed to identify missing enrichments: {e}")
+            raise

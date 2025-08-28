@@ -61,32 +61,59 @@ class PromptFormatter:
             # Format the data
             formatted_data = []
             
-            for player_group, players in sorted(players_data_grouped.items()):
-                if show_header:
-                    formatted_data.append(player_group.upper())
-                    formatted_data.append("")  # Empty line between team or position heading
+            if group_by == "grouped_by_position":
+                # Define the correct position order: GK, DEF, MID, FWD
+                position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
                 
-                if group_by == "grouped_by_team":
+                # Sort positions by the defined order
+                sorted_positions = sorted(players_data_grouped.keys(), key=lambda pos: position_order.get(pos, 4))
+                
+                for position in sorted_positions:
+                    players = players_data_grouped[position]
+                    
+                    if show_header:
+                        formatted_data.append(position.upper())
+                        formatted_data.append("")  # Empty line between position heading
+                    
+                    # Filter out players without hybrid scores
+                    valid_players = [p for p in players if p.get('hybrid_score', -1) > -1]
+                    
+                    # Sort players by hybrid embedding score (highest first) within each position
+                    sorted_players = sorted(players, key=lambda p: p.get('hybrid_score', -1), reverse=True)
+                    
+                    # Filter to top K players for this position based on config selection_counts.
+                    if use_ranking and selection_counts:
+                        count = selection_counts.get(position, 0)
+                        sorted_players = sorted_players[:count]
+                    
+                    for i, player in enumerate(sorted_players):
+                        # Add ranking number if requested
+                        if use_ranking:
+                            player['_display_rank'] = i + 1
+                        
+                        formatted_data.append(PromptFormatter.format_player(player, player_type=group_by, include_enrichments=use_enrichments, include_rankings=use_ranking))
+                        formatted_data.append("")  # Empty line between players
+                    
+                    formatted_data.append("")  # Empty line between positions
+            else:
+                # Logic for grouped_by_team
+                for player_group, players in sorted(players_data_grouped.items()):
+                    if show_header:
+                        formatted_data.append(player_group.upper())
+                        formatted_data.append("")  # Empty line between team heading
+                    
                     # Sort players by position (GK, DEF, MID, FWD) then by total points
                     position_order = {'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3}
                     sorted_players = sorted(
                         players, 
                         key=lambda p: (position_order.get(p.get('position', 'UNK'), 4), -p.get('total_points', 0))
                     )
-                elif group_by == "grouped_by_position":
-                    # Sort players by ranking
-                    sorted_players = sorted(players, key=lambda p: (p.get('position_rank', 0)), reverse=True)
-
-                    # Filter to top K players for this position based on config selection_counts.
-                    if use_ranking and selection_counts:
-                        count = selection_counts.get(player_group, 0)  # player_group is the position name
-                        sorted_players = sorted_players[:count]
                     
-                for player in sorted_players:
-                    formatted_data.append(PromptFormatter.format_player(player, player_type=group_by, include_enrichments=use_enrichments, include_rankings=use_ranking))
-                    formatted_data.append("")  # Empty line between players
-                
-                formatted_data.append("")  # Empty line between teams or positions
+                    for player in sorted_players:
+                        formatted_data.append(PromptFormatter.format_player(player, player_type=group_by, include_enrichments=use_enrichments, include_rankings=use_ranking))
+                        formatted_data.append("")  # Empty line between players
+                    
+                    formatted_data.append("")  # Empty line between teams
             
             return "\n".join(formatted_data)
             
@@ -227,7 +254,6 @@ class PromptFormatter:
         player_name = player_data.get('name', player_data.get('full_name', 'Unknown'))
         team_name = player_data.get('team', player_data.get('team_name', 'Unknown'))
         position = player_data.get('position', 'Unknown')
-        position_rank = player_data.get('position_rank', 0)
         
         # Build complete player string
         formatted_parts = []
@@ -248,8 +274,12 @@ class PromptFormatter:
             first_line += f", £{player_data.get('now_cost', 0.0) / 10.0}m)"
         
         # Include ranking prefix if requested, e.g., "1. Player Name (Team)"
+        # Note: Ranking is now handled at the list level, not individual player level
         if include_rankings:
-            first_line = f"{position_rank:2d}. {first_line}"
+            # Use the temporary display rank added by the calling method
+            display_rank = player_data.get('_display_rank', 0)
+            if display_rank > 0:
+                first_line = f" {display_rank:2d}. {first_line}"
         elif player_type == "current_team":
             first_line = f"{position.upper()} {first_line}"
         

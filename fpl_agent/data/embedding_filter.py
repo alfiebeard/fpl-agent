@@ -427,8 +427,7 @@ class EmbeddingFilter:
                         player_scores[player_name] = {
                             'embedding_score': float(embedding_score),
                             'keyword_bonus': float(keyword_bonus),
-                            'hybrid_score': float(hybrid_score),
-                            'position_rank': rank
+                            'hybrid_score': float(hybrid_score)
                         }
                         scores_added += 1
             

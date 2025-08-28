@@ -1,6 +1,5 @@
-"""
-Main FPL Agent application
-"""
+#!/usr/bin/env python3
+"""FPL Agent Main Module"""
 
 import logging
 import sys
@@ -30,36 +29,23 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
 class FPLAgent:
-    """Enhanced FPL Agent with smart data handling"""
+    """Main FPL Agent class that orchestrates all operations."""
     
-    def __init__(self, config: Optional[Config] = None):
-        """Initialize the FPL Agent"""
-        if config is None:
-            config = Config()
-        self.config = config
-        
-        # Initialize services
-        self.data_service = DataService(config)
+    def __init__(self):
+        """Initialize the FPL Agent with configuration and services."""
+        self.config = Config()
+        self.data_service = DataService(self.config)
+        self.llm_strategy = TeamBuildingStrategy(self.config)
+        self.team_manager = TeamManager(self.config)
         self.data_store = DataStore()
         
-        # Initialize team manager
-        self.team_manager = TeamManager()
-        
-        # LLM strategy will be initialized lazily when needed
-        self._llm_strategy = None
-    
-    @property
-    def llm_strategy(self):
-        """Lazy initialization of LLM strategy"""
-        if self._llm_strategy is None:
-            self._llm_strategy = TeamBuildingStrategy(self.config)
-        return self._llm_strategy
-    
-    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False, gameweek: Optional[int] = None, filter_unavailable_players: Optional[bool] = False) -> None:
+    def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False, 
+                       gameweek: Optional[int] = None, filter_unavailable_players: bool = False) -> Dict[str, Any]:
         """Fetch both FPL player data and fixtures data"""
         try:
+            logger.info("Fetching FPL data...")
+            
             if use_cached:
                 logger.info("Loading cached FPL data...")
             else:
@@ -204,32 +190,138 @@ class FPLAgent:
             
             logger.info("Player enrichment completed")
 
+            # Complete any missing enrichments for players not returned by team-specific enrichment
+            print("🔄 Completing missing enrichments for players not returned by team-specific enrichment...")
+            try:
+                self._process_missing_enrichments_with_retries(all_gameweek_data, gameweek, rank_players)
+            except Exception as e:
+                logger.error(f"Failed to complete missing enrichments: {e}")
+                print(f"⚠️  Warning: Could not complete missing enrichments: {e}")
+
+            # Calculate embedding scores for all players after all enrichments are complete
             if rank_players:
-                # Calculate embedding scores using EmbeddingFilter
+                print("🔄 Calculating embedding scores for all enriched players...")
                 embedding_filter = EmbeddingFilter(self.config)
                 player_embeddings = embedding_filter.calculate_player_embeddings(all_gameweek_data['players'], use_cached=False)
                 player_embedding_scores = embedding_filter.calculate_player_embedding_scores(player_embeddings, all_gameweek_data['players'])
                 
                 # Add embedding scores to players
-                if player_embeddings:
+                if player_embedding_scores:
                     self._add_embedding_scores_to_players(all_gameweek_data['players'], player_embedding_scores)
                     print(f"✅ Added embedding scores for {len(player_embedding_scores)} players")
                 else:
                     print("⚠️  No embedding scores calculated")
-            
+
             # Save enriched data
             enriched_data = {
                 'players': all_gameweek_data['players'],
                 'enrichment_timestamp': datetime.now().isoformat()
             }
-            
+
             self.data_service.store.save_player_data(enriched_data)
+            
             print(f"✅ Successfully enriched player data for {len(all_gameweek_data['players'])} players")
                 
         except Exception as e:
             logger.error(f"Failed to enrich player data: {e}")
             print(f"❌ Error enriching player data: {e}")
+            raise
+
+    def _process_missing_enrichments_with_retries(self, all_gameweek_data: Dict[str, Any], gameweek: Optional[int], rank_players: bool) -> None:
+        """Orchestrate multiple passes of missing enrichment processing."""
+        # Get configuration for retry logic
+        max_passes = self.config.get_embeddings_config().get('missing_enrichment_retries', {}).get('max_passes', 5)
         
+        print(f"🔄 Starting missing enrichment processing with max {max_passes} passes...")
+        
+        previous_total_missing = float('inf')
+        
+        for pass_num in range(max_passes):
+            # Check if there are any missing enrichments
+            missing_enrichment_results = self.data_service.get_missing_enrichments()
+            current_total = len(missing_enrichment_results['expert_insights']) + len(missing_enrichment_results['injury_news'])
+            
+            if current_total == 0:
+                print(f"✅ Pass {pass_num + 1}: All players now have complete enrichment data!")
+                break
+            
+            print(f"📊 Pass {pass_num + 1}: Found {len(missing_enrichment_results['expert_insights'])} players missing expert insights, {len(missing_enrichment_results['injury_news'])} players missing injury news")
+            
+            # Check if we're making progress
+            if current_total >= previous_total_missing:
+                if pass_num > 0:  # Don't show this message on first pass
+                    print(f"⚠️  No progress made (still {current_total} missing), stopping iterations")
+                break
+            
+            # Process this pass
+            self._process_missing_enrichments(all_gameweek_data, gameweek, rank_players)
+            
+            # Update progress tracking
+            previous_total_missing = current_total
+            
+            # If we made minimal progress, continue to next pass
+            if current_total > 0:
+                print(f"   🔄 Pass {pass_num + 1} complete. {current_total} players still missing enrichments.")
+                if pass_num < max_passes - 1:  # Don't show this message on the last pass
+                    print("   🔄 Continuing to next pass...")
+        
+        # Final check and summary
+        final_missing = self.data_service.get_missing_enrichments()
+        final_total = len(final_missing['expert_insights']) + len(final_missing['injury_news'])
+        
+        if final_total == 0:
+            print("🎉 All players successfully enriched!")
+        else:
+            print(f"⚠️  Enrichment complete. {final_total} players still missing data after {max_passes} passes.")
+        
+    def _process_missing_enrichments(self, all_gameweek_data: Dict[str, Any], gameweek: Optional[int], rank_players: bool) -> None:
+        """Process missing enrichments for one pass only."""
+        missing_enrichment_results = self.data_service.get_missing_enrichments()
+        
+        # Process all missing expert insights in one go
+        if missing_enrichment_results['expert_insights']:
+            print(f"   🧠 Processing expert insights for {len(missing_enrichment_results['expert_insights'])} players...")
+            team_analysis_strategy = TeamAnalysisStrategy(self.config)
+            current_gameweek = gameweek or 1
+            fixture_info = {
+                'fixture_str': 'playing in various fixtures',
+                'is_double_gameweek': False,
+                'fixture_difficulty': 'mixed'
+            }
+            
+            expert_insights = team_analysis_strategy.get_mixed_team_expert_insights(
+                missing_enrichment_results['expert_insights'], 
+                current_gameweek, 
+                fixture_info
+            )
+            
+            if expert_insights:
+                # Update player data with new expert insights
+                for player_name, insight in expert_insights.items():
+                    if player_name in all_gameweek_data['players']:
+                        all_gameweek_data['players'][player_name]['expert_insights'] = insight
+                print(f"   ✅ Updated {len(expert_insights)} players with expert insights")
+            else:
+                print("   ⚠️  No expert insights returned from LLM")
+        
+        # Process all missing injury news in one go
+        if missing_enrichment_results['injury_news']:
+            print(f"   🏥 Processing injury news for {len(missing_enrichment_results['injury_news'])} players...")
+            injury_news = team_analysis_strategy.get_mixed_team_injury_news(
+                missing_enrichment_results['injury_news'], 
+                current_gameweek, 
+                fixture_info
+            )
+            
+            if injury_news:
+                # Update player data with new injury news
+                for player_name, news in injury_news.items():
+                    if player_name in all_gameweek_data['players']:
+                        all_gameweek_data['players'][player_name]['injury_news'] = news
+                print(f"   ✅ Updated {len(injury_news)} players with injury news")
+            else:
+                print("   ⚠️  No injury news returned from LLM")
+    
     def _add_enrichments_to_players(self, players_data: Dict[str, Dict[str, Any]], 
                                       team_players: List[Dict[str, Any]], 
                                       expert_insights: Dict[str, str],
@@ -325,10 +417,10 @@ class FPLAgent:
             display_comprehensive_team_result(team_result)
             
         except Exception as e:
-            logger.error(f"Team building failed: {e}")
-            print(f"❌ Team building failed: {e}")
+            logger.error(f"Failed to build team: {e}")
+            print(f"❌ Error building team: {e}")
             raise
-
+    
     def gw_update(self, gameweek: Optional[int] = None, cached_only: bool = False, 
                   rag_mode: str = "ranked_enrichments", prompt_only: bool = False,
                   save_team: bool = False) -> None:
@@ -422,7 +514,7 @@ class FPLAgent:
             logger.error(f"Weekly update failed: {e}")
             print(f"❌ Weekly update failed: {e}")
             raise
-    
+     
     def _handle_chip_usage(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle chip usage"""
         
@@ -604,7 +696,6 @@ def main():
         logger.error(f"Command failed: {e}")
         print(f"\n❌ Command failed: {e}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

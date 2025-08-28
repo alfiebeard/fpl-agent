@@ -344,7 +344,10 @@ Transfer rules:
 * Additional transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
 * To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).
 
-At the moment youhave access to the following chips and wildcards: {PromptFormatter.format_chips(chips_data)}
+You don't have to use a transfer or all your free transfers for a gameweek, you may be happy with your team and leave it as it is. It may be tactical to not use a transfer, so that you have an extra transfer next week you can use to make a bigger change.
+If you consider this to be important you should consider the fixtures for players in the upcoming weeks too.
+
+At the moment you have access to the following chips and wildcards: {PromptFormatter.format_chips(chips_data)}
 
 Chip and wildcard rules:
 * You can use one chip or wildcard per gameweek.

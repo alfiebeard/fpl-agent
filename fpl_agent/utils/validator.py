@@ -431,19 +431,19 @@ class Validator:
     
     def parse_llm_json_response(self, response: str, raise_on_error: bool = True, 
                                expected_type: str = "any") -> Dict[str, Any]:
-        """Parse LLM response to extract JSON data with robust error handling
+        """
+        Parse LLM JSON response with robust error handling and fallback parsing.
+        
+        Note: This function is still needed even when using Google GenAI ResponseSchema,
+        as it provides fallback parsing for edge cases and malformed responses.
         
         Args:
-            response: The LLM response as a string
-            raise_on_error: Whether to raise exceptions on failure (True) or return empty dict (False)
-            expected_type: Description of expected response type for logging
-
-        Returns:
-            Dictionary with the parsed JSON data
+            response: Raw LLM response string
+            expected_type: Type of response being parsed (for logging)
+            raise_on_error: Whether to raise exceptions on parsing errors
             
-        Raises:
-            ValueError: If raise_on_error is True and parsing fails
-            Exception: If an error occurs during parsing
+        Returns:
+            Parsed JSON as dictionary, or empty dict on error
         """
         try:
             # Debug: Log the raw response

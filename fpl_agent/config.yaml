@@ -18,14 +18,16 @@ llm:
     temperature: 0.3
     top_p: 0.8
     top_k: 25
+    max_retries: 1
   
   # Lightweight LLM for team-specific analysis
   lightweight:
     model: "gemini-2.5-flash-lite"  # Cost-effective for team analysis
-    max_output_tokens: 8192
+    max_output_tokens: 16384
     temperature: 0.2
     top_p: 0.8
     top_k: 25
+    max_retries: 3
 
 # Team Configuration
 # Controls FPL team composition and formation rules
@@ -57,6 +59,11 @@ embeddings:
   # Performance settings
   batch_size: 100
   device: "auto"  # "auto", "cpu", "cuda", "mps" (for Apple Silicon)
+  
+  # Missing enrichment retry configuration
+  missing_enrichment_retries:
+    max_passes: 5  # Maximum number of passes to attempt
+    min_progress_threshold: 1  # Minimum players that must be processed to continue
   
   # Position-specific queries for embedding similarity
   position_queries:
