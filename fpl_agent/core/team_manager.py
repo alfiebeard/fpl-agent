@@ -202,10 +202,10 @@ class TeamManager:
             
             # Search for player in current players data (players are keyed by full name)
             current_player = current_players.get(player_name)
-            
+
             if current_player:
-                current_price = current_player.get('now_cost', 0.0) / 10.0  # Convert from FPL units
-                purchase_price = player['price']  # Price when bought
+                current_price = current_player.get('current_price', 0.0)
+                purchase_price = current_player.get('purchase_price', 0.0)
                 
                 # Calculate sale price using FPL formula
                 total_value += calculate_fpl_sale_price(current_price, purchase_price)

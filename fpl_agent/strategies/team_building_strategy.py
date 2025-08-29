@@ -10,6 +10,7 @@ from ..core.team_manager import TeamManager
 from .base_strategy import BaseLLMStrategy
 from ..utils.validator import Validator
 from ..utils.prompt_formatter import PromptFormatter
+from ..utils.schemas import create_team_creation_schema, create_weekly_update_schema
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,11 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             if prompt_only:
                 return {'prompt': prompt}
             
+            # Define LLM response schema for team creation
+            response_schema = create_team_creation_schema()
+            
             # Send to LLM
-            response = self.llm_engine.query(prompt)
+            response = self.llm_engine.query(prompt, response_schema)
             
             # Parse and validate LLM response
             team_data = self.validator.parse_llm_json_response(response)
@@ -115,14 +119,17 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             prompt = self._create_weekly_update_prompt(
                 current_team, current_team_player_data, gameweek, chips_data, 
                 all_gameweek_data['players'], transfers_data, all_gameweek_data['fixtures'], 
-                use_enrichments, use_ranking
+                team_budget, use_enrichments, use_ranking
             )
             
             if prompt_only:
                 return {'prompt': prompt}
             
+            # Send to LLM with response schema
+            response_schema = create_weekly_update_schema()
+
             # Send to LLM
-            response = self.llm_engine.query(prompt)
+            response = self.llm_engine.query(prompt, response_schema)
             
             # Parse and validate LLM response
             team_data = self.validator.parse_llm_json_response(response)
@@ -210,6 +217,8 @@ FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No othe
 {{
   "captain": "CAPTAIN NAME",
   "vice_captain": "VICE CAPTAIN NAME",
+  "captain_reason": "Detailed explanation of why this player is the best captain choice for this gameweek",
+  "vice_captain_reason": "Detailed explanation of why this player is the best vice-captain choice for this gameweek",
   "total_cost": {budget}.0,
   "bank": 0.0,
   "expected_points": 65.0,
@@ -273,7 +282,7 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
     
     def _create_weekly_update_prompt(self, current_team: Dict, current_team_player_data: Dict[str, Dict[str, Any]], 
                                      gameweek: int, chips_data: Dict, players_data: Dict[str, Dict[str, Any]], 
-                                     transfers_data: Dict, fixtures_data: List[Dict[str, Any]],
+                                     transfers_data: Dict, fixtures_data: List[Dict[str, Any]], team_budget: float,
                                      use_enrichments: bool = True,
                                      use_ranking: bool = True
                                    ) -> str:
@@ -299,42 +308,64 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
             embeddings_config = self.config.get_embeddings_config()
             selection_counts = embeddings_config.get('selection_counts')
         
-        return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season. Your current squad is:
+        return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season.
+
+        
+GAMEWEEK CONTEXT:
+Season: 2025/2026
+Gameweek: {gameweek}
+
+{PromptFormatter.format_fixtures(fixtures_data, gameweek)}
+
+If a team appears multiple times in the fixtures, it is because they are playing in a double gameweek. This could be advantageous for points, as some players will play twice, thus having a greater chance of scoring more points.
+
+
+YOUR CURRENT TEAM:
+
 {PromptFormatter.format_team(current_team, current_team_player_data)}
 
-It is now Gameweek {gameweek}.
 
-CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any markdown, explanations, or text outside the JSON structure. Your entire response must be a single, valid JSON object.
-
-IMPORTANT: If you used a Free Hit chip in the previous gameweek, your team will automatically revert to the team you had before using the Free Hit. The system will handle this revert automatically, so you should proceed with normal transfer planning for this gameweek.
-
-Evaluate your team using the latest information available. Consider:
-* Recent player performance and form
-* Upcoming fixture difficulty
-* Likelihood of starting and playing 90 minutes
-* Rotation risk
-* Injury or suspension status
-* Transfer rumours, international absences, or tactical shifts
-* Insights from expert sources, fantasy blogs, forums, news sites, and tipsters
-
-You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
-
-Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
-
-The fixtures this gameweek are:
-{PromptFormatter.format_fixtures(fixtures_data, gameweek)}
+PLAYER LIST:
 
 {self._get_prompt_intro(use_enrichments, is_weekly_update=True)}
 
 {PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking, selection_counts=selection_counts)}
 
-The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player you must use the following formula to calculate the sale price:
-If Current Price > Purchase Price: Transfer Out Price = Purchase Price + floor((Current Price - Purchase Price) / 2). Rounded down to the nearest £0.1m.
-For example, if a player was purchased at £8.0m and the available price is £9.0m, the sale price would be £8.5m.
-However, if Current Price <= Purchase Price: Transfer Out Price = Current Price
-If a player was purchased at £8.0m but the available price is £7.0m, the sale price would be £7.0m (full loss).
+YOUR TASK:
+Suggest transfers, substitutions, or chip usage for this gameweek with the goal of maximising points for your FPL team.
+You must clearly state your reasoning for each decision, and why you have made the decisions you have, in accordance with the output instructions below.
+Remember your team must be built from your current team with only transfers on top, unless you are using a wildcard or chip.
 
-This would get added to the bank and is then offset against the cost of the incoming player.
+
+DECISION MAKING CRITERIA:
+
+1. Evaluate your team using the latest information available. Consider:
+- Recent player performance and form
+- Upcoming fixture difficulty
+- Likelihood of starting and playing 90 minutes
+- Rotation risk
+- Injury or suspension status
+- Transfer rumours, international absences, or tactical shifts
+- Insights from expert sources, fantasy blogs, forums, news sites, and tipsters
+
+2. Identify potential transfers
+- You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
+- Use this information to identify the most effective transfers, substitutions, or chip usage for the current and upcoming gameweeks.
+- You can use the player list to help you identify potential transfer targets.
+
+3. Identify potential substitutions to make to the team
+- You must pick the starting 11 that is likely to score the most points, considering bringing in subs and subbing out players who may score lower points.
+- You must justify with reasons and provide a sub order for each player on the bench, and why they are in that order.
+
+4. Identify potential chip usage
+- You must identify if it's worthwhile to use a chip this week, and why you have chosen it. This should be in accordance with the rules.
+
+5. Identify the best captain and vice-captain to use this week, and why you have chosen them.
+
+
+RULES:
+
+The price of the players in your current team may be different to the price of the players in the list of available players. This is because they could have increased or decreased in price since they were picked. When selling a player use the Sale Price of the player in the squad list provided - this is their sale price.
 
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
@@ -359,7 +390,8 @@ Chip and wildcard rules:
     * Bench Boost: all 15 players score points
     * Triple Captain: captain's points are tripled instead of doubled
 
-If you plan to use a chip or wildcard this week, clearly state which one. If using Wildcard or Free Hit, you may omit transfers (since they are handled via chip activation).
+A wildcard or chip is a great way to shake up a team that's struggling or could be better with many transfers or to build extra points if a player is likely to score highly (e.g., double gameweek) or the bench players will score many points too (e.g., on a double gameweek).
+If you plan to use a chip or wildcard this week, clearly state which one. If using Wildcard or Free Hit, you may omit transfers (since they are handled via chip activation). There's no point in not using a chip if you have one available, letting one expire is a waste of a free points, but these should be used sparingly and where appropriate.
 
 After completing your analysis:
 1. Decide whether to use a wildcard or chip
@@ -369,19 +401,26 @@ After completing your analysis:
     * Bench ordered by expected points
     * Captain and vice-captain optimised for expected value
 
-IMPORTANT: For each decision, provide clear, detailed reasoning explaining:
-- **Transfers**: Why each transfer is being made (form, fixtures, injuries, value, etc.)
+
+OUTPUT INSTRUCTIONS:
+- You must return only valid JSON.
+- No commentary, no markdown, no extra text.
+- The output must strictly follow the JSON structure below.
+- Players must be included exactly as written in the your current team and player list.
+- Do not rename any player.
+
+Important: For each decision, provide clear, detailed reasoning explaining:
+- **Transfers**: Why each transfer is being made (form, fixtures, injuries, value, etc.). If performing more transfers than you have free transfers, explain clearly why you have chosen to do this on the basis of points potential, since the transfers will cost you points to make.
 - **Chip usage**: Why a chip should be used (or not used) this gameweek
 - **Captain/Vice-captain**: Why they are the best choices for this gameweek
 - **Starting 11**: Why each player is in the starting lineup
 - **Substitutes**: Why each player is on the bench and their sub order priority
 - **Formation**: Why this formation is optimal for the current fixtures
 
-Base your reasoning on the latest expert tips, community insights, and statistical analysis you've researched.
+You MUST respond with ONLY the following JSON format. No other text, no markdown, no explanations outside the JSON:
 
-Remember your team must be built from the current team with only transfers on top, unless you are using a wildcard or chip.
 
-FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No other text, no markdown, no explanations outside the JSON:
+JSON STRUCTURE:
 
 {{
   "chip": null,  // or "wildcard", "bench_boost", "free_hit", "triple_captain"
@@ -451,11 +490,13 @@ FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No othe
   }}
 }}
 
-Ensure the final team meets all FPL constraints before submitting:
-* Total cost ≤ £100.0 million
-* {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
-* Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
-* Valid formation for starting 11 (1GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)
+
+FINAL CHECK:
+Before returning your answer, double-check that your output is valid JSON and ensure the final team meets all FPL constraints before submitting:
+- Bank >= 0.0
+- {self.config.get_team_config().get('squad_size', 15)} total players: {self.config.get_position_limits()['GK']} goalkeepers, {self.config.get_position_limits()['DEF']} defenders, {self.config.get_position_limits()['MID']} midfielders, {self.config.get_position_limits()['FWD']} forwards
+- Max {self.config.get_team_config().get('max_players_per_team', 3)} players from any single club
+- Valid formation for starting 11 (1 GK, {self.config.get_formation_constraints()['DEF'][0]}–{self.config.get_formation_constraints()['DEF'][1]} DEF, {self.config.get_formation_constraints()['MID'][0]}–{self.config.get_formation_constraints()['MID'][1]} MID, {self.config.get_formation_constraints()['FWD'][0]}–{self.config.get_formation_constraints()['FWD'][1]} FWD)
 
 Each player must have a detailed, informative reason for their selection.
 

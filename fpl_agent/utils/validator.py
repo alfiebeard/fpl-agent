@@ -133,13 +133,14 @@ class Validator:
                 errors.append(f"Maximum {max_players_per_team} players allowed from {team_name}, got {count}")
         
         # Check total cost
-        # TODO: Check if this is correct
         total_cost = team_data.get('total_cost', 0)
         if total_cost > budget:
             errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
 
-        # if total_cost + team_data.get('bank', 0) == budget:
-        #     errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
+        # Check bank
+        bank = team_data.get('bank', 0)
+        if bank < 0:
+            errors.append(f"Bank must be greater than or equal to 0, got £{bank}m")
         
         return errors
     

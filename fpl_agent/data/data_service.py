@@ -156,8 +156,6 @@ class DataService:
             Dictionary of filtered player data
         """
 
-        # TODO: Add a filter using default filters - manual, then an approach using enrichment results.
-
         if filter_unavailable_players_mode == "no_filter":
             return players_data
         
