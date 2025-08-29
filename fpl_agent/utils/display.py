@@ -119,6 +119,11 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
         total_cost = team_data_wrapper.get('total_cost', 0.0)
         bank = team_data_wrapper.get('bank', 0.0)
         expected_points = team_data_wrapper.get('expected_points', 0.0)
+        chip = team_data_wrapper.get('chip')
+        chip_reason = team_data_wrapper.get('chip_reason', '')
+        transfers = team_data_wrapper.get('transfers', [])
+        captain_reason = team_data_wrapper.get('captain_reason', '')
+        vice_captain_reason = team_data_wrapper.get('vice_captain_reason', '')
     else:
         # Flat structure: everything is at the top level
         team_data = team_data_wrapper
@@ -127,17 +132,55 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
         total_cost = team_data_wrapper.get('total_cost', 0.0)
         bank = team_data_wrapper.get('bank', 0.0)
         expected_points = team_data_wrapper.get('expected_points', 0.0)
+        chip = team_data_wrapper.get('chip')
+        chip_reason = team_data_wrapper.get('chip_reason', '')
+        transfers = team_data_wrapper.get('transfers', [])
+        captain_reason = team_data_wrapper.get('captain_reason', '')
+        vice_captain_reason = team_data_wrapper.get('vice_captain_reason', '')
     
     # Display basic info
     print("\n" + "=" * 80)
     print("LLM RESPONSE")
     print("=" * 80)
-    print(f"Method: Unknown")
     print(f"\nCaptain: {captain}")
+    if captain_reason:
+        print(f"Captain Reason: {captain_reason}")
     print(f"Vice Captain: {vice_captain}")
+    if vice_captain_reason:
+        print(f"Vice Captain Reason: {vice_captain_reason}")
     print(f"Total Cost: £{total_cost}m")
     print(f"Bank: £{bank}m")
     print(f"Expected Points: {expected_points}")
+    
+    # Display chip usage if any
+    if chip:
+        print(f"\nChip Used: {chip.upper()}")
+        if chip_reason:
+            print(f"Chip Reason: {chip_reason}")
+    else:
+        print(f"\nChip Used: None")
+        if chip_reason:
+            print(f"Chip Reason: {chip_reason}")
+    
+    # Display transfers if any
+    if transfers:
+        print("\n" + "=" * 80)
+        print("TRANSFERS")
+        print("=" * 80)
+        print(f"{'Player Out':<25} {'Player In':<25} {'Out Price':<10} {'In Price':<10}")
+        print("-" * 80)
+        
+        for transfer in transfers:
+            player_out = transfer.get('player_out', 'Unknown')
+            player_in = transfer.get('player_in', 'Unknown')
+            player_out_price = transfer.get('player_out_price', 0.0)
+            player_in_price = transfer.get('player_in_price', 0.0)
+            reason = transfer.get('reason', '')
+            
+            print(f"{player_out:<25} {player_in:<25} £{player_out_price:<9} £{player_in_price:<9}")
+            if reason:
+                print(f"  └─ Reason: {reason}")
+            print()
     
     # Display team selection reasoning
     print("\n" + "=" * 80)
