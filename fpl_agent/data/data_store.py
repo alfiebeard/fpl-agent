@@ -15,19 +15,35 @@ logger = logging.getLogger(__name__)
 
 
 class DataStore:
-    """Manages persistence of player data to/from JSON file"""
+    """
+    Manages persistence of shared FPL data (players, fixtures, embeddings) that all teams can access.
+    
+    This class handles data that is common across all FPL teams, such as:
+    - Player statistics and information
+    - Fixture schedules
+    - Player embeddings for analysis
+    
+    Individual team data (squads, transfers, etc.) is managed by TeamManager.
+    """
     
     def __init__(self, data_dir: str = "team_data"):
         """
-        Initialize data store.
+        Initialize data store for shared FPL data.
         
         Args:
-            data_dir: Directory to store data files
+            data_dir: Base directory (default: "team_data"). Shared data will be stored in 
+                     "{data_dir}/shared/" subdirectory.
         """
+        # Set up directory structure for shared FPL data
         self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(exist_ok=True)
-        self.player_data_file = self.data_dir / "player_data.json"
-        self.fixtures_data_file = self.data_dir / "fixtures.json"
+        self.shared_dir = self.data_dir / "shared"
+        
+        # Create directories if they don't exist
+        self.shared_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Define file paths for shared data
+        self.player_data_file = self.shared_dir / "player_data.json"
+        self.fixtures_data_file = self.shared_dir / "fixtures.json"
     
     def load_player_data(self) -> Optional[Dict[str, Any]]:
         """

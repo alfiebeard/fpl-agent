@@ -527,3 +527,93 @@ def display_detailed_players_status(
                     print(f"   ... and {len(sorted_players) - 10} more {position} players")
         
         print(f"\n📝 Note: These players would go into LLM prompts with basic stats only (no expert insights or injury news)")
+
+
+def display_team_status(team_name: str, team_data: Dict[str, Any], gameweek: str) -> None:
+    """
+    Display comprehensive team status information.
+    
+    Args:
+        team_name: Name of the team
+        team_data: Dictionary containing team data
+        gameweek: Current gameweek
+    """
+    team_info = team_data['team']
+    
+    print(f"🏆 Team: {team_name}")
+    print(f"📅 Gameweek: {gameweek}")
+    
+    # Display team financial info
+    total_cost = team_info.get('total_cost', 0)
+    if total_cost is not None:
+        print(f"💰 Budget: £{total_cost:.1f}m")
+    
+    bank = team_info.get('bank', 0)
+    if bank is not None:
+        print(f"🏦 Bank: £{bank:.1f}m")
+    
+    expected_points = team_info.get('expected_points', 0)
+    if expected_points is not None:
+        print(f"📊 Expected Points: {expected_points:.1f}")
+    
+    # Display captain and vice captain
+    print(f"👑 Captain: {team_info.get('captain', 'N/A')}")
+    print(f"🔄 Vice Captain: {team_info.get('vice_captain', 'N/A')}")
+    
+    if team_info.get('chip'):
+        print(f"🎯 Chip Used: {team_info['chip']}")
+    
+    # Display starting XI
+    print("\n" + "="*50)
+    print("🟢 STARTING XI:")
+    print("="*50)
+    
+    for i, player in enumerate(team_info.get('starting', []), 1):
+        price = player.get('price', 0)
+        if price is not None:
+            print(f"{i:2d}. {player['name']} ({player['position']}) - {player['team']} - £{price:.1f}m")
+        else:
+            print(f"{i:2d}. {player['name']} ({player['position']}) - {player['team']} - £N/A")
+        if 'reason' in player:
+            print(f"     💡 {player['reason']}")
+    
+    # Display substitutes
+    print("\n" + "="*50)
+    print("🟡 SUBSTITUTES:")
+    print("="*50)
+    
+    for i, player in enumerate(team_info.get('substitutes', []), 1):
+        sub_order = player.get('sub_order', i)
+        if sub_order is None:
+            sub_order = i
+        price = player.get('price', 0)
+        if price is not None:
+            print(f"{sub_order:2d}. {player['name']} ({player['position']}) - {player['team']} - £{price:.1f}m")
+        else:
+            print(f"{sub_order:2d}. {player['name']} ({player['position']}) - {player['team']} - £N/A")
+        if 'reason' in player:
+            print(f"     💡 {player['reason']}")
+    
+    # Display transfers if any
+    transfers = team_info.get('transfers', [])
+    if transfers:
+        print("\n" + "="*50)
+        print("🔄 TRANSFERS:")
+        print("="*50)
+        for transfer in transfers:
+            out_price = transfer.get('player_out_price', 0)
+            in_price = transfer.get('player_in_price', 0)
+            
+            if out_price is not None:
+                print(f"📤 OUT: {transfer['player_out']} (£{out_price:.1f}m)")
+            else:
+                print(f"📤 OUT: {transfer['player_out']} (£N/A)")
+                
+            if in_price is not None:
+                print(f"📥 IN:  {transfer['player_in']} (£{in_price:.1f}m)")
+            else:
+                print(f"📥 IN:  {transfer['player_in']} (£N/A)")
+                
+            if 'reason' in transfer:
+                print(f"     💡 {transfer['reason']}")
+            print()

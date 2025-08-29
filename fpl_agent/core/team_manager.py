@@ -30,18 +30,61 @@ class TeamManager:
     # Chip Names
     CHIP_NAMES = ['wildcard', 'bench_boost', 'free_hit', 'triple_captain']
     
-    def __init__(self, data_dir: str = "team_data"):
+    def __init__(self, team_name: str = "default", data_dir: str = "team_data", auto_create: bool = False):
+        self.team_name = team_name
         self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(exist_ok=True)
-        self.meta_file = self.data_dir / self.META_FILE_NAME
+        self.team_dir = self.data_dir / team_name
+        self.shared_dir = self.data_dir / "shared"
+        self.meta_file = self.team_dir / self.META_FILE_NAME
+        
+        # Create shared directory if it doesn't exist
+        self.shared_dir.mkdir(exist_ok=True)
+        
+        # Only auto-create team directory if explicitly requested
+        if auto_create and not self.team_dir.exists():
+            self.create_team()
+    
+    def create_team(self, budget: float = 100.0) -> None:
+        """Create team directory and initial meta.json"""
+        self.team_dir.mkdir(exist_ok=True)
+        
+        # Initialize meta.json with default values
+        meta_data = {
+            "current_gw": 1,
+            "last_team_file": "",
+            "bank": budget,
+            "free_transfers": self.DEFAULT_FREE_TRANSFERS,
+            "chips_used": {
+                chip: False for chip in self.CHIP_NAMES
+            }
+        }
+        
+        self._save_meta(meta_data)
+        logger.info(f"Team '{self.team_name}' created successfully")
+    
+    def team_exists(self) -> bool:
+        """Check if team directory exists"""
+        return self.team_dir.exists()
+    
+    def delete_team(self) -> None:
+        """Delete this team's directory and data"""
+        if self.team_dir.exists():
+            import shutil
+            shutil.rmtree(self.team_dir)
+            logger.info(f"Team '{self.team_name}' deleted successfully")
+        else:
+            logger.warning(f"Team '{self.team_name}' does not exist")
     
     def _get_team_file(self, gameweek: int) -> Path:
         """Get the file path for a specific gameweek's team data"""
-        return self.data_dir / f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}"
+        return self.team_dir / f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}"
     
     def _scan_team_files(self) -> List[Path]:
         """Scan for team files and return them sorted by gameweek"""
-        team_files = list(self.data_dir.glob(f"{self.TEAM_FILE_PREFIX}*{self.TEAM_FILE_SUFFIX}"))
+        if not self.team_dir.exists():
+            return []
+            
+        team_files = list(self.team_dir.glob(f"{self.TEAM_FILE_PREFIX}*{self.TEAM_FILE_SUFFIX}"))
         # Filter out copy files and sort by gameweek number (remove 'gw' prefix and convert to int)
         team_files = [f for f in team_files if not f.stem.endswith(' copy')]
         team_files.sort(key=lambda x: int(x.stem[2:]))

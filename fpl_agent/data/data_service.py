@@ -234,7 +234,7 @@ class DataService:
                 fpl_age_hours = data_store._calculate_data_age_hours(fpl_data)
             
             # Check embeddings freshness
-            embeddings_file = Path("team_data/player_embeddings.json")
+            embeddings_file = Path("team_data/shared/player_embeddings.json")
             embeddings_age_hours = None
             if embeddings_file.exists():
                 file_stat = embeddings_file.stat()
@@ -339,7 +339,7 @@ class DataService:
             
             if use_embeddings:
                 # Check if embeddings cache exists
-                embeddings_file = Path("team_data/player_embeddings.json")
+                embeddings_file = Path("team_data/shared/player_embeddings.json")
                 if embeddings_file.exists():
                     try:
                         # Apply embedding filtering

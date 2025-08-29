@@ -11,10 +11,10 @@ from .core.config import Config
 from .core.team_manager import TeamManager
 from .data import DataService
 from .data.data_store import DataStore
-from .utils.team_utils import group_players_by_team, get_team_fixture_info
+from .utils.team_utils import group_players_by_team, get_team_fixture_info, get_all_teams
 from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
-from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status
+from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status, display_team_status
 from .utils.missing_enrichments import get_missing_enrichments_from_data
 from .data.embedding_filter import EmbeddingFilter
 
@@ -38,7 +38,6 @@ class FPLAgent:
         self.config = Config()
         self.data_service = DataService(self.config)
         self.llm_strategy = TeamBuildingStrategy(self.config)
-        self.team_manager = TeamManager()
         self.data_store = DataStore()
         
     def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False, 
@@ -347,7 +346,7 @@ class FPLAgent:
             if player_name in players_data:
                 players_data[player_name].update(scores)
     
-    def build_team(self, budget: float = 100.0, gameweek: Optional[int] = None,
+    def build_team(self, team_name: str, budget: float = 100.0, gameweek: Optional[int] = None,
                    cached_only: bool = False, rag_mode: str = "ranked_enrichments", prompt_only: bool = False,
                    save_team: bool = False) -> None:
         """Build new team using LLM strategy
@@ -411,7 +410,9 @@ class FPLAgent:
             
             # Save team if requested
             if save_team:
-                self.team_manager.save_new_team(team_result, gameweek)
+                # Create team manager for this specific team
+                team_manager = TeamManager(team_name=team_name, auto_create=True)
+                team_manager.save_new_team(team_result, gameweek)
                 print("✅ Team saved successfully!")
             else:
                 print("✅ Team building complete (not saved)")
@@ -424,7 +425,7 @@ class FPLAgent:
             print(f"❌ Error building team: {e}")
             raise
     
-    def gw_update(self, gameweek: Optional[int] = None, cached_only: bool = False, 
+    def gw_update(self, team_name: str, gameweek: Optional[int] = None, cached_only: bool = False, 
                   rag_mode: str = "ranked_enrichments", prompt_only: bool = False,
                   save_team: bool = False) -> None:
         """Complete weekly gameweek update using LLM strategy
@@ -456,8 +457,16 @@ class FPLAgent:
             else:
                 raise ValueError(f"Invalid rag_mode: {rag_mode}")
             
+            # Create team manager for this specific team
+            team_manager = TeamManager(team_name=team_name)
+            
+            # Check if team exists before proceeding
+            if not team_manager.team_exists():
+                print(f"❌ Team '{team_name}' does not exist. Skipping...")
+                return
+            
             # Get all team context in one call (includes automatic free hit revert)
-            team_context = self.team_manager.get_team_context(gameweek or 1)
+            team_context = team_manager.get_team_context(gameweek or 1)
             print(f"✅ Team context loaded for gameweek {team_context['gameweek']}")
             
             # Fetch all gameweek data in one call
@@ -505,7 +514,7 @@ class FPLAgent:
             
             # Handle persistence if requested
             if save_team:
-                self.team_manager.save_weekly_update(final_team_result, team_context)
+                team_manager.save_weekly_update(final_team_result, team_context)
                 print("✅ Team saved successfully!")
             else:
                 print("✅ Team update complete (not saved)")
@@ -593,6 +602,30 @@ class FPLAgent:
                 embedding_filtered_out=players_status.get('embedding_filtered_out'),
                 use_embeddings=players_status['use_embeddings']
             )
+    
+    def show_team(self, team_name: str):
+        """Show team-specific data (players, substitutes, formation, etc.)"""
+        try:
+            # Create team manager for the specific team
+            team_manager = TeamManager(team_name=team_name)
+            
+            # Get the latest team data
+            latest_gw = team_manager.get_latest_gameweek()
+            if not latest_gw:
+                print(f"❌ No team data found for team '{team_name}'")
+                return
+            
+            team_data = team_manager.load_team(latest_gw)
+            if not team_data:
+                print(f"❌ Failed to load team data for team '{team_name}'")
+                return
+            
+            # Use the display function for consistent formatting
+            display_team_status(team_name, team_data, latest_gw)
+            
+        except Exception as e:
+            logger.error(f"Failed to show team: {e}")
+            print(f"❌ Failed to show team: {e}")
 
 def main():
     """Main entry point with simplified command structure"""
@@ -600,7 +633,8 @@ def main():
     
     # Main command
     parser.add_argument('command', choices=[
-        'fetch', 'enrich', 'gw-update', 'build-team', 'show-data', 'show-players'
+        'fetch', 'enrich', 'gw-update', 'build-team', 'show-data', 'show-players',
+        'list-teams', 'show-team', 'delete-team'
     ], help='Command to run')
     
     # Smart data flags
@@ -618,6 +652,10 @@ def main():
                        help='Team budget in millions (default: 100.0)')
     parser.add_argument('--gameweek', type=int,
                        help='Current gameweek')
+    parser.add_argument('--team', type=str, default='default',
+                       help='Team name to operate on (default: default)')
+    parser.add_argument('--all-teams', action='store_true',
+                       help='Run operation on all teams')
     parser.add_argument('--team-file', type=str,
                        help='Path to JSON file containing current team data')
     
@@ -647,10 +685,10 @@ def main():
         logging.getLogger().setLevel(logging.WARNING)
     
     try:
-        fpl_agent = FPLAgent()
-        
+        # Handle commands that don't require team context
         if args.command == 'fetch':
-            # Fetch fresh FPL data (always fresh unless --cached flag)
+            # Fetch fresh FPL data (shared across all teams)
+            fpl_agent = FPLAgent()
             fpl_agent.fetch_fpl_data(
                 use_cached=args.cached_only, 
                 use_enrichments=args.use_enrichments,
@@ -659,41 +697,117 @@ def main():
             )
             
         elif args.command == 'enrich':
+            # Enrich data (shared across all teams)
+            fpl_agent = FPLAgent()
             fpl_agent.enrich(
                 gameweek=args.gameweek,
                 prompt_only=args.show_prompt
             )
-
-        elif args.command == 'build-team':
-            # Build new team
-            fpl_agent.build_team(
-                budget=args.budget,
-                gameweek=args.gameweek,
-                cached_only=args.cached_only,
-                rag_mode=args.rag_mode,
-                prompt_only=args.show_prompt
-            )
+        
+        elif args.command == 'list-teams':
+            # List all available teams
+            teams = get_all_teams()
+            if teams:
+                print(f"📋 Available teams ({len(teams)}):")
+                for team in teams:
+                    print(f"  • {team}")
+            else:
+                print("📋 No teams found. Create a team with 'build-team --team <name>'")
+        
+        elif args.command == 'delete-team':
+            # Delete team
+            team_name = args.team
+            team_manager = TeamManager(team_name=team_name)
+            if team_manager.team_exists():
+                team_manager.delete_team()
+                print(f"✅ Team '{team_name}' deleted successfully!")
+            else:
+                print(f"❌ Team '{team_name}' does not exist")
+        
+        elif args.command == 'show-team':
+            # Determine which teams to process
+            teams = []
+            if args.all_teams:
+                teams = get_all_teams()
+                if not teams:
+                    print("📋 No teams found. Create a team with 'build-team --team <name>'")
+                    return
+            elif args.team and args.team != 'default':
+                teams = [args.team]
+            else:
+                print("❌ Error: Must specify either --team <name> or --all-teams")
+                return
             
-            if not args.show_prompt:
-                print("✅ Team building complete!")
+            # Process each team
+            print(f"🚀 Running '{args.command}' on {len(teams)} teams: {', '.join(teams)}")
+            
+            for team_name in teams:
+                print(f"\n Processing team: {team_name}")
+                print("=" * 50)
                 
-        elif args.command == 'gw-update':
-            # Complete weekly gameweek update
-            fpl_agent.gw_update(
-                gameweek=args.gameweek or 1,
-                cached_only=args.cached_only,
-                rag_mode=args.rag_mode,
-                prompt_only=args.show_prompt
-            )
+                # Check team existence
+                team_manager = TeamManager(team_name=team_name)
+                if not team_manager.team_exists():
+                    print(f"❌ Team '{team_name}' does not exist. Skipping...")
+                    continue
+                
+                # Show team data
+                fpl_agent = FPLAgent()
+                fpl_agent.show_team(team_name)
+        
+        # Handle team-specific commands
+        elif args.command in ['build-team', 'gw-update']:
+            # Determine which teams to process
+            teams = []
+            if args.all_teams:
+                teams = get_all_teams()
+                if not teams:
+                    print("📋 No teams found. Create a team with 'build-team --team <name>'")
+                    return
+            elif args.team and args.team != 'default':
+                teams = [args.team]
+            else:
+                print("❌ Error: Must specify either --team <name> or --all-teams")
+                return
             
-            if not args.show_prompt:
-                print("✅ Weekly update complete!")
+            # Process each team
+            print(f"🚀 Running '{args.command}' on {len(teams)} teams: {', '.join(teams)}")
             
-        elif args.command == 'show-data':
-            fpl_agent.show_data()
-            
-        elif args.command == 'show-players':
-            fpl_agent.show_players()
+            for team_name in teams:
+                print(f"\n Processing team: {team_name}")
+                print("=" * 50)
+                
+                # Create FPLAgent for this team
+                fpl_agent = FPLAgent()
+                
+                if args.command == 'build-team':
+                    fpl_agent.build_team(
+                        team_name=team_name,
+                        budget=args.budget,
+                        gameweek=args.gameweek,
+                        cached_only=args.cached_only,
+                        rag_mode=args.rag_mode,
+                        prompt_only=args.show_prompt,
+                        save_team=args.save_team
+                    )
+                    
+                    if not args.show_prompt:
+                        print(f"✅ Team building complete for '{team_name}'!")
+                    else:
+                        print(f"✅ Prompt generated for '{team_name}'!")
+                        
+                elif args.command == 'gw-update':
+                    fpl_agent.gw_update(
+                        team_name=team_name,
+                        gameweek=args.gameweek or 1,
+                        cached_only=args.cached_only,
+                        rag_mode=args.rag_mode,
+                        prompt_only=args.show_prompt,
+                        save_team=args.save_team
+                    )
+                    
+                    if not args.show_prompt:
+                        print(f"✅ Weekly update complete for '{team_name}'!")
         
     except Exception as e:
         logger.error(f"Command failed: {e}")

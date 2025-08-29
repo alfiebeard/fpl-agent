@@ -57,7 +57,7 @@ class EmbeddingFilter:
     
     def _get_embeddings_cache_path(self) -> Path:
         """Get the path to the embeddings cache file"""
-        cache_dir = Path("team_data")
+        cache_dir = Path("team_data/shared")
         cache_dir.mkdir(exist_ok=True)
         return cache_dir / "player_embeddings.json"
     
