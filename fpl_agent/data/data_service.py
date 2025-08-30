@@ -445,6 +445,15 @@ class DataService:
                     'form': market_player.get('form', ''),
                     'total_points': market_player.get('total_points', 0),
                     'minutes': market_player.get('minutes', 0),
+                    'chance_of_playing': market_player.get('chance_of_playing', 100),
+                    'goals_scored': market_player.get('goals_scored', 0),
+                    'assists': market_player.get('assists', 0),
+                    'clean_sheets': market_player.get('clean_sheets', 0),
+                    'goals_conceded': market_player.get('goals_conceded', 0),
+                    'saves': market_player.get('saves', 0),
+                    'bonus': market_player.get('bonus', 0),
+                    'bps': market_player.get('bps', 0),
+                    'ict_index': market_player.get('ict_index', 0.0),
                     
                     # Calculated sale price
                     'sale_price': sale_price,
