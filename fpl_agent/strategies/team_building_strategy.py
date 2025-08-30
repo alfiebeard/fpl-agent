@@ -109,7 +109,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             gameweek = team_context['gameweek']
             current_team = team_context['team']
             chips_data = team_context['chips']
-            transfers_data = team_context['transfers']
+            free_transfers = team_context['free_transfers']
             current_team_player_data = team_context['current_team_player_data']
             
             # Calculate team budget - used to validate generated team meets budget constraints
@@ -118,7 +118,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             # Create the weekly update prompt
             prompt = self._create_weekly_update_prompt(
                 current_team, current_team_player_data, gameweek, chips_data, 
-                all_gameweek_data['players'], transfers_data, all_gameweek_data['fixtures'], 
+                all_gameweek_data['players'], free_transfers, all_gameweek_data['fixtures'], 
                 team_budget, use_enrichments, use_ranking
             )
             
@@ -282,7 +282,7 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
     
     def _create_weekly_update_prompt(self, current_team: Dict, current_team_player_data: Dict[str, Dict[str, Any]], 
                                      gameweek: int, chips_data: Dict, players_data: Dict[str, Dict[str, Any]], 
-                                     transfers_data: Dict, fixtures_data: List[Dict[str, Any]], team_budget: float,
+                                     free_transfers: float, fixtures_data: List[Dict[str, Any]], team_budget: float,
                                      use_enrichments: bool = True,
                                      use_ranking: bool = True
                                    ) -> str:
@@ -294,7 +294,7 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
             gameweek: The gameweek to update the team for
             chips_data: All chip data for that week
             players_data: All player data for that week
-            transfers_data: All transfer data for that week
+            free_transfers: Number of free transfers available this week
             fixtures_data: All fixture data for that week
             use_enrichments: Whether to use enrichments in the prompt
             use_ranking: Whether to use ranking in the prompt
@@ -370,7 +370,7 @@ The price of the players in your current team may be different to the price of t
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
 Transfer rules:
-* You have {transfers_data.get('free_transfers', 1)} free transfers this week.
+* You have {free_transfers} free transfers this week.
 * If unused, 1 transfer can be carried over (maximum 2).
 * Additional transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
 * To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).

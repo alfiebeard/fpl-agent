@@ -17,7 +17,7 @@ class TeamManager:
     """Manages local FPL team data for each gameweek"""
     
     # FPL Game Rules
-    DEFAULT_FREE_TRANSFERS = 1
+    DEFAULT_FREE_TRANSFERS = 0  # 0 transfers carried over at the start, gets 1 free transfer at the start of the next gameweek
     MAX_FREE_TRANSFERS = 2
     CHIP_RESET_GAMEWEEK = 20
     DEFAULT_BUDGET = 100.0
@@ -53,7 +53,7 @@ class TeamManager:
             "current_gw": 1,
             "last_team_file": "",
             "bank": budget,
-            "free_transfers": self.DEFAULT_FREE_TRANSFERS,
+            "free_transfers_carried_over": self.DEFAULT_FREE_TRANSFERS,
             "chips_used": {
                 chip: False for chip in self.CHIP_NAMES
             }
@@ -117,7 +117,7 @@ class TeamManager:
             "current_gw": gameweek,
             "last_team_file": f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}",
             "bank": team_data.get('bank', 0.0),
-            "free_transfers": self.DEFAULT_FREE_TRANSFERS,
+            "free_transfers_carried_over": self.DEFAULT_FREE_TRANSFERS,
             "chips_used": {
                 chip: False for chip in self.CHIP_NAMES
             }
@@ -128,7 +128,7 @@ class TeamManager:
     
     def _update_meta(self, gameweek: int, team_data: Dict[str, Any], 
                    chips_used: Optional[Dict[str, bool]] = None,
-                   free_transfers: Optional[int] = None) -> None:
+                   free_transfers_carried_over: Optional[int] = None) -> None:
         """Update the meta.json file with new team status"""
         meta_data = self._load_meta()
         
@@ -138,8 +138,8 @@ class TeamManager:
         meta_data["bank"] = team_data.get('bank', meta_data.get('bank', 0.0))
         
         # Update free transfers if provided
-        if free_transfers is not None:
-            meta_data["free_transfers"] = free_transfers
+        if free_transfers_carried_over is not None:
+            meta_data["free_transfers_carried_over"] = free_transfers_carried_over
         
         # Update chips used if provided
         if chips_used is not None:
@@ -274,7 +274,8 @@ class TeamManager:
                 chip_used = None
         
         # Calculate new free transfers
-        current_transfers = current_meta.get('free_transfers', self.DEFAULT_FREE_TRANSFERS)
+        current_transfers = current_meta.get('free_transfers_carried_over', self.DEFAULT_FREE_TRANSFERS)
+        available_this_week = current_transfers + 1
         transfers_made = len(team_data.get('transfers', []))
         
         if chip_used == 'wildcard':
@@ -286,11 +287,11 @@ class TeamManager:
         else:
             # Normal transfers
             if transfers_made == 0:
-                # No transfers made, carry over 1 (max 2)
-                new_transfers = min(current_transfers + 1, self.MAX_FREE_TRANSFERS)
+                # No transfers made, carry over 1 (max 1 for meta.json)
+                new_transfers = 1
             else:
                 # Transfers made, calculate remaining
-                new_transfers = max(0, current_transfers - transfers_made)
+                new_transfers = max(0, available_this_week - transfers_made)
         
         # Handle chip usage and reset on Gameweek 20
         chips_used = None
@@ -309,7 +310,7 @@ class TeamManager:
             gameweek=gameweek,
             team_data=team_data,
             chips_used=chips_used,
-            free_transfers=new_transfers
+            free_transfers_carried_over=new_transfers
         )
         
         logger.info(f"Meta updated: transfers={new_transfers}, chip_used={chips_used}")
@@ -340,12 +341,12 @@ class TeamManager:
     def get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
         """Get available transfer information from meta data"""
         current_gw = meta_data.get('current_gw', 1)
-        free_transfers = meta_data.get('free_transfers', self.DEFAULT_FREE_TRANSFERS)
+        free_transfers_carried_over = meta_data.get('free_transfers_carried_over', self.DEFAULT_FREE_TRANSFERS)
         
         return {
             'current_gw': current_gw,
-            'free_transfers': free_transfers,
-            'can_make_transfers': free_transfers > 0
+            'free_transfers_carried_over': free_transfers_carried_over,
+            'can_make_transfers': free_transfers_carried_over > 0
         }
     
     def get_team_context(self, gameweek: int) -> Dict[str, Any]:
@@ -370,12 +371,16 @@ class TeamManager:
             if latest_gw:
                 team_data = self.load_team(latest_gw)
         
+        # Calculate current week's available transfers
+        stored_transfers = meta_data.get('free_transfers_carried_over', 0)  # What's in meta.json (0 or 1)
+        current_week_transfers = min(stored_transfers + 1, self.MAX_FREE_TRANSFERS)  # 0+1=1 or 1+1=2
+        
         return {
             'team': team_data['team'] if team_data else None,  # Return team data, not file wrapper
             'chips': self.get_available_chips_from_meta(meta_data),
             'transfers': self.get_available_transfers_from_meta(meta_data),
             'bank': meta_data.get('bank', 0.0),
-            'free_transfers': meta_data.get('free_transfers', self.DEFAULT_FREE_TRANSFERS),
+            'free_transfers': current_week_transfers,  # What LLM sees in prompt (1 or 2)
             'gameweek': gameweek
         }
 
