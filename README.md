@@ -1,39 +1,43 @@
-# FPL Optimizer - Dual Approach Team Creator
+# FPL Agent - AI-Powered Fantasy Premier League Manager
 
-A comprehensive Fantasy Premier League (FPL) optimizer featuring two distinct team creation methodologies:
+A sophisticated Fantasy Premier League (FPL) team management system that uses Large Language Models (LLMs) to provide intelligent team building, weekly updates, and strategic recommendations.
 
-1. **API-Based Statistical Analysis** - Data-driven approach using xPts calculations and mathematical optimization
-2. **LLM-Based Expert Insights** - AI-powered approach using web-scraped expert opinions and large language model analysis
+## 🎯 What This Project Does
 
-## 🚀 Features
+FPL Agent is an AI-powered assistant that helps you manage your Fantasy Premier League team throughout the season. It combines real-time FPL data with LLM analysis to provide:
 
-### API-Based Approach
-- Real-time FPL API data integration
-- Expected points (xPts) calculations using form, xG/xA, and fixture analysis
-- Integer Linear Programming (ILP) optimization
-- Statistical player performance analysis
-- Fixture difficulty assessment
-- Mathematical captain and transfer selection
+- **Intelligent Team Building**: Create optimal teams from scratch using AI analysis
+- **Weekly Updates**: Get transfer recommendations, captain choices, and chip usage advice
+- **Expert Insights**: Leverage AI to analyze player form, injuries, and fixture difficulty
+- **Multi-Team Management**: Manage multiple FPL teams simultaneously
+- **Data Enrichment**: Enhance player data with expert insights and injury news
 
-### LLM-Based Approach
-- Web scraping of expert FPL insights from trusted sources
-- Large Language Model analysis of expert opinions
-- Human-like decision making based on community wisdom
-- Contextual understanding of FPL meta and trends
-- Expert-driven captain and transfer selections
-- Wildcard timing based on expert consensus
+## 🚀 Key Features
 
-### Core Capabilities
-- **Team Creation**: Build optimal teams from scratch (start of season or wildcard)
-- **Weekly Transfers**: Get transfer recommendations based on current form and fixtures
-- **Captain Selection**: Choose optimal captain and vice-captain for each gameweek
-- **Wildcard Analysis**: Determine optimal timing for wildcard usage
-- **Approach Comparison**: Side-by-side analysis of both methodologies
+### Core Functionality
+- **Team Creation**: Build new teams with AI-powered player selection
+- **Weekly Updates**: Get comprehensive gameweek recommendations
+- **Chip Management**: Intelligent wildcard, free hit, and other chip usage
+- **Multi-Team Support**: Manage multiple teams with different strategies
+- **Data Caching**: Smart caching to minimize API calls and costs
+
+### AI-Powered Analysis
+- **LLM Integration**: Uses Google's Gemini models for intelligent decision making
+- **Expert Insights**: AI-generated analysis of player form and potential
+- **Injury Monitoring**: Real-time injury status and availability tracking
+- **Embedding Filtering**: Advanced player filtering using semantic similarity
+- **RAG (Retrieval-Augmented Generation)**: Combines data retrieval with AI analysis
+
+### Data Management
+- **Real-time FPL API**: Live data from the official FPL API
+- **Smart Caching**: Efficient data storage and retrieval
+- **Player Enrichment**: Enhanced player data with expert insights
+- **Fixture Analysis**: Comprehensive fixture difficulty assessment
 
 ## 📦 Installation
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.11+
 - pip package manager
 
 ### Setup
@@ -41,118 +45,163 @@ A comprehensive Fantasy Premier League (FPL) optimizer featuring two distinct te
 1. **Clone the repository**
 ```bash
 git clone <repository-url>
-cd fpl-optimizer
+cd fpl-agent
 ```
 
-2. **Install dependencies**
+2. **Create and activate virtual environment**
 ```bash
-pip install -r fpl_optimizer/requirements.txt
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. **Environment Configuration**
+3. **Install dependencies**
+```bash
+pip install -r requirements.txt
+```
+
+4. **Environment Configuration**
 Create a `.env` file in the project root:
 ```env
-# LLM API Keys (choose one)
-OPENAI_API_KEY=your_openai_api_key_here
-# OR
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# FPL API credentials (required for private team data)
-FPL_EMAIL=your_fpl_email@example.com
-FPL_PASSWORD=your_fpl_password
-FPL_TEAM_ID=your_team_id
+# Google AI API Key (required for LLM functionality)
+GOOGLE_API_KEY=your_google_api_key_here
 ```
 
-**Note**: FPL credentials are required to access private team data (transfers, chips, team picks). Public data (players, fixtures, etc.) can be accessed without authentication.
+**Note**: The Google API key is required for LLM functionality.
 
-4. **Configuration**
-Edit `fpl_optimizer/config.yaml` to customize:
-- LLM provider and model settings
-- Web search parameters
-- Optimization constraints
-- Expert source preferences
+5. **Configuration**
+Edit `fpl_agent/config.yaml` to customize:
+- LLM model settings
+- Team composition rules
+- Embedding configuration
+- Display preferences
 
-5. **Test Authentication**
-Test your FPL authentication setup:
-```bash
-python test_fpl_auth.py
-```
-
-This will verify that your credentials work and can access both public and private FPL data.
-
-## 🎯 Usage
+## 🎮 Usage
 
 ### Command Line Interface
 
-#### Team Creation
+The FPL Agent provides a comprehensive CLI with the following main commands:
 
-**Create team using API-based statistical approach:**
+#### Data Management
 ```bash
-python -m fpl_optimizer create-api --budget 100.0 --sample-size 500
+# Fetch fresh FPL data
+fpl-agent fetch
+
+# Fetch with enrichments (expert insights + injury news)
+fpl-agent fetch --use-enrichments
+
+# Use cached data only
+fpl-agent fetch --cached-only
+
+# Enrich existing data with AI insights
+fpl-agent enrich
+
+# Show data status
+fpl-agent show-data
+
+# Show available players breakdown
+fpl-agent show-players
 ```
 
-**Create team using LLM-based expert insights:**
+#### Team Management
 ```bash
-python -m fpl_optimizer create-llm --budget 100.0 --gameweek 15
+# Create a new team
+fpl-agent build-team --team "My Team" --budget 100.0
+
+# Create team with specific gameweek
+fpl-agent build-team --team "My Team" --budget 100.0 --gameweek 15
+
+# Create team using different RAG modes
+fpl-agent build-team --team "My Team" --rag-mode none  # No LLM player enrichments
+fpl-agent build-team --team "My Team" --rag-mode enrichments  # Basic LLM player enrichments
+fpl-agent build-team --team "My Team" --rag-mode ranked_enrichments  # Full LLM player enrichments
+
+# Save team to file
+fpl-agent build-team --team "My Team" --save-team
 ```
 
-#### Weekly Recommendations
-
-**Get weekly recommendations using statistical analysis:**
+#### Weekly Updates
 ```bash
-python -m fpl_optimizer weekly-api --free-transfers 1 --team-file my_team.json
+# Get weekly recommendations for a team
+fpl-agent gw-update --team "My Team"
+
+# Update for specific gameweek
+fpl-agent gw-update --team "My Team" --gameweek 15
+
+# Update using cached data only
+fpl-agent gw-update --team "My Team" --cached-only
+
+# Save weekly update
+fpl-agent gw-update --team "My Team" --save-team
 ```
 
-**Get weekly recommendations using expert insights:**
+#### Multi-Team Operations
 ```bash
-python -m fpl_optimizer weekly-llm --free-transfers 1 --gameweek 15
+# List all teams
+fpl-agent list-teams
+
+# Show specific team
+fpl-agent show-team --team "My Team"
+
+# Show all teams
+fpl-agent show-team --all-teams
+
+# Delete a team
+fpl-agent delete-team --team "My Team"
+
+# Run operations on all teams
+fpl-agent build-team --all-teams --budget 100.0
+fpl-agent gw-update --all-teams
 ```
 
-#### Compare Approaches
-
-**Compare team creation methods:**
+#### Debug and Development
 ```bash
-python -m fpl_optimizer compare --budget 100.0 --gameweek 15
-```
+# Show debug information
+fpl-agent fetch --debug
 
-**Compare weekly recommendation methods:**
-```bash
-python -m fpl_optimizer compare --team-file my_team.json --gameweek 15
-```
+# Show verbose logging
+fpl-agent fetch --verbose
 
-#### Other Commands
-
-**Fetch and display player data:**
-```bash
-python -m fpl_optimizer fetch --sample-size 100
-```
-
-**Legacy optimization (uses API approach):**
-```bash
-python -m fpl_optimizer optimize --sample-size 50
+# Show LLM prompts (for debugging)
+fpl-agent build-team --team "My Team" --show-prompt
+fpl-agent gw-update --team "My Team" --show-prompt
 ```
 
 ### Python API
 
 ```python
-from fpl_optimizer import FPLOptimizer
+from fpl_agent import FPLAgent
 
-# Initialize optimizer
-optimizer = FPLOptimizer()
+# Initialize agent
+agent = FPLAgent()
 
-# Create team using API approach
-api_result = optimizer.create_team_api(budget=100.0)
+# Fetch FPL data
+data = agent.fetch_fpl_data(use_cached=False, use_enrichments=True)
 
-# Create team using LLM approach  
-llm_result = optimizer.create_team_llm(budget=100.0, gameweek=15)
+# Enrich player data with AI insights
+agent.enrich(data, gameweek=15)
 
-# Get weekly recommendations
-current_team = load_your_team()  # Your implementation
-api_weekly = optimizer.get_weekly_recommendations_api(current_team, free_transfers=1)
-llm_weekly = optimizer.get_weekly_recommendations_llm(current_team, free_transfers=1, gameweek=15)
+# Build a new team
+agent.build_team(
+    team_name="My Team",
+    budget=100.0,
+    gameweek=15,
+    rag_mode="ranked_enrichments",
+    save_team=True
+)
 
-# Compare approaches
-comparison = optimizer.compare_approaches(current_team, gameweek=15)
+# Get weekly update
+agent.gw_update(
+    team_name="My Team",
+    gameweek=15,
+    rag_mode="ranked_enrichments",
+    save_team=True
+)
+
+# Show data status
+agent.show_data()
+
+# Show team information
+agent.show_team("My Team")
 ```
 
 ## 🔧 Configuration
@@ -161,49 +210,55 @@ comparison = optimizer.compare_approaches(current_team, gameweek=15)
 
 ```yaml
 llm:
-  provider: "openai"  # or "anthropic"
-  model: "gpt-4"
-  max_tokens: 4000
-  temperature: 0.7
+  main:
+    model: "gemini-2.5-pro"  # Primary model for complex tasks
+    max_output_tokens: 65536
+    temperature: 0.3
+    max_retries: 1
   
-  web_search:
-    enabled: true
-    max_results: 20
-    search_terms:
-      - "fantasy premier league tips"
-      - "FPL expert picks"
-      - "fantasy football captain picks"
-    expert_sources:
-      - "fantasyfootballscout.co.uk"
-      - "fantasyfootballpundit.com"
-      - "planetfpl.com"
-      - "fplanalytics.com"
-      - "reddit.com/r/FantasyPL"
+  lightweight:
+    model: "gemini-2.5-flash-lite"  # Cost-effective for analysis
+    max_output_tokens: 16384
+    temperature: 0.2
+    max_retries: 3
 ```
 
-### Statistical Analysis Settings
+### Team Configuration
 
 ```yaml
-xpts:
-  weights:
-    form: 0.3
-    xg_xa: 0.4
-    fixtures: 0.2
-    minutes: 0.1
-  fixture_difficulty_adjustment: true
-  injury_adjustment: true
+team:
+  squad_size: 15
+  position_limits:
+    GK: 2
+    DEF: 5
+    MID: 5
+    FWD: 3
+  budget: 100.0
+  max_players_per_team: 3
+```
 
-optimization:
-  solver: "PULP_CBC_CMD"
-  time_limit: 300
-  gap_tolerance: 0.01
+### Embedding Configuration
+
+```yaml
+embeddings:
+  use_embeddings: true
+  model: "BAAI/bge-base-en-v1.5"
+  cache_enabled: true
+  cache_expiry_hours: 24
+  batch_size: 100
 ```
 
 ## 📊 Output Examples
 
 ### Team Creation Output
 ```
-FPL TEAM CREATION COMPLETE - LLM-based Expert Insights
+⚽ Building new FPL team...
+🔄 Using RAG mode: ranked_enrichments
+✅ Gameweek data loaded
+
+⚽ Building team with £100.0m budget...
+
+FPL TEAM CREATION COMPLETE
 ================================================================================
 
 SELECTED TEAM
@@ -212,6 +267,7 @@ Name                     Team           Pos  Price  Form   Total Pts  Captain
 ----------------------------------------------------------------------------------------------------
 Haaland                  Man City       FWD  £12.1  8.2    156        C       
 Salah                    Liverpool      MID  £13.2  7.8    142        VC      
+Alexander-Arnold         Liverpool      DEF  £8.5   6.5    89         -       
 ...
 
 Team Cost: £99.8m
@@ -220,150 +276,115 @@ Confidence: 0.82
 
 REASONING
 ================================================================================
-LLM Analysis: Team selection based on expert consensus from Fantasy Football Scout,
-Reddit r/FantasyPL, and FPL Analytics. Key factors: Haaland's home fixtures,
-Salah's penalty duties, and defensive coverage from Liverpool assets...
-
-EXPERT INSIGHTS USED
-================================================================================
-Expert insights from 15 sources:
-Fantasy Football Scout (4 insights):
-  - Haaland essential for upcoming fixtures
-  - Liverpool defense offers great value
-...
+AI Analysis: Team selection based on current form, fixture difficulty, and expert insights.
+Key factors include Haaland's home fixtures, Salah's penalty duties, and defensive coverage...
 ```
 
-### Weekly Recommendations Output
+### Weekly Update Output
 ```
-WEEKLY FPL RECOMMENDATIONS - LLM-based Expert Insights
+🔄 Starting weekly FPL update...
+🔄 Using RAG mode: ranked_enrichments
+✅ Team context loaded for gameweek 15
+✅ Gameweek data loaded
+✅ Current team player data loaded
+
+⚽ Updating team for gameweek 15...
+
+WEEKLY FPL UPDATE COMPLETE
 ================================================================================
 
 RECOMMENDED TRANSFERS
 ================================================================================
 1. Sterling → Foden
-   Reason: Expert consensus on Foden's superior form and fixture advantage
-
-Transfer Confidence: 0.76
+   Reason: Foden's superior form and upcoming fixture advantage
+   Transfer Confidence: 0.76
 
 CAPTAINCY RECOMMENDATIONS
 ================================================================================
 Captain: Haaland
 Vice Captain: Salah
+Reasoning: Haaland's home fixture against weak defense
 
-WILDCARD ANALYSIS
+CHIP USAGE
 ================================================================================
 Use Wildcard: NO
 Confidence: 0.68
-Reasoning: Experts suggest waiting for GW18 fixture swing...
-
-EXPERT INSIGHTS SUMMARY
-================================================================================
-Total Insights: 23
-Sources: Fantasy Football Scout, Reddit r/FantasyPL, FPL Analytics
-Key Topics: Transfer, Captain, Form, Fixtures
-
-Overall Confidence: 0.74
+Reasoning: Current team structure is optimal for upcoming fixtures
 ```
 
 ## 🏗️ Architecture
 
 ### Project Structure
 ```
-fpl_optimizer/
-├── team_creators/
-│   ├── api_team_creator.py      # Statistical approach
-│   ├── llm_team_creator.py      # LLM-based approach
-│   ├── web_search.py            # Expert insights scraping
-│   └── llm_analyzer.py          # LLM analysis engine
-├── config.py                    # Configuration management
-├── optimizer/                   # Mathematical optimization
-├── ingestion/                   # Data ingestion
-└── main.py                      # CLI interface
+fpl_agent/
+├── core/
+│   ├── config.py              # Configuration management
+│   └── team_manager.py        # Team persistence and management
+├── data/
+│   ├── data_service.py        # Main data orchestration
+│   ├── fetch_fpl.py           # FPL API integration
+│   ├── data_store.py          # Data persistence
+│   ├── data_processor.py      # Data processing and transformation
+│   └── embedding_filter.py    # AI-powered player filtering
+├── strategies/
+│   ├── base_strategy.py       # Base LLM strategy class
+│   ├── team_building_strategy.py  # Team creation and updates
+│   ├── team_analysis_strategy.py # Player analysis and insights
+│   └── llm_engine.py          # LLM integration
+├── utils/
+│   ├── display.py             # Output formatting
+│   ├── validator.py           # Data validation
+│   ├── prompt_formatter.py    # LLM prompt generation
+│   └── schemas.py             # JSON schemas for LLM responses
+├── main.py                    # CLI interface
+└── config.yaml               # Configuration file
 ```
 
 ### Data Flow
 
-#### API-Based Approach
-```
-FPL API → Player Data → xPts Calculation → ILP Optimization → Team Selection
-```
+1. **Data Fetching**: FPL API → Data Processing → Storage
+2. **Enrichment**: Player Data → LLM Analysis → Expert Insights
+3. **Team Building**: Enriched Data → LLM Strategy → Team Selection
+4. **Weekly Updates**: Current Team → LLM Analysis → Recommendations
 
-#### LLM-Based Approach
-```
-Web Search → Expert Insights → LLM Analysis → Team Recommendations
-```
+## 🤖 AI Integration
 
-## 🤝 Expert Sources
+### LLM Models Used
+- **Gemini 2.5 Pro**: Primary model for complex team optimization
+- **Gemini 2.5 Flash Lite**: Cost-effective model for player analysis
 
-The LLM approach gathers insights from trusted FPL sources:
-
-- **Fantasy Football Scout** - Premium FPL analysis and tips
-- **FPL Analytics** - Data-driven insights and projections  
-- **Planet FPL** - Community-driven analysis
-- **Reddit r/FantasyPL** - Community discussions and tips
-- **Twitter/X FPL Community** - Real-time expert opinions
-
-## 🔍 Comparison Analysis
-
-The system can compare both approaches across multiple dimensions:
-
-- **Team Selection Overlap** - How many players both methods select
-- **Captain Agreement** - Whether both approaches choose the same captain
-- **Transfer Recommendations** - Comparison of suggested moves
-- **Confidence Levels** - Relative certainty of each approach
-- **Expected Points** - Projected performance differences
-
-## 🚨 Limitations & Considerations
-
-### API-Based Approach
-- Relies on historical data and statistical patterns
-- May miss contextual factors (injuries, rotation, etc.)
-- Limited by available data quality
-- Mathematical optimization may not account for human factors
-
-### LLM-Based Approach
-- Dependent on quality and recency of expert insights
-- Requires LLM API access (costs involved)
-- Web scraping may be affected by site changes
-- Subject to expert opinion biases and groupthink
-
-### General
-- Both approaches are tools to aid decision-making, not guarantees
-- FPL involves inherent unpredictability
-- Always consider your own analysis and gut feelings
-- Past performance doesn't guarantee future results
+### AI Features
+- **Expert Insights**: AI-generated analysis of player potential
+- **Injury Monitoring**: Real-time injury status tracking
+- **Embedding Filtering**: Semantic similarity-based player selection
+- **RAG System**: Combines data retrieval with AI generation
 
 ## 📈 Performance Tips
 
-1. **Combine Both Approaches**: Use comparison mode to get best of both worlds
-2. **Regular Updates**: Run weekly recommendations before each deadline
-3. **Context Matters**: Consider gameweek context (doubles, blanks, etc.)
-4. **Monitor Confidence**: Higher confidence scores generally indicate better decisions
-5. **Expert Source Quality**: Ensure web search captures high-quality sources
+1. **Use Caching**: Enable `--cached-only` for faster operations
+2. **RAG Modes**: Choose appropriate RAG mode based on your needs:
+   - `none`: Fastest, no player LLM enrichments
+   - `enrichments`: Basic player LLM enrichments
+   - `ranked_enrichments`: Full player LLM enrichments (recommended)
+3. **Regular Updates**: Run weekly updates before each deadline
+4. **Multi-Team Management**: Use `--all-teams` for bulk operations
 
 ## 🛠️ Development
 
-### Adding New Expert Sources
-1. Update `expert_sources` in `config.yaml`
-2. Modify `_is_trusted_source()` in `web_search.py`
-3. Add source mapping in `_extract_source_name()`
-
 ### Customizing LLM Prompts
-Edit prompt templates in `llm_analyzer.py`:
-- `_create_team_creation_prompt()`
-- `_create_transfer_prompt()`
-- `_create_captaincy_prompt()`
+Edit prompt templates in the strategy classes:
+- `TeamBuildingStrategy._create_team_creation_prompt()`
+- `TeamBuildingStrategy._create_weekly_update_prompt()`
+- `TeamAnalysisStrategy._create_hints_tips_prompt()`
 
-### Extending Statistical Analysis
-Modify calculation methods in `api_team_creator.py`:
-- `_calculate_comprehensive_xpts()`
-- `_calculate_fixture_difficulty_xpts()`
+### Extending Data Sources
+Modify `data/fetch_fpl.py` to add new data sources or APIs.
 
 ## 📝 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🤖 Contributing
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -377,7 +398,3 @@ For issues, feature requests, or questions:
 - Open an issue on GitHub
 - Check existing issues for solutions
 - Review configuration options in `config.yaml`
-
----
-
-**Disclaimer**: This tool is for educational and research purposes. Fantasy Premier League involves financial risk, and past performance doesn't guarantee future results. Always gamble responsibly. 
