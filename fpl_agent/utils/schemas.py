@@ -33,43 +33,37 @@ def create_team_creation_schema() -> dict:
             "total_cost": {"type": "number"},
             "bank": {"type": "number"},
             "expected_points": {"type": "number"},
-            "team": {
-                "type": "object",
-                "properties": {
-                    "starting": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string"},
-                                "position": {"type": "string"},
-                                "price": {"type": "number"},
-                                "team": {"type": "string"},
-                                "reason": {"type": "string"}
-                            },
-                            "required": ["name", "position", "price", "team", "reason"]
-                        }
+            "starting": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "position": {"type": "string"},
+                        "price": {"type": "number"},
+                        "team": {"type": "string"},
+                        "reason": {"type": "string"}
                     },
-                    "substitutes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string"},
-                                "position": {"type": "string"},
-                                "price": {"type": "number"},
-                                "team": {"type": "string"},
-                                "sub_order": {"type": "number"},
-                                "reason": {"type": "string"}
-                            },
-                            "required": ["name", "position", "price", "team", "sub_order", "reason"]
-                        }
-                    }
-                },
-                "required": ["starting", "substitutes"]
+                    "required": ["name", "position", "price", "team", "reason"]
+                }
+            },
+            "substitutes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "position": {"type": "string"},
+                        "price": {"type": "number"},
+                        "team": {"type": "string"},
+                        "sub_order": {"type": "number"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["name", "position", "price", "team", "sub_order", "reason"]
+                }
             }
         },
-        "required": ["captain", "vice_captain", "captain_reason", "vice_captain_reason", "total_cost", "bank", "expected_points", "team"]
+        "required": ["captain", "vice_captain", "captain_reason", "vice_captain_reason", "total_cost", "bank", "expected_points", "starting", "substitutes"]
     }
 
 
@@ -101,43 +95,37 @@ def create_weekly_update_schema() -> dict:
             "total_cost": {"type": "number"},
             "bank": {"type": "number"},
             "expected_points": {"type": "number"},
-            "team": {
-                "type": "object",
-                "properties": {
-                    "starting": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string"},
-                                "position": {"type": "string"},
-                                "price": {"type": "number"},
-                                "team": {"type": "string"},
-                                "reason": {"type": "string"}
-                            },
-                            "required": ["name", "position", "price", "team", "reason"]
-                        }
+            "starting": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "position": {"type": "string"},
+                        "price": {"type": "number"},
+                        "team": {"type": "string"},
+                        "reason": {"type": "string"}
                     },
-                    "substitutes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string"},
-                                "position": {"type": "string"},
-                                "price": {"type": "number"},
-                                "team": {"type": "string"},
-                                "sub_order": {"type": "number"},
-                                "reason": {"type": "string"}
-                            },
-                            "required": ["name", "position", "price", "team", "sub_order", "reason"]
-                        }
-                    }
-                },
-                "required": ["starting", "substitutes"]
+                    "required": ["name", "position", "price", "team", "reason"]
+                }
+            },
+            "substitutes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "position": {"type": "string"},
+                        "price": {"type": "number"},
+                        "team": {"type": "string"},
+                        "sub_order": {"type": "number"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["name", "position", "price", "team", "sub_order", "reason"]
+                }
             }
         },
         "required": ["chip", "chip_reason", "transfers", "captain", "vice_captain", 
                     "captain_reason", "vice_captain_reason", "total_cost", "bank", 
-                    "expected_points", "team"]
+                    "expected_points", "starting", "substitutes"]
     }

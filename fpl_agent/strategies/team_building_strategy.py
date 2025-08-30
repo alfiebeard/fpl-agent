@@ -222,52 +222,50 @@ FINAL INSTRUCTION: You MUST respond with ONLY the following JSON format. No othe
   "total_cost": {budget}.0,
   "bank": 0.0,
   "expected_points": 65.0,
-  "team": {{
-    "starting": [
-      {{ 
-        "name": "Player 1", 
-        "position": "MID", 
-        "price": 8.5, 
-        "team": "Arsenal",
-        "reason": "Detailed explanation of why this player was selected for the starting 11, including form, fixtures, value, and expert recommendations"
-      }},
-      ...
-    ],
-    "substitutes": [
-      {{ 
-        "name": "Sub 1", 
-        "position": "DEF", 
-        "price": 4.5, 
-        "team": "Brentford", 
-        "sub_order": 1,
-        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
-      }},
-      {{ 
-        "name": "Sub 2", 
-        "position": "MID", 
-        "price": 5.0, 
-        "team": "Burnley", 
-        "sub_order": 2,
-        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
-      }},
-      {{ 
-        "name": "Sub 3", 
-        "position": "FWD", 
-        "price": 5.5, 
-        "team": "Wolves", 
-        "sub_order": 3,
-        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
-      }},
-      {{ 
-        "name": "Backup Goalkeeper", 
-        "position": "GK", 
-        "price": 4.0, 
-        "team": "Sheffield Utd", 
-        "sub_order": null,
-        "reason": "Detailed explanation of why this goalkeeper was selected as backup"
-      }}
-    ]
-  }}
+  "starting": [
+    {{ 
+      "name": "Player 1", 
+      "position": "MID", 
+      "price": 8.5, 
+      "team": "Arsenal",
+      "reason": "Detailed explanation of why this player was selected for the starting 11, including form, fixtures, value, and expert recommendations"
+    }},
+    ...
+  ],
+  "substitutes": [
+    {{ 
+      "name": "Sub 1", 
+      "position": "DEF", 
+      "price": 4.5, 
+      "team": "Brentford", 
+      "sub_order": 1,
+      "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+    }},
+    {{ 
+      "name": "Sub 2", 
+      "position": "MID", 
+      "price": 5.0, 
+      "team": "Burnley", 
+      "sub_order": 2,
+      "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+    }},
+    {{ 
+      "name": "Sub 3", 
+      "position": "FWD", 
+      "price": 5.5, 
+      "team": "Wolves", 
+      "sub_order": 3,
+      "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+    }},
+    {{ 
+      "name": "Backup Goalkeeper", 
+      "position": "GK", 
+      "price": 4.0, 
+      "team": "Sheffield Utd", 
+      "sub_order": null,
+      "reason": "Detailed explanation of why this goalkeeper was selected as backup"
+    }}
+  ]
 }}
 
 Ensure the final team meets all FPL constraints before submitting:
@@ -442,52 +440,50 @@ JSON STRUCTURE:
   "total_cost": 99.9,
   "bank": 0.1,
   "expected_points": 66.7,
-  "team": {{
-    "starting": [
-      {{ 
-        "name": "Player 1", 
-        "position": "DEF", 
-        "price": 5.5, 
-        "team": "Chelsea",
-        "reason": "Detailed explanation of why this player is in the starting 11 for this gameweek, including form, fixtures, and tactical considerations"
-      }},
-      ...
-    ],
-    "substitutes": [
-      {{ 
-        "name": "Sub 1", 
-        "position": "MID", 
-        "price": 5.0, 
-        "team": "Burnley", 
-        "sub_order": 1,
-        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
-      }},
-      {{ 
-        "name": "Sub 2", 
-        "position": "DEF", 
-        "price": 4.0, 
-        "team": "Luton", 
-        "sub_order": 2,
-        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
-      }},
-      {{ 
-        "name": "Sub 3", 
-        "position": "FWD", 
-        "price": 5.5, 
-        "team": "Crystal Palace", 
-        "sub_order": 3,
-        "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
-      }},
-      {{ 
-        "name": "Backup Goalkeeper", 
-        "position": "GK", 
-        "price": 4.0, 
-        "team": "Burnley", 
-        "sub_order": null,
-        "reason": "Detailed explanation of why this goalkeeper is the backup choice"
-      }}
-    ]
-  }}
+  "starting": [
+    {{ 
+      "name": "Player 1", 
+      "position": "DEF", 
+      "price": 5.5, 
+      "team": "Chelsea",
+      "reason": "Detailed explanation of why this player is in the starting 11 for this gameweek, including form, fixtures, and tactical considerations"
+    }},
+    ...
+  ],
+  "substitutes": [
+    {{ 
+      "name": "Sub 1", 
+      "position": "MID", 
+      "price": 5.0, 
+      "team": "Burnley", 
+      "sub_order": 1,
+      "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+    }},
+    {{ 
+      "name": "Sub 2", 
+      "position": "DEF", 
+      "price": 4.0, 
+      "team": "Luton", 
+      "sub_order": 2,
+      "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+    }},
+    {{ 
+      "name": "Sub 3", 
+      "position": "FWD", 
+      "price": 5.5, 
+      "team": "Crystal Palace", 
+      "sub_order": 3,
+      "reason": "Detailed explanation of why this player is on the bench, their sub order priority, and when they would be most useful"
+    }},
+    {{ 
+      "name": "Backup Goalkeeper", 
+      "position": "GK", 
+      "price": 4.0, 
+      "team": "Burnley", 
+      "sub_order": null,
+      "reason": "Detailed explanation of why this goalkeeper is the backup choice"
+    }}
+  ]
 }}
 
 
