@@ -114,8 +114,8 @@ class FPLAgent:
             # Handle prompt-only mode for first team
             if prompt_only:
                 # Get the first team for prompt display
-                first_team_players = team_players[0]
-                first_team_name = list(first_team_players.values())[0].get('team_name')
+                first_team_name = list(team_players.keys())[0]
+                first_team_players = team_players[first_team_name]
                 first_team_fixtures = get_team_fixture_info(first_team_name, all_gameweek_data['fixtures'], gameweek)
                 
                 print(f"📝 Showing prompts for first team: {first_team_name}")
@@ -152,7 +152,7 @@ class FPLAgent:
             logger.info(f"Processing {len(team_players)} Premier League teams for enrichment")
             
             # Process each team sequentially
-            for team_player_list in team_players:
+            for team_name, team_player_list in team_players.items():
                 try:
                     team_name = list(team_player_list.values())[0].get('team_name')
                     logger.info(f"Processing team {team_name}")

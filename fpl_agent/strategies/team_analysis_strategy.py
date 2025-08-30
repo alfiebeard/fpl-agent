@@ -215,6 +215,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         Returns:
             The hints and tips prompt as a string
         """
+
         # Get fixture information
         fixture_str = fixture_info['fixture_str']
         is_double_gameweek = fixture_info['is_double_gameweek']
