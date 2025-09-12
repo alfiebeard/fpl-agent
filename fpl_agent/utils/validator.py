@@ -62,21 +62,24 @@ class Validator:
         """
         errors = []
         
-        # Required keys
-        required_keys = ['captain', 'vice_captain', 'total_cost', 'bank', 'team']
-        for key in required_keys:
-            if key not in team_data:
-                errors.append(f"Missing required key: {key}")
+        # Check if team data is wrapped in a 'team' key
+        if 'team' not in team_data:
+            errors.append("Missing required key: 'team'")
+            return errors
         
-        if 'team' in team_data:
-            team = team_data['team']
-            if 'starting' not in team or 'substitutes' not in team:
-                errors.append("Team must have 'starting' and 'substitutes' sections")
-            else:
-                if len(team['starting']) != 11:
-                    errors.append(f"Must have exactly 11 starting players, got {len(team['starting'])}")
-                if len(team['substitutes']) != 4:
-                    errors.append(f"Must have exactly 4 substitutes, got {len(team['substitutes'])}")
+        team = team_data['team']
+        
+        # Required keys within the team object
+        required_keys = ['captain', 'vice_captain', 'total_cost', 'bank', 'starting', 'substitutes']
+        for key in required_keys:
+            if key not in team:
+                errors.append(f"Missing required key in team: {key}")
+        
+        if 'starting' in team and 'substitutes' in team:
+            if len(team['starting']) != 11:
+                errors.append(f"Must have exactly 11 starting players, got {len(team['starting'])}")
+            if len(team['substitutes']) != 4:
+                errors.append(f"Must have exactly 4 substitutes, got {len(team['substitutes'])}")
         
         return errors
     
@@ -133,12 +136,12 @@ class Validator:
                 errors.append(f"Maximum {max_players_per_team} players allowed from {team_name}, got {count}")
         
         # Check total cost
-        total_cost = team_data.get('total_cost', 0)
+        total_cost = team.get('total_cost', 0)
         if total_cost > budget:
             errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
 
         # Check bank
-        bank = team_data.get('bank', 0)
+        bank = team.get('bank', 0)
         if bank < 0:
             errors.append(f"Bank must be greater than or equal to 0, got £{bank}m")
         
@@ -194,8 +197,12 @@ class Validator:
         """
         errors = []
         
-        captain = team_data.get('captain')
-        vice_captain = team_data.get('vice_captain')
+        if 'team' not in team_data:
+            return errors
+        
+        team = team_data['team']
+        captain = team.get('captain')
+        vice_captain = team.get('vice_captain')
         
         if not captain:
             errors.append("Captain is required")
@@ -206,14 +213,13 @@ class Validator:
             errors.append("Captain and vice-captain must be different players")
         
         # Check captain and vice-captain are in the team
-        if 'team' in team_data:
-            all_players = team_data['team'].get('starting', []) + team_data['team'].get('substitutes', [])
-            player_names = [p.get('name') for p in all_players]
-            
-            if captain and captain not in player_names:
-                errors.append(f"Captain '{captain}' is not in the team")
-            if vice_captain and vice_captain not in player_names:
-                errors.append(f"Vice-captain '{vice_captain}' is not in the team")
+        all_players = team.get('starting', []) + team.get('substitutes', [])
+        player_names = [p.get('name') for p in all_players]
+        
+        if captain and captain not in player_names:
+            errors.append(f"Captain '{captain}' is not in the team")
+        if vice_captain and vice_captain not in player_names:
+            errors.append(f"Vice-captain '{vice_captain}' is not in the team")
         
         return errors
     
