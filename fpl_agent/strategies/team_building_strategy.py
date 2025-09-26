@@ -111,6 +111,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             chips_data = team_context['chips']
             free_transfers = team_context['free_transfers']
             current_team_player_data = team_context['current_team_player_data']
+            bank = team_context['bank']
             
             # Calculate team budget - used to validate generated team meets budget constraints
             team_budget = self.team_manager.calculate_team_budget(current_team, current_team_player_data)
@@ -119,7 +120,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             prompt = self._create_weekly_update_prompt(
                 current_team, current_team_player_data, gameweek, chips_data, 
                 all_gameweek_data['players'], free_transfers, all_gameweek_data['fixtures'], 
-                team_budget, use_enrichments, use_ranking
+                team_budget, bank, use_enrichments, use_ranking
             )
             
             if prompt_only:
@@ -283,7 +284,7 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
     def _create_weekly_update_prompt(self, current_team: Dict, current_team_player_data: Dict[str, Dict[str, Any]], 
                                      gameweek: int, chips_data: Dict, players_data: Dict[str, Dict[str, Any]], 
                                      free_transfers: float, fixtures_data: List[Dict[str, Any]], team_budget: float,
-                                     use_enrichments: bool = True,
+                                     bank: float, use_enrichments: bool = True,
                                      use_ranking: bool = True
                                    ) -> str:
         """Create the weekly update prompt
@@ -296,6 +297,7 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
             players_data: All player data for that week
             free_transfers: Number of free transfers available this week
             fixtures_data: All fixture data for that week
+            bank: The bank for the team
             use_enrichments: Whether to use enrichments in the prompt
             use_ranking: Whether to use ranking in the prompt
 
@@ -323,6 +325,9 @@ If a team appears multiple times in the fixtures, it is because they are playing
 YOUR CURRENT TEAM:
 
 {PromptFormatter.format_team(current_team, current_team_player_data)}
+
+Current team budget is £{team_budget}m.
+Bank is £{bank}m.
 
 
 PLAYER LIST:
