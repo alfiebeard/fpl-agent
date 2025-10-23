@@ -5,7 +5,7 @@ Utility functions for team management and analysis.
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 
 def get_all_teams() -> List[str]:
@@ -25,6 +25,27 @@ def get_all_teams() -> List[str]:
             teams.append(item.name)
     
     return sorted(teams)
+
+
+def get_all_model_configs(config) -> List[Tuple[str, str]]:
+    """
+    Get list of all model configurations that have team directories.
+    
+    Args:
+        config: FPL configuration object
+        
+    Returns:
+        List of tuples (model_name, team_directory)
+    """
+    llm_config = config._config.get('llm', {})
+    model_configs = []
+    
+    for model_name, model_config in llm_config.items():
+        if isinstance(model_config, dict) and 'team_directory' in model_config:
+            team_directory = model_config['team_directory']
+            model_configs.append((model_name, team_directory))
+    
+    return model_configs
 
 
 def group_players_by_team(players: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:

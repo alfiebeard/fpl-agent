@@ -25,8 +25,8 @@ class TeamBuildingStrategy(BaseLLMStrategy):
     - Chip and wildcard management with LLM recommendations
     """
     
-    def __init__(self, config: Config):
-        super().__init__(config, model_name="main")
+    def __init__(self, config: Config, model_name: str = "main"):
+        super().__init__(config, model_name)
         self.team_manager = TeamManager()
         self.validator = Validator(config)
     

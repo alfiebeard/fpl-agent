@@ -11,7 +11,7 @@ from .core.config import Config
 from .core.team_manager import TeamManager
 from .data import DataService
 from .data.data_store import DataStore
-from .utils.team_utils import group_players_by_team, get_team_fixture_info, get_all_teams
+from .utils.team_utils import group_players_by_team, get_team_fixture_info, get_all_teams, get_all_model_configs
 from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
 from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status, display_team_status
@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 class FPLAgent:
     """Main FPL Agent class that orchestrates all operations."""
     
-    def __init__(self):
+    def __init__(self, model_name: str = "main"):
         """Initialize the FPL Agent with configuration and services."""
         self.config = Config()
         self.data_service = DataService(self.config)
-        self.llm_strategy = TeamBuildingStrategy(self.config)
+        self.llm_strategy = TeamBuildingStrategy(self.config, model_name)
         self.data_store = DataStore()
         
     def fetch_fpl_data(self, use_cached: bool = False, use_enrichments: bool = False, 
@@ -85,7 +85,7 @@ class FPLAgent:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False) -> Dict[str, Any]:
+    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False, model_name: str = "lightweight") -> Dict[str, Any]:
         """Enrich player data with LLM insights including expert insights and injury news"""
         try:
             logger.info("Enriching player data with LLM insights...")
@@ -109,7 +109,7 @@ class FPLAgent:
             # Get enrichments by team
             print(f"📊 Enriching {len(all_gameweek_data['players'])} players from {len(team_players)} teams...")
 
-            team_analysis_strategy = TeamAnalysisStrategy(self.config)
+            team_analysis_strategy = TeamAnalysisStrategy(self.config, model_name)
             
             # Handle prompt-only mode for first team
             if prompt_only:
@@ -277,7 +277,7 @@ class FPLAgent:
     def _process_missing_enrichments(self, all_gameweek_data: Dict[str, Any], missing_enrichment_results: Dict[str, List[str]], gameweek: Optional[int]) -> None:
         """Process missing enrichments for one pass only."""
         
-        team_analysis_strategy = TeamAnalysisStrategy(self.config)
+        team_analysis_strategy = TeamAnalysisStrategy(self.config, "lightweight")  # Use lightweight for missing enrichments
         current_gameweek = gameweek or 1
         fixtures_data = all_gameweek_data.get('fixtures', [])
 
@@ -688,7 +688,7 @@ def main():
         # Handle commands that don't require team context
         if args.command == 'fetch':
             # Fetch fresh FPL data (shared across all teams)
-            fpl_agent = FPLAgent()
+            fpl_agent = FPLAgent()  # Use default model for data operations
             fpl_agent.fetch_fpl_data(
                 use_cached=args.cached_only, 
                 use_enrichments=args.use_enrichments,
@@ -698,7 +698,7 @@ def main():
             
         elif args.command == 'enrich':
             # Enrich data (shared across all teams)
-            fpl_agent = FPLAgent()
+            fpl_agent = FPLAgent()  # Use default model for data operations
             fpl_agent.enrich(
                 gameweek=args.gameweek,
                 prompt_only=args.show_prompt
@@ -752,7 +752,7 @@ def main():
                     continue
                 
                 # Show team data
-                fpl_agent = FPLAgent()
+                fpl_agent = FPLAgent()  # Use default model for data operations
                 fpl_agent.show_team(team_name)
         
         # Handle team-specific commands
@@ -760,29 +760,40 @@ def main():
             # Determine which teams to process
             teams = []
             if args.all_teams:
-                teams = get_all_teams()
+                # Get all model configs with team directories
+                config = Config()
+                model_configs = get_all_model_configs(config)
+                teams = [(model_name, team_directory) for model_name, team_directory in model_configs]
                 if not teams:
-                    print("📋 No teams found. Create a team with 'build-team --team <name>'")
+                    print("📋 No model configurations with team directories found.")
                     return
             elif args.team and args.team != 'default':
-                teams = [args.team]
+                # Find the model config that matches this team directory
+                config = Config()
+                model_configs = get_all_model_configs(config)
+                matching_configs = [(model_name, team_directory) for model_name, team_directory in model_configs if team_directory == args.team]
+                if not matching_configs:
+                    print(f"❌ No model configuration found for team directory '{args.team}'")
+                    print(f"Available team directories: {', '.join([td for _, td in model_configs])}")
+                    return
+                teams = matching_configs
             else:
                 print("❌ Error: Must specify either --team <name> or --all-teams")
                 return
             
             # Process each team
-            print(f"🚀 Running '{args.command}' on {len(teams)} teams: {', '.join(teams)}")
+            print(f"🚀 Running '{args.command}' on {len(teams)} teams: {', '.join([td for _, td in teams])}")
             
-            for team_name in teams:
-                print(f"\n Processing team: {team_name}")
+            for model_name, team_directory in teams:
+                print(f"\n Processing team: {team_directory} (using {model_name})")
                 print("=" * 50)
                 
-                # Create FPLAgent for this team
-                fpl_agent = FPLAgent()
+                # Create FPLAgent for this team with the specific model
+                fpl_agent = FPLAgent(model_name)
                 
                 if args.command == 'build-team':
                     fpl_agent.build_team(
-                        team_name=team_name,
+                        team_name=team_directory,
                         budget=args.budget,
                         gameweek=args.gameweek,
                         cached_only=args.cached_only,
@@ -792,13 +803,13 @@ def main():
                     )
                     
                     if not args.show_prompt:
-                        print(f"✅ Team building complete for '{team_name}'!")
+                        print(f"✅ Team building complete for '{team_directory}'!")
                     else:
-                        print(f"✅ Prompt generated for '{team_name}'!")
+                        print(f"✅ Prompt generated for '{team_directory}'!")
                         
                 elif args.command == 'gw-update':
                     fpl_agent.gw_update(
-                        team_name=team_name,
+                        team_name=team_directory,
                         gameweek=args.gameweek or 1,
                         cached_only=args.cached_only,
                         rag_mode=args.rag_mode,
@@ -807,7 +818,7 @@ def main():
                     )
                     
                     if not args.show_prompt:
-                        print(f"✅ Weekly update complete for '{team_name}'!")
+                        print(f"✅ Weekly update complete for '{team_directory}'!")
         
     except Exception as e:
         logger.error(f"Command failed: {e}")

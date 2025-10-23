@@ -7,7 +7,7 @@ import logging
 from abc import ABC, abstractmethod
 
 from ..core.config import Config
-from .llm_engine import LLMEngine
+from .llm_factory import create_llm_engine
 from ..data import DataService
 
 
@@ -35,8 +35,8 @@ class BaseLLMStrategy(ABC):
         self.config = config
         self.model_name = model_name
         
-        # Initialize LLM engine with specified model
-        self.llm_engine = LLMEngine(config, model_name)
+        # Initialize LLM engine with specified model using factory
+        self.llm_engine = create_llm_engine(config, model_name)
         
         # Initialize data service for all strategies
         self.data_service = DataService(config)

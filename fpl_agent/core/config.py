@@ -39,6 +39,7 @@ class Config:
         """Override config values with environment variables"""
         env_mappings = {
             'GEMINI_API_KEY': ('llm', 'api_key'),
+            'OPENROUTER_API_KEY': ('llm', 'openrouter_api_key'),
         }
         
         for env_var, config_path in env_mappings.items():
