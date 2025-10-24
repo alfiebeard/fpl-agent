@@ -19,15 +19,16 @@ logger = logging.getLogger(__name__)
 class TeamAnalysisStrategy(BaseLLMStrategy):
     """Strategy for analyzing FPL teams"""
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, model_name: str = "lightweight"):
         """
         Initialize the strategy.
         
         Args:
             config: FPL configuration object
+            model_name: Name of the LLM model to use
         """
 
-        super().__init__(config, model_name="lightweight")
+        super().__init__(config, model_name)
         self.validator = Validator(config)
     
     def get_strategy_name(self) -> str:
