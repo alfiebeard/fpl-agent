@@ -215,15 +215,22 @@ class TeamManager:
         Returns:
             True if this is a free hit revert scenario
         """
-        # Check if free hit was used in the previous gameweek
-        chips_used = current_meta.get('chips_used', {})
-        if chips_used.get('free_hit', False):
-            # Check if we have a team from before the free hit
-            pre_free_hit_gw = gameweek - 2  # The gameweek before the free hit
-            if pre_free_hit_gw >= 1:
-                pre_free_hit_team = self.load_team(pre_free_hit_gw)
-                if pre_free_hit_team:
-                    return True
+        # Check if free hit was used in the PREVIOUS gameweek by loading that team file
+        # We can't rely on meta.json because it only tracks if a chip was ever used,
+        # not which specific gameweek it was used in
+        previous_gw = gameweek - 1
+        if previous_gw >= 1:
+            previous_team_data = self.load_team(previous_gw)
+            if previous_team_data and previous_team_data.get('team'):
+                # Check if the previous gameweek's team used a free hit chip
+                chip_used = previous_team_data['team'].get('chip')
+                if chip_used == 'free_hit':
+                    # Check if we have a team from before the free hit (2 gameweeks ago)
+                    pre_free_hit_gw = gameweek - 2
+                    if pre_free_hit_gw >= 1:
+                        pre_free_hit_team = self.load_team(pre_free_hit_gw)
+                        if pre_free_hit_team:
+                            return True
         return False
     
     def calculate_team_budget(self, team_data: Dict[str, Any], current_players: Dict[str, Dict[str, Any]]) -> float:
