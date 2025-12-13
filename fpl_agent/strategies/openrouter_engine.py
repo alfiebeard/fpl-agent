@@ -78,6 +78,16 @@ class OpenRouterEngine:
                     "top_k": self.llm_config.get('top_k', 25),
                 }
                 
+                # Check payload size (OpenRouter has stricter limits than Gemini API)
+                import json
+                payload_size = len(json.dumps(payload).encode('utf-8'))
+                logger.info(f"OpenRouter request payload size: {payload_size:,} bytes ({payload_size / 1024 / 1024:.2f} MB)")
+                
+                # OpenRouter typically has a ~1MB limit for the alpha/responses endpoint
+                # Warn if approaching limit
+                if payload_size > 900000:  # ~900KB
+                    logger.warning(f"Large payload detected ({payload_size / 1024 / 1024:.2f} MB). OpenRouter may reject requests over ~1MB.")
+                
                 # Debug logging - let's see what we're sending
                 logger.debug(f"OpenRouter API request payload: {payload}")
                 
@@ -123,6 +133,24 @@ class OpenRouterEngine:
                     logger.info(f"OpenRouter query succeeded on retry attempt {attempt + 1}")
                 return text_response
                 
+            except requests.exceptions.HTTPError as e:
+                # Handle 413 Payload Too Large specifically
+                if e.response is not None and e.response.status_code == 413:
+                    payload_size = len(json.dumps({"input": prompt}).encode('utf-8'))
+                    error_msg = (
+                        f"OpenRouter payload too large (413 error). "
+                        f"Request size: {payload_size / 1024 / 1024:.2f} MB. "
+                        f"OpenRouter's /api/alpha/responses endpoint has stricter size limits than the Gemini API. "
+                        f"Consider reducing the number of players in the prompt or using a different model configuration."
+                    )
+                    logger.error(error_msg)
+                    return f"Error: {error_msg}"
+                elif attempt < max_retries:
+                    logger.warning(f"OpenRouter query failed (attempt {attempt + 1}/{max_retries + 1}), retrying... Error: {e}")
+                    continue
+                else:
+                    logger.error(f"OpenRouter query failed after {max_retries + 1} attempts: {e}")
+                    return f"Error: {e}"
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries:
                     logger.warning(f"OpenRouter query failed (attempt {attempt + 1}/{max_retries + 1}), retrying... Error: {e}")

@@ -11,11 +11,23 @@ display:
 
 # LLM Configuration
 llm:
-  # Main LLM for complex team optimization
+  # Main LLM for complex team optimization (fallback - no team_directory to avoid conflicts)
   main:
     provider: "gemini"
     model: "gemini-2.5-pro"  # Thinking and web search
+    # team_directory: "Gemini-2.5-Pro"
+    max_output_tokens: 65536
+    temperature: 0.3
+    top_p: 0.8
+    top_k: 25
+    max_retries: 1
+  
+  # Main LLM via OpenRouter (to avoid Gemini API usage limits)
+  main_openrouter:
+    provider: "openrouter"
+    model: "google/gemini-2.5-pro"  # Thinking and web search via OpenRouter
     team_directory: "Gemini-2.5-Pro"
+    web_search: true
     max_output_tokens: 65536
     temperature: 0.3
     top_p: 0.8
@@ -32,10 +44,20 @@ llm:
     top_k: 25
     max_retries: 3
   
+  # Lightweight LLM via OpenRouter (to avoid Gemini API usage limits)
+  lightweight_openrouter:
+    provider: "openrouter"
+    model: "google/gemini-2.5-flash-lite"  # Cost-effective for team analysis via OpenRouter
+    max_output_tokens: 16384
+    temperature: 0.2
+    top_p: 0.8
+    top_k: 25
+    max_retries: 3
+  
   # OpenRouter Models
   openrouter_gpt5:
     provider: "openrouter"
-    model: "openai/gpt-5"
+    model: "openai/gpt-5.2"
     team_directory: "GPT-5"
     web_search: true
     max_output_tokens: 100000
@@ -111,10 +133,10 @@ embeddings:
   
   # Player selection counts per position
   selection_counts:
-    GK: 15
-    DEF: 60
-    MID: 70
-    FWD: 30
+    GK: 10
+    DEF: 40
+    MID: 50
+    FWD: 20
   
   # Hybrid scoring configuration
   hybrid_scoring:

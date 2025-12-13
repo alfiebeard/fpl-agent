@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TeamAnalysisStrategy(BaseLLMStrategy):
     """Strategy for analyzing FPL teams"""
     
-    def __init__(self, config: Config, model_name: str = "lightweight"):
+    def __init__(self, config: Config, model_name: str = "lightweight_openrouter"):
         """
         Initialize the strategy.
         

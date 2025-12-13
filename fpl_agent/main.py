@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class FPLAgent:
     """Main FPL Agent class that orchestrates all operations."""
     
-    def __init__(self, model_name: str = "main"):
+    def __init__(self, model_name: str = "main_openrouter"):
         """Initialize the FPL Agent with configuration and services."""
         self.config = Config()
         self.data_service = DataService(self.config)
@@ -85,7 +85,7 @@ class FPLAgent:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False, model_name: str = "lightweight") -> Dict[str, Any]:
+    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False, model_name: str = "lightweight_openrouter") -> Dict[str, Any]:
         """Enrich player data with LLM insights including expert insights and injury news"""
         try:
             logger.info("Enriching player data with LLM insights...")
@@ -277,7 +277,7 @@ class FPLAgent:
     def _process_missing_enrichments(self, all_gameweek_data: Dict[str, Any], missing_enrichment_results: Dict[str, List[str]], gameweek: Optional[int]) -> None:
         """Process missing enrichments for one pass only."""
         
-        team_analysis_strategy = TeamAnalysisStrategy(self.config, "lightweight")  # Use lightweight for missing enrichments
+        team_analysis_strategy = TeamAnalysisStrategy(self.config, "lightweight_openrouter")  # Use lightweight_openrouter for missing enrichments
         current_gameweek = gameweek or 1
         fixtures_data = all_gameweek_data.get('fixtures', [])
 
