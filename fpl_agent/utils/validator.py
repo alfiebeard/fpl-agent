@@ -21,24 +21,32 @@ class Validator:
     def __init__(self, config: Config):
         self.config = config
     
-    def validate_team_data(self, team_data: Dict[str, Any], budget: float) -> List[str]:
+    def validate_team_data(
+        self,
+        team_data: Dict[str, Any],
+        budget: float,
+        *,
+        skip_full_squad_budget_check: bool = False,
+    ) -> List[str]:
         """
         Validate team data against FPL rules
-        
+
         Args:
             team_data: Team data to validate
             budget: Current budget, team sale value + bank value
-            
+            skip_full_squad_budget_check: If True, do not require total_cost <= budget
+                (used for normal weekly updates where only transfers are validated for affordability).
+
         Returns:
             List of validation errors (empty if valid)
         """
         errors = []
-        
+
         # Basic structure validation
         errors.extend(self._validate_basic_structure(team_data))
-        
+
         # FPL rules validation
-        errors.extend(self._validate_fpl_rules(team_data, budget))
+        errors.extend(self._validate_fpl_rules(team_data, budget, skip_full_squad_budget_check))
         
         # Formation validation
         errors.extend(self._validate_formation(team_data))
@@ -83,62 +91,70 @@ class Validator:
         
         return errors
     
-    def _validate_fpl_rules(self, team_data: Dict[str, Any], budget: float) -> List[str]:
+    def _validate_fpl_rules(
+        self,
+        team_data: Dict[str, Any],
+        budget: float,
+        skip_full_squad_budget_check: bool = False,
+    ) -> List[str]:
         """Validate FPL rules
-        
+
         Args:
             team_data: Team data to validate
-            
+            budget: Current budget (full squad sale value + bank)
+            skip_full_squad_budget_check: If True, do not add total_cost vs budget error
+
         Returns:
             List of validation errors (empty if valid)
         """
         errors = []
-        
+
         if 'team' not in team_data:
             return errors
-        
+
         team = team_data['team']
         all_players = team.get('starting', []) + team.get('substitutes', [])
-        
+
         # Get constraints from config
         position_limits = self.config.get_position_limits()
         squad_size = self.config.get_team_config().get('squad_size', 15)
         max_players_per_team = self.config.get_team_config().get('max_players_per_team', 3)
-        
+
         # Check squad size
         if len(all_players) != squad_size:
             errors.append(f"Must have exactly {squad_size} players, got {len(all_players)}")
             return errors
-        
+
         # Check position distribution
         position_counts = {'GK': 0, 'DEF': 0, 'MID': 0, 'FWD': 0}
         team_counts = {}
-        
+
         for player in all_players:
             # Count positions
             position = player.get('position')
             if position in position_counts:
                 position_counts[position] += 1
-            
+
             # Count teams
             team_name = player.get('team')
             if team_name:
                 team_counts[team_name] = team_counts.get(team_name, 0) + 1
-        
+
         # Validate position counts
         for pos, limit in position_limits.items():
             if position_counts.get(pos, 0) != limit:
                 errors.append(f"Must have exactly {limit} {pos.lower()}s, got {position_counts.get(pos, 0)}")
-        
+
         # Validate team limits
         for team_name, count in team_counts.items():
             if count > max_players_per_team:
                 errors.append(f"Maximum {max_players_per_team} players allowed from {team_name}, got {count}")
-        
-        # Check total cost
-        total_cost = team.get('total_cost', 0)
-        if total_cost > budget:
-            errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
+
+        # Check total cost vs budget (skip for normal weekly updates; only for wildcard/free hit)
+        if not skip_full_squad_budget_check:
+            total_cost = team.get('total_cost', 0)
+            if total_cost > budget:
+                errors.append(f"Total cost £{total_cost}m exceeds budget of £{budget}m")
 
         # Check bank
         bank = team.get('bank', 0)

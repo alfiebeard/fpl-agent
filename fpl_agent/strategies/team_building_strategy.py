@@ -134,16 +134,42 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Parse and validate LLM response
             team_data = self.validator.parse_llm_json_response(response)
-            
-            # Validate team structure
-            logger.info("Validating team structure...")
-            validation_errors = self.validator.validate_team_data(team_data, team_budget)
-            
+            team = team_data.get('team', {})
+
+            # Validate team structure: use full-squad budget check only for wildcard/free hit
+            chip = team.get('chip')
+            use_full_squad_budget_check = chip in ('wildcard', 'free_hit')
+
+            if use_full_squad_budget_check:
+                logger.info("Validating team structure (full-squad budget check)...")
+                validation_errors = self.validator.validate_team_data(team_data, team_budget)
+            else:
+                # Normal weekly update: validate transfer affordability, then skip full-squad cost check
+                transfers = team.get('transfers') or []
+                affordable, expected_bank = self.team_manager.transfers_are_affordable(
+                    transfers, bank, current_team_player_data
+                )
+                if not affordable:
+                    raise ValueError(
+                        "Transfers not affordable: bank + sale(outs) < cost(ins). "
+                        "Check sale prices and player_in_price for the proposed transfers."
+                    )
+                # Optional: ensure reported bank is consistent (tolerance 0.1)
+                reported_bank = team.get('bank', 0)
+                if abs(reported_bank - expected_bank) > 0.1:
+                    logger.warning(
+                        f"Reported bank £{reported_bank}m differs from expected £{expected_bank}m after transfers"
+                    )
+                logger.info("Validating team structure (transfer-affordability only)...")
+                validation_errors = self.validator.validate_team_data(
+                    team_data, team_budget, skip_full_squad_budget_check=True
+                )
+
             if validation_errors:
                 error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
                 logger.error(error_msg)
                 raise ValueError(error_msg)
-            
+
             # Return team data with chip usage info (NO SAVING, NO BUSINESS LOGIC)
             return team_data
             

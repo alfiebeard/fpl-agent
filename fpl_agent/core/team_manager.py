@@ -5,7 +5,7 @@ Stores team data for each gameweek in JSON files
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import logging
 from fpl_agent.utils.fpl_calculations import calculate_fpl_sale_price
@@ -265,7 +265,46 @@ class TeamManager:
         
         # Add bank to get total available budget
         return total_value + team_data.get('bank', 0.0)
-    
+
+    def transfers_are_affordable(
+        self,
+        transfers: List[Dict[str, Any]],
+        bank: float,
+        current_team_player_data: Dict[str, Dict[str, Any]],
+    ) -> Tuple[bool, float]:
+        """Check if proposed transfers are affordable (for normal weekly updates).
+
+        Uses FPL sale price for players out; cost is player_in_price for players in.
+        Only relevant when not using wildcard/free hit.
+
+        Args:
+            transfers: List of {player_out, player_in_price, ...} dicts.
+            bank: Current bank balance.
+            current_team_player_data: Current squad player data (must include sale_price per player).
+
+        Returns:
+            (True, expected_new_bank) if affordable, (False, 0.0) otherwise.
+            expected_new_bank = bank + sum(sale_price of outs) - sum(player_in_price of ins).
+        """
+        if not transfers:
+            return (True, bank)
+        cash_in = 0.0
+        for t in transfers:
+            player_out = t.get('player_out')
+            if player_out is None:
+                raise ValueError("Transfer missing 'player_out'")
+            player_data = current_team_player_data.get(player_out)
+            if player_data is None:
+                raise ValueError(
+                    f"Player out '{player_out}' not in current squad; "
+                    "transfers must only sell current squad players."
+                )
+            cash_in += player_data.get('sale_price', 0.0)
+        cost_out = sum(t.get('player_in_price', 0.0) for t in transfers)
+        expected_bank = round(bank + cash_in - cost_out, 1)
+        affordable = bank + cash_in >= cost_out
+        return (affordable, expected_bank if affordable else 0.0)
+
     def update_meta_from_response(self, gameweek: int, team_data: Dict[str, Any], current_meta: Dict[str, Any]) -> None:
         """Update meta.json based on the LLM response"""
         
