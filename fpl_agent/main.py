@@ -85,8 +85,10 @@ class FPLAgent:
             logger.error(f"FPL data fetch failed: {e}")
             raise
     
-    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False, model_name: str = "lightweight_openrouter") -> Dict[str, Any]:
-        """Enrich player data with LLM insights including expert insights and injury news"""
+    def enrich(self, all_gameweek_data: Optional[Dict[str, Any]] = None, gameweek: Optional[int] = None, rank_players: Optional[bool] = True, prompt_only: bool = False, model_name: str = "lightweight_openrouter", club: Optional[str] = None, club_run_insights: bool = True, club_run_injury: bool = True) -> Dict[str, Any]:
+        """Enrich player data with LLM insights including expert insights and injury news.
+        If club is set (e.g. 'Arsenal'), run expert insights and/or injury news for that club only and print results (no save).
+        club_run_insights and club_run_injury control which to run when club is set; both True = run both."""
         try:
             logger.info("Enriching player data with LLM insights...")
 
@@ -105,6 +107,18 @@ class FPLAgent:
 
             # Group players by team
             team_players = group_players_by_team(all_gameweek_data['players'])
+
+            # Single-club enrichments: one or two queries, print results, no save
+            if club is not None:
+                return self._enrich_one_club(
+                    club=club,
+                    team_players=team_players,
+                    all_gameweek_data=all_gameweek_data,
+                    gameweek=gameweek,
+                    model_name=model_name,
+                    run_insights=club_run_insights,
+                    run_injury=club_run_injury,
+                )
 
             # Get enrichments by team
             print(f"📊 Enriching {len(all_gameweek_data['players'])} players from {len(team_players)} teams...")
@@ -314,7 +328,63 @@ class FPLAgent:
                 print(f"   ✅ Updated {len(injury_news)} players with injury news")
             else:
                 print("   ⚠️  No injury news returned from LLM")
-    
+
+    def _enrich_one_club(
+        self,
+        club: str,
+        team_players: Dict[str, Dict[str, Dict[str, Any]]],
+        all_gameweek_data: Dict[str, Any],
+        gameweek: int,
+        model_name: str,
+        run_insights: bool = True,
+        run_injury: bool = True,
+    ) -> Dict[str, Any]:
+        """Run expert insights and/or injury news for a single club only; print results and return (no save)."""
+        # Resolve club name (case-insensitive) to exact team key
+        club_lower = club.strip().lower()
+        match = None
+        for team_key in team_players:
+            if team_key.strip().lower() == club_lower:
+                match = team_key
+                break
+        if not match:
+            available = ", ".join(sorted(team_players.keys()))
+            print(f"❌ Club '{club}' not found. Available teams: {available}")
+            return {"error": f"Club not found: {club}", "expert_insights": {}, "injury_news": {}}
+
+        team_name = match
+        team_player_list = team_players[team_name]
+        fixture_info = get_team_fixture_info(team_name, all_gameweek_data['fixtures'], gameweek)
+        strategy = TeamAnalysisStrategy(self.config, model_name)
+
+        result: Dict[str, Any] = {"team_name": team_name, "gameweek": gameweek, "expert_insights": {}, "injury_news": {}}
+
+        if run_insights:
+            print(f"🔍 Expert insights for {team_name} (GW{gameweek})...")
+            expert_insights = strategy.get_team_hints_tips(team_name, team_player_list, gameweek, fixture_info)
+            if expert_insights:
+                print(f"\n✅ {team_name} – expert insights ({len(expert_insights)} players):\n")
+                for player_name, insight in sorted(expert_insights.items()):
+                    print(f"   • {player_name}: {insight}")
+                print()
+                result["expert_insights"] = expert_insights
+            else:
+                print("   ⚠️  No expert insights returned from LLM\n")
+
+        if run_injury:
+            print(f"🏥 Injury news for {team_name} (GW{gameweek})...")
+            injury_news = strategy.get_team_injury_news(team_name, team_player_list, gameweek, fixture_info)
+            if injury_news:
+                print(f"\n✅ {team_name} – injury news ({len(injury_news)} players):\n")
+                for player_name, news in sorted(injury_news.items()):
+                    print(f"   • {player_name}: {news}")
+                print()
+                result["injury_news"] = injury_news
+            else:
+                print("   ⚠️  No injury news returned from LLM\n")
+
+        return result
+
     def _add_enrichments_to_players(self, players_data: Dict[str, Dict[str, Any]], 
                                       players: List, 
                                       expert_insights: Dict[str, str],
@@ -664,7 +734,13 @@ def main():
                        help='Save the created team to a JSON file')
     parser.add_argument('--show-prompt', action='store_true',
                        help='Show the prompt that would be sent to the LLM (for debugging)')
-    
+    parser.add_argument('--club', type=str, metavar='NAME',
+                       help="Enrich one club only (e.g. 'Arsenal'); prints expert insights and injury news, no save")
+    parser.add_argument('--insights-only', action='store_true',
+                       help="With --club: run only expert insights (no injury news)")
+    parser.add_argument('--injury-only', action='store_true',
+                       help="With --club: run only injury news (no expert insights)")
+
     # Logging level options
     parser.add_argument('--debug', action='store_true',
                        help='Show debug-level logging (most detailed)')
@@ -697,11 +773,20 @@ def main():
             )
             
         elif args.command == 'enrich':
-            # Enrich data (shared across all teams)
+            # Enrich data (shared across all teams), or expert insights + injury for one club
+            if args.club and (args.insights_only or args.injury_only):
+                club_run_insights = args.insights_only or not args.injury_only
+                club_run_injury = args.injury_only or not args.insights_only
+            else:
+                club_run_insights = True
+                club_run_injury = True
             fpl_agent = FPLAgent()  # Use default model for data operations
             fpl_agent.enrich(
                 gameweek=args.gameweek,
-                prompt_only=args.show_prompt
+                prompt_only=args.show_prompt,
+                club=args.club,
+                club_run_insights=club_run_insights,
+                club_run_injury=club_run_injury,
             )
         
         elif args.command == 'list-teams':
@@ -714,6 +799,14 @@ def main():
             else:
                 print("📋 No teams found. Create a team with 'build-team --team <name>'")
         
+        elif args.command == 'show-data':
+            fpl_agent = FPLAgent()
+            fpl_agent.show_data()
+
+        elif args.command == 'show-players':
+            fpl_agent = FPLAgent()
+            fpl_agent.show_players()
+
         elif args.command == 'delete-team':
             # Delete team
             team_name = args.team

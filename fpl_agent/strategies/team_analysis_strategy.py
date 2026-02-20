@@ -225,7 +225,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
         # Create double gameweek text
         double_gameweek_text = "This is a double gameweek." if is_double_gameweek else ""
         
-        return f"""You're task is to collate the Fantasy Premier League (FPL) hints, tips, and recommendations for players in the {team_name} squad. Your outputs will be used to assess whether each player is a strong pick for the upcoming gameweek.
+        return f"""Your task is to collate the Fantasy Premier League (FPL) hints, tips, and recommendations for players in the {team_name} squad. Your outputs will be used to assess whether each player is a strong pick for the upcoming gameweek.
 
         
 GAMEWEEK CONTEXT:
@@ -304,7 +304,7 @@ Before returning your answer, double-check that your output is valid JSON, that 
         # Create double gameweek text
         double_gameweek_text = "This is a double gameweek." if is_double_gameweek else ""
         
-        return f"""You're task is to collate the latest injury news on players in the {team_name} squad. Your outputs will be used to assess whether each player is fit for the upcoming gameweek.
+        return f"""Your task is to collate the latest injury news on players in the {team_name} squad. Your outputs will be used to assess whether each player is fit for the upcoming gameweek.
 
         
 GAMEWEEK CONTEXT:
@@ -373,7 +373,7 @@ Before returning your answer, double-check that your output is valid JSON, that 
             The mixed team expert insights prompt as a string
         """
         
-        return f"""You're task is to collate the Fantasy Premier League (FPL) hints, tips, and recommendations for a set of players. Your outputs will be used to assess whether each player is a strong pick for the upcoming gameweek.
+        return f"""Your task is to collate the Fantasy Premier League (FPL) hints, tips, and recommendations for a set of players. Your outputs will be used to assess whether each player is a strong pick for the upcoming gameweek.
 
         
 GAMEWEEK CONTEXT:
@@ -440,7 +440,7 @@ Before returning your answer, double-check that your output is valid JSON, that 
             The mixed team injury news prompt as a string
         """
         
-        return f"""You're task is to collate the latest injury news for a set of players. Your outputs will be used to assess whether each player is fit for the upcoming gameweek.
+        return f"""Your task is to collate the latest injury news for a set of players. Your outputs will be used to assess whether each player is fit for the upcoming gameweek.
 
         
 GAMEWEEK CONTEXT:
