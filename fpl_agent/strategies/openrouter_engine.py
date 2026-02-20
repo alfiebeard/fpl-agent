@@ -191,12 +191,10 @@ class OpenRouterEngine:
                         if content.get("type") == "output_text" and content.get("text"):
                             text_pieces.append(content["text"])
 
-                # Reasoning outputs (optional, encrypted_content ignored unless needed)
+                # Reasoning outputs: skip so returned value is only the assistant message (JSON).
+                # Some models (e.g. GPT-5) return summary as list of dicts, which would break join().
                 elif item.get("type") == "reasoning":
-                    # Some models put summary arrays here; skip or handle as needed
-                    if "summary" in item and item["summary"]:
-                        text_pieces.extend(item["summary"])
-                    # You can optionally decode 'encrypted_content' if required
+                    pass
 
             # Fallback for legacy 'choices'
             if not text_pieces and "choices" in response_data:
