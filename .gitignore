@@ -229,3 +229,6 @@ pyrightconfig.json
 
 # FPL Optimizer specific
 team_data/
+
+# Private docs
+private_docs/
