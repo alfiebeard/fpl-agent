@@ -85,10 +85,28 @@ class TeamManager:
             return []
             
         team_files = list(self.team_dir.glob(f"{self.TEAM_FILE_PREFIX}*{self.TEAM_FILE_SUFFIX}"))
-        # Filter out copy files and sort by gameweek number (remove 'gw' prefix and convert to int)
-        team_files = [f for f in team_files if not f.stem.endswith(' copy')]
-        team_files.sort(key=lambda x: int(x.stem[2:]))
-        return team_files
+        # Filter out copy/backup files and any files that don't have a valid numeric gameweek suffix
+        valid_team_files: List[Path] = []
+        for f in team_files:
+            stem = f.stem
+            # Skip obvious copy/backup files
+            if stem.endswith(' copy'):
+                continue
+            # Require the expected prefix
+            if not stem.startswith(self.TEAM_FILE_PREFIX):
+                continue
+            # Extract the part after the prefix and ensure it's a valid integer
+            suffix = stem[len(self.TEAM_FILE_PREFIX):]
+            try:
+                int(suffix)
+            except ValueError:
+                logger.warning(f"Skipping invalid team file with non-numeric gameweek suffix: {f.name}")
+                continue
+            valid_team_files.append(f)
+
+        # Sort by gameweek number (remove 'gw' prefix and convert to int)
+        valid_team_files.sort(key=lambda x: int(x.stem[len(self.TEAM_FILE_PREFIX):]))
+        return valid_team_files
     
     def _load_meta(self) -> Dict[str, Any]:
         """Load the meta.json file"""

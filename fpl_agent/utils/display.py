@@ -535,10 +535,19 @@ def display_team_status(team_name: str, team_data: Dict[str, Any], gameweek: str
     
     Args:
         team_name: Name of the team
-        team_data: Dictionary containing team data
+        team_data: Dictionary containing team data. This may either be:
+          - The raw team dict (with 'starting'/'substitutes' directly), or
+          - A meta wrapper with a 'team' key that itself contains the team dict,
+            which may in turn be nested under its own 'team' key.
         gameweek: Current gameweek
     """
-    team_info = team_data['team']
+    # Unwrap possible meta/team nesting so we always point at the dict
+    # that actually contains 'starting' and 'substitutes'.
+    team_wrapper = team_data.get('team', team_data)
+    if isinstance(team_wrapper, dict) and 'team' in team_wrapper and isinstance(team_wrapper['team'], dict) and team_wrapper['team'].get('starting') is not None:
+        team_info = team_wrapper['team']
+    else:
+        team_info = team_wrapper
     
     print(f"🏆 Team: {team_name}")
     print(f"📅 Gameweek: {gameweek}")
