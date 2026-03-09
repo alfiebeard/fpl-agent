@@ -88,9 +88,6 @@ class OpenRouterEngine:
                 if payload_size > 900000:  # ~900KB
                     logger.warning(f"Large payload detected ({payload_size / 1024 / 1024:.2f} MB). OpenRouter may reject requests over ~1MB.")
                 
-                # Debug logging - let's see what we're sending
-                logger.debug(f"OpenRouter API request payload: {payload}")
-                
                 # Prepare headers
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
@@ -110,10 +107,6 @@ class OpenRouterEngine:
                 
                 # Parse the response
                 response_data = response.json()
-                
-                # Debug logging - let's see what we're getting
-                logger.debug(f"OpenRouter API response status: {response.status_code}")
-                logger.debug(f"OpenRouter API response data: {response_data}")
                 
                 # Extract the response text
                 text_response = self._extract_text_response(response_data)

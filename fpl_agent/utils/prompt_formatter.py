@@ -369,7 +369,7 @@ class PromptFormatter:
                     if date_key not in fixtures_by_date:
                         fixtures_by_date[date_key] = []
                     fixtures_by_date[date_key].append(fixture)
-                except:
+                except Exception:
                     # Fallback if date parsing fails
                     if 'Unknown Date' not in fixtures_by_date:
                         fixtures_by_date['Unknown Date'] = []

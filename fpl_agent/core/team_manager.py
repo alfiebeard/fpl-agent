@@ -406,7 +406,7 @@ class TeamManager:
         if self.is_free_hit_revert_scenario(gameweek, meta_data):
             # Get the team from 2 gameweeks ago (before free hit)
             team_data = self.load_team(gameweek - 2)
-            print(f"🔄 Free Hit revert: Using team from gameweek {gameweek - 2}")
+            logger.info(f"Free Hit revert: Using team from gameweek {gameweek - 2}")
         else:
             # Normal case: get team from previous gameweek
             team_data = self.get_previous_team(gameweek)

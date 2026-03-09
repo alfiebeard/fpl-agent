@@ -104,7 +104,7 @@ def get_team_fixture_info(team_name: str, fixtures_data: List[Dict[str, Any]],
                     day = fixture_date.day
                     suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
                     formatted_date = f"{fixture_date.strftime('%A')} {day}{suffix} {fixture_date.strftime('%B %Y')} at {fixture_date.strftime('%H:%M')}"
-                except:
+                except Exception:
                     formatted_date = "TBD"
             else:
                 formatted_date = "TBD"

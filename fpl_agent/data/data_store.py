@@ -159,7 +159,6 @@ class DataStore:
         if age_hours is None:
             warning_msg = "⚠️  Using player data with unknown age. Consider refreshing for fresh data."
             logger.warning(warning_msg)
-            print(f"\n{warning_msg}")
             return
         
         # Age thresholds
@@ -169,11 +168,9 @@ class DataStore:
         if age_hours > CRITICAL_AGE_HOURS:
             warning_msg = f"⚠️  CRITICAL: Using player data that is {age_hours:.1f} hours old ({age_hours/24:.1f} days). Data is very outdated!"
             logger.warning(warning_msg)
-            print(f"\n{warning_msg}")
         elif age_hours > WARNING_AGE_HOURS:
             warning_msg = f"⚠️  Using player data that is {age_hours:.1f} hours old. Consider refreshing for fresh data."
             logger.warning(warning_msg)
-            print(f"\n{warning_msg}")
         else:
             logger.info(f"Using player data ({age_hours:.1f} hours old)")
     
