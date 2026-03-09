@@ -1,44 +1,21 @@
 # FPL Agent - AI-Powered Fantasy Premier League Manager
 
-A sophisticated Fantasy Premier League (FPL) team management system that uses Large Language Models (LLMs) to provide intelligent team building, weekly updates, and strategic recommendations.
+FPL Agent is my experiment in letting different Large Language Models manage full Fantasy Premier League (FPL) teams - building squads, firing off transfers and chips, and competing over a season while a custom RAG pipeline feeds them fixtures, player data and context each gameweek.
 
 ## 🎯 What This Project Does
 
-FPL Agent is an AI-powered assistant that helps you manage your Fantasy Premier League team throughout the season. It combines real-time FPL data with LLM analysis to provide:
+FPL Agent powers automated FPL team management and the FPL Arena competition, combining live FPL data with LLM-driven analysis to build and update teams throughout the season.
 
-- **Intelligent Team Building**: Create optimal teams from scratch using AI analysis
-- **Weekly Updates**: Get transfer recommendations, captain choices, and chip usage advice
-- **Expert Insights**: Leverage AI to analyze player form, injuries, and fixture difficulty
-- **Multi-Team Management**: Manage multiple FPL teams simultaneously
-- **Data Enrichment**: Enhance player data with expert insights and injury news
-
-## 🚀 Key Features
-
-### Core Functionality
-- **Team Creation**: Build new teams with AI-powered player selection
-- **Weekly Updates**: Get comprehensive gameweek recommendations
-- **Chip Management**: Intelligent wildcard, free hit, and other chip usage
-- **Multi-Team Support**: Manage multiple teams with different strategies
-- **Data Caching**: Smart caching to minimize API calls and costs
-
-### AI-Powered Analysis
-- **LLM Integration**: Uses Google's Gemini models for intelligent decision making
-- **Expert Insights**: AI-generated analysis of player form and potential
-- **Injury Monitoring**: Real-time injury status and availability tracking
-- **Embedding Filtering**: Advanced player filtering using semantic similarity
-- **RAG (Retrieval-Augmented Generation)**: Combines data retrieval with AI analysis
-
-### Data Management
-- **Real-time FPL API**: Live data from the official FPL API
-- **Smart Caching**: Efficient data storage and retrieval
-- **Player Enrichment**: Enhanced player data with expert insights
-- **Fixture Analysis**: Comprehensive fixture difficulty assessment
+- **Automated FPL decisions**: Team creation, weekly transfers, captaincy and chip suggestions
+- **Custom RAG pipeline**: Structured prompts with fixtures, squad context and complex FPL rules
+- **Player enrichment**: Gemini 2.5 Flash-Lite classifies player hints/tips and availability using stats and web search
+- **Multi-model experiments**: Run different LLMs/strategies and compare their performance in a shared dashboard
 
 ## 📦 Installation
 
 ### Prerequisites
 - Python 3.11+
-- pip package manager
+- pip
 
 ### Setup
 
@@ -62,11 +39,14 @@ pip install -r requirements.txt
 4. **Environment Configuration**
 Create a `.env` file in the project root:
 ```env
-# Google AI API Key (required for LLM functionality)
-GOOGLE_API_KEY=your_google_api_key_here
+# Gemini AI API Key (can be used for default Gemini models, subject to limits)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# OpenRouter API Key (to tap into any model via Openrouter)
+OPENROUTER_API_KEY=your_openrouter_api_key_here
 ```
 
-**Note**: The Google API key is required for LLM functionality.
+**Note**: You need at least one of these API keys depending on which models you configure in `fpl_agent/config.yaml`.
 
 5. **Configuration**
 Edit `fpl_agent/config.yaml` to customize:
@@ -79,7 +59,7 @@ Edit `fpl_agent/config.yaml` to customize:
 
 ### Command Line Interface
 
-The FPL Agent provides a comprehensive CLI with the following main commands:
+The FPL Agent provides a CLI with the following main commands:
 
 #### Data Management
 ```bash
@@ -107,7 +87,7 @@ fpl-agent show-players
 # Create a new team
 fpl-agent build-team --team "My Team" --budget 100.0
 
-# Create team with specific gameweek
+# Create team for specific gameweek
 fpl-agent build-team --team "My Team" --budget 100.0 --gameweek 15
 
 # Create team using different RAG modes
