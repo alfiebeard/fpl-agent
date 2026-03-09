@@ -1,6 +1,22 @@
 # FPL Agent - AI-Powered Fantasy Premier League Manager
 
-FPL Agent is my experiment in letting different Large Language Models manage full Fantasy Premier League (FPL) teams - building squads, firing off transfers and chips, and competing over a season while a custom RAG pipeline feeds them fixtures, player data and context each gameweek.
+FPL Agent is my experiment in getting AI to manage my FPL team - building squads, firing off transfers and chips, and competing over a season while a custom RAG pipeline feeds them fixtures, player data and context each gameweek. For a detailed explanation please see the [project page](https://www.abeard.ai/projects/fpl-agent).
+
+### Using FPL Agent to Build a Team
+
+*A sample of a team from Grok-4 for Gameweek 26 of the 2025/26 PL season.*
+
+**Captain:** Viktor Gyökeres ("due to his double gameweek with Arsenal facing Brentford and Wolves, providing two opportunities for points. As Arsenal's primary goal threat with a PPG of 3.7, 8 goals, and expert insights labeling him a must-have...")
+
+**Vice Captain:** Cole Palmer ("for his exceptional form with a PPG of 8.6, 8 goals, and 2 assists, making him Chelsea's talisman. With a favorable home fixture against Leeds, expert insights mark him as a must-have, and community tips highlight his consistency in delivering points...")
+
+**GK:** Jordan Pickford ("selected for the starting 11 due to his consistent performances with a PPG of 3.6, 9 clean sheets, and high save potential (71 saves). Everton's home fixture against Bournemouth offers good clean sheet odds...")
+
+**DEF:** Gabriel dos Santos Magalhães ("for his double gameweek potential, with Arsenal's strong defense (13 clean sheets overall) and his personal stats (PPG 4.3, 18 bonus points). Expert tips from FPL Scout and Reddit emphasize him as a top Arsenal pick for DGW26 due to set-piece threat...")
+
+**DEF:** Ladislav Krejčí ("for his double gameweek against Nott'm Forest and Arsenal, offering value at £4.5m with consistent minutes (1707) and some attacking returns. Research from RotoWire and FPL Geek recommends Wolves defenders for DGW, noting his regular starts and potential for clean sheets...")
+
+...
 
 ## 🎯 What This Project Does
 
@@ -99,6 +115,145 @@ fpl-agent build-team --team "My Team" --rag-mode ranked_enrichments  # Full LLM 
 fpl-agent build-team --team "My Team" --save-team
 ```
 
+#### Example
+
+This is an example JSON payload for a `Grok-4` team built for Gameweek 26 (as stored under `team_data/Grok-4/gw26.json`).
+
+Team Building:
+
+```
+fpl-agent build-team --gameweek 26 --team Grok-4 --save-team
+```
+
+Result:
+
+```json
+{
+  "team": {
+    "captain": "Viktor Gyökeres",
+    "vice_captain": "Cole Palmer",
+    "captain_reason": "Viktor Gyökeres is selected as captain due to his double gameweek with Arsenal facing Brentford and Wolves, providing two opportunities for points. As Arsenal's primary goal threat with a PPG of 3.7, 8 goals, and expert insights labeling him a must-have for the DGW, he offers high expected returns based on Arsenal's strong defensive record and attacking form. Research from FPL sources emphasizes tripling up on Arsenal for GW26, and his fixtures are favorable for goals against mid-table opposition.",
+    "vice_captain_reason": "Cole Palmer is chosen as vice-captain for his exceptional form with a PPG of 8.6, 8 goals, and 2 assists, making him Chelsea's talisman. With a favorable home fixture against Leeds, expert insights mark him as a must-have, and community tips highlight his consistency in delivering points through goals, assists, and bonuses, providing reliability if the captain underperforms.",
+    "total_cost": 99.4,
+    "bank": 0.1,
+    "expected_points": 70.0,
+    "starting": [
+      {
+        "name": "Jordan Pickford",
+        "position": "GK",
+        "price": 5.6,
+        "team": "Everton",
+        "reason": "Pickford is selected for the starting 11 due to his consistent performances with a PPG of 3.6, 9 clean sheets, and high save potential (71 saves). Everton's home fixture against Bournemouth offers good clean sheet odds, and expert recommendations highlight him as a reliable budget option with minimal rotation risk, backed by fixture difficulty analysis showing a favorable matchup."
+      },
+      {
+        "name": "Gabriel dos Santos Magalhães",
+        "position": "DEF",
+        "price": 7.1,
+        "team": "Arsenal",
+        "reason": "Gabriel is in the starting 11 for his double gameweek potential, with Arsenal's strong defense (13 clean sheets overall) and his personal stats (PPG 4.3, 18 bonus points). Expert tips from FPL Scout and Reddit emphasize him as a top Arsenal pick for DGW26 due to set-piece threat and clean sheet likelihood against Brentford and Wolves, with low injury risk and high ownership reflecting community consensus."
+      },
+      {
+        "name": "Ladislav Krejčí",
+        "position": "DEF",
+        "price": 4.5,
+        "team": "Wolves",
+        "reason": "Krejčí is started for his double gameweek against Nott'm Forest and Arsenal, offering value at £4.5m with consistent minutes (1707) and some attacking returns. Research from RotoWire and FPL Geek recommends Wolves defenders for DGW, noting his regular starts and potential for clean sheets or bonuses, despite tougher fixtures, as a budget enabler with good underlying stats."
+      },
+      {
+        "name": "Marc Guéhi",
+        "position": "DEF",
+        "price": 5.2,
+        "team": "Man City",
+        "reason": "Guéhi is selected for starting due to Man City's favorable home fixture against Fulham, with high clean sheet potential (9 clean sheets). His PPG of 3.8, bonus points (9), and expert insights from blogs highlight defensive solidity and value, with pre-season form and low rotation risk making him ideal for this gameweek's points accumulation."
+      },
+      {
+        "name": "Declan Rice",
+        "position": "MID",
+        "price": 7.6,
+        "team": "Arsenal",
+        "reason": "Rice starts for his double gameweek role in Arsenal's midfield, contributing 4 goals and 7 assists with a PPG of 2.7. FPL tips from Premier League and Fantasy Football Hub strongly recommend him as part of the Arsenal triple-up for GW26, citing his clean sheet bonuses, occasional attacking returns, and reliability as a starter with no injury concerns."
+      },
+      {
+        "name": "João Victor Gomes da Silva",
+        "position": "MID",
+        "price": 5.3,
+        "team": "Wolves",
+        "reason": "Gomes is in the starting lineup for his double gameweek, as a nailed-on starter (2024 minutes) with defensive contributions and potential bonuses. Expert predictions from RotoWire and YouTube previews highlight him as a smart DGW pick for Wolves, offering value at £5.3m with consistent points from tackles and interceptions, despite Wolves' form."
+      },
+      {
+        "name": "Cole Palmer",
+        "position": "MID",
+        "price": 10.6,
+        "team": "Chelsea",
+        "reason": "Palmer is started due to his outstanding form (PPG 8.6, 8 goals, 2 assists) and Chelsea's easy home fixture against Leeds. Community forums and expert blogs label him a must-have with high ownership (14.9%), set-piece duties, and proven FPL returns, minimizing rotation risk and maximizing points potential for GW26 and beyond."
+      },
+      {
+        "name": "Phil Foden",
+        "position": "MID",
+        "price": 8.2,
+        "team": "Man City",
+        "reason": "Foden is selected for starting given Man City's attacking fixture against Fulham, his form (7 goals, 3 assists), and must-have status per expert insights. With high ICT (160.3) and bonus potential, research from FPL sources recommends him for consistent returns, low injury risk, and strong upcoming fixtures."
+      },
+      {
+        "name": "Bruno Borges Fernandes",
+        "position": "MID",
+        "price": 9.8,
+        "team": "Man Utd",
+        "reason": "Bruno starts for his elite PPG (7.4), 6 goals, and 12 assists, making him Man Utd's key creator against West Ham. Expert recommendations emphasize his bonus points (25) and penalty duties, with community analysis showing reliability despite the away fixture, and no international absences affecting him."
+      },
+      {
+        "name": "Viktor Gyökeres",
+        "position": "FWD",
+        "price": 8.8,
+        "team": "Arsenal",
+        "reason": "Gyökeres is in the starting 11 for his double gameweek, with 8 goals and high expected minutes. As a must-have per expert insights and FPL previews, his form and Arsenal's attacking strength against Brentford and Wolves provide excellent goal potential, supported by statistical analysis and low rotation risk."
+      },
+      {
+        "name": "João Pedro Junqueira de Jesus",
+        "position": "FWD",
+        "price": 7.7,
+        "team": "Chelsea",
+        "reason": "João Pedro starts due to his impressive PPG (9.6), 10 goals, and 8 assists, with Chelsea's favorable fixture against Leeds. Expert tips highlight him as a must-have talisman with set-piece involvement and consistent returns, backed by fixture difficulty ratings and community discussions for optimal value."
+      }
+    ],
+    "substitutes": [
+      {
+        "name": "Mateus Mané",
+        "position": "FWD",
+        "price": 4.6,
+        "team": "Wolves",
+        "sub_order": 1,
+        "reason": "Mané is on the bench as a budget DGW option with potential for goals (2) and assists (2), prioritized as first sub due to his double fixtures providing upside if a starter fails to play. Expert differentials from Never Manage Alone recommend him for low-ownership value, useful in case of rotation or injury in attack."
+      },
+      {
+        "name": "Micky van de Ven",
+        "position": "DEF",
+        "price": 4.5,
+        "team": "Spurs",
+        "sub_order": 2,
+        "reason": "Van de Ven is benched for squad depth, offering clean sheet potential (7) and bonus points (10) in Spurs' home game against Newcastle. As second sub, his priority reflects decent expected points if needed, based on expert analysis favoring him for value and minimal risk, ideal for defensive substitutions."
+      },
+      {
+        "name": "James Tarkowski",
+        "position": "DEF",
+        "price": 5.7,
+        "team": "Everton",
+        "sub_order": 3,
+        "reason": "Tarkowski is on the bench for his consistent starts and clean sheet contributions (9), with Everton's home fixture against Bournemouth. Ranked third sub due to lower upside compared to DGW players, but useful for defensive cover, as per community insights on his bonus potential and reliability."
+      },
+      {
+        "name": "Mads Hermansen",
+        "position": "GK",
+        "price": 4.2,
+        "team": "West Ham",
+        "sub_order": null,
+        "reason": "Hermansen is selected as backup goalkeeper for his low price and solid underlying stats (PPG 2.4, saves), providing cost-effective cover without rotation risk. Expert recommendations note him as a strong budget option, ensuring squad compliance while freeing budget for premiums."
+      }
+    ]
+  }
+}
+```
+
 #### Weekly Updates
 ```bash
 # Get weekly recommendations for a team
@@ -146,44 +301,6 @@ fpl-agent build-team --team "My Team" --show-prompt
 fpl-agent gw-update --team "My Team" --show-prompt
 ```
 
-### Python API
-
-```python
-from fpl_agent import FPLAgent
-
-# Initialize agent
-agent = FPLAgent()
-
-# Fetch FPL data
-data = agent.fetch_fpl_data(use_cached=False, use_enrichments=True)
-
-# Enrich player data with AI insights
-agent.enrich(data, gameweek=15)
-
-# Build a new team
-agent.build_team(
-    team_name="My Team",
-    budget=100.0,
-    gameweek=15,
-    rag_mode="ranked_enrichments",
-    save_team=True
-)
-
-# Get weekly update
-agent.gw_update(
-    team_name="My Team",
-    gameweek=15,
-    rag_mode="ranked_enrichments",
-    save_team=True
-)
-
-# Show data status
-agent.show_data()
-
-# Show team information
-agent.show_team("My Team")
-```
-
 ## 🔧 Configuration
 
 ### LLM Settings (`config.yaml`)
@@ -228,149 +345,16 @@ embeddings:
   batch_size: 100
 ```
 
-## 📊 Output Examples
-
-### Team Creation Output
-```
-⚽ Building new FPL team...
-🔄 Using RAG mode: ranked_enrichments
-✅ Gameweek data loaded
-
-⚽ Building team with £100.0m budget...
-
-FPL TEAM CREATION COMPLETE
-================================================================================
-
-SELECTED TEAM
-====================================================================================================
-Name                     Team           Pos  Price  Form   Total Pts  Captain 
-----------------------------------------------------------------------------------------------------
-Haaland                  Man City       FWD  £12.1  8.2    156        C       
-Salah                    Liverpool      MID  £13.2  7.8    142        VC      
-Alexander-Arnold         Liverpool      DEF  £8.5   6.5    89         -       
-...
-
-Team Cost: £99.8m
-Expected Points: 67.3
-Confidence: 0.82
-
-REASONING
-================================================================================
-AI Analysis: Team selection based on current form, fixture difficulty, and expert insights.
-Key factors include Haaland's home fixtures, Salah's penalty duties, and defensive coverage...
-```
-
-### Weekly Update Output
-```
-🔄 Starting weekly FPL update...
-🔄 Using RAG mode: ranked_enrichments
-✅ Team context loaded for gameweek 15
-✅ Gameweek data loaded
-✅ Current team player data loaded
-
-⚽ Updating team for gameweek 15...
-
-WEEKLY FPL UPDATE COMPLETE
-================================================================================
-
-RECOMMENDED TRANSFERS
-================================================================================
-1. Sterling → Foden
-   Reason: Foden's superior form and upcoming fixture advantage
-   Transfer Confidence: 0.76
-
-CAPTAINCY RECOMMENDATIONS
-================================================================================
-Captain: Haaland
-Vice Captain: Salah
-Reasoning: Haaland's home fixture against weak defense
-
-CHIP USAGE
-================================================================================
-Use Wildcard: NO
-Confidence: 0.68
-Reasoning: Current team structure is optimal for upcoming fixtures
-```
-
-## 🏗️ Architecture
-
-### Project Structure
-```
-fpl_agent/
-├── core/
-│   ├── config.py              # Configuration management
-│   └── team_manager.py        # Team persistence and management
-├── data/
-│   ├── data_service.py        # Main data orchestration
-│   ├── fetch_fpl.py           # FPL API integration
-│   ├── data_store.py          # Data persistence
-│   ├── data_processor.py      # Data processing and transformation
-│   └── embedding_filter.py    # AI-powered player filtering
-├── strategies/
-│   ├── base_strategy.py       # Base LLM strategy class
-│   ├── team_building_strategy.py  # Team creation and updates
-│   ├── team_analysis_strategy.py # Player analysis and insights
-│   └── llm_engine.py          # LLM integration
-├── utils/
-│   ├── display.py             # Output formatting
-│   ├── validator.py           # Data validation
-│   ├── prompt_formatter.py    # LLM prompt generation
-│   └── schemas.py             # JSON schemas for LLM responses
-├── main.py                    # CLI interface
-└── config.yaml               # Configuration file
-```
-
-### Data Flow
-
-1. **Data Fetching**: FPL API → Data Processing → Storage
-2. **Enrichment**: Player Data → LLM Analysis → Expert Insights
-3. **Team Building**: Enriched Data → LLM Strategy → Team Selection
-4. **Weekly Updates**: Current Team → LLM Analysis → Recommendations
-
-## 🤖 AI Integration
-
-### LLM Models Used
-- **Gemini 2.5 Pro**: Primary model for complex team optimization
-- **Gemini 2.5 Flash Lite**: Cost-effective model for player analysis
-
-### AI Features
-- **Expert Insights**: AI-generated analysis of player potential
-- **Injury Monitoring**: Real-time injury status tracking
-- **Embedding Filtering**: Semantic similarity-based player selection
-- **RAG System**: Combines data retrieval with AI generation
-
-## 📈 Performance Tips
-
-1. **Use Caching**: Enable `--cached-only` for faster operations
-2. **RAG Modes**: Choose appropriate RAG mode based on your needs:
-   - `none`: Fastest, no player LLM enrichments
-   - `enrichments`: Basic player LLM enrichments
-   - `ranked_enrichments`: Full player LLM enrichments (recommended)
-3. **Regular Updates**: Run weekly updates before each deadline
-4. **Multi-Team Management**: Use `--all-teams` for bulk operations
-
-## 🛠️ Development
-
-### Customizing LLM Prompts
-Edit prompt templates in the strategy classes:
-- `TeamBuildingStrategy._create_team_creation_prompt()`
-- `TeamBuildingStrategy._create_weekly_update_prompt()`
-- `TeamAnalysisStrategy._create_hints_tips_prompt()`
-
-### Extending Data Sources
-Modify `data/fetch_fpl.py` to add new data sources or APIs.
-
 ## 📝 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🤝 Contributing
-
+If you'd like to contribute to this, please:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+4. Submit a pull request
 
 ## 📞 Support
 
