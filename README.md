@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ```
 
 4. **Environment Configuration**
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and add your API keys (or create a `.env` file in the project root):
 ```env
 # Gemini AI API Key (can be used for default Gemini models, subject to limits)
 GEMINI_API_KEY=your_gemini_api_key_here

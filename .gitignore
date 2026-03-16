@@ -194,7 +194,7 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
 
 ### Python Patch ###
 # Poetry local configuration file - https://python-poetry.org/docs/configuration/#local-configuration
@@ -229,6 +229,10 @@ pyrightconfig.json
 
 # FPL Optimizer specific
 team_data/
+
+# Test scripts
+/scripts/test_*.py
+
 
 # Private docs
 private_docs/

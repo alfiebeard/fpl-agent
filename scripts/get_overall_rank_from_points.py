@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+Estimate your overall FPL rank for a given points total using a classic league.
+
+Binary-searches the league standings pages (each page shows 50 teams in rank order).
+Finds a page whose top team has your target points, then finds the left/right
+boundaries to get the rank range; reports the middle rank as the estimate.
+
+Usage:
+  python scripts/get_overall_rank_from_points.py
+
+Uses: LEAGUE_ID (classic league), TARGET_POINTS (your points total).
+Set these at the top of the file or make them CLI/env for sharing.
+"""
 import requests
 import time
 
