@@ -16,7 +16,7 @@ import requests
 import time
 
 LEAGUE_ID = 314
-TARGET_POINTS = 1293
+TARGET_POINTS = 1572
 TOTAL_PAGES = 250889  # current approx
 SLEEP = 0.15
 
