@@ -5,6 +5,7 @@ Validates FPL teams against official rules and checks bank calculations
 
 import json
 import logging
+import re
 from typing import Dict, List, Any, Optional
 from ..core.config import Config
 
@@ -310,11 +311,15 @@ class Validator:
             # Try to extract JSON from the response
             response_text = response.strip()
             
-            # Handle markdown code blocks
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]
+            # Handle markdown code blocks (models often wrap JSON despite "JSON only" instructions)
+            response_text = re.sub(
+                r"^\s*```(?:json)?\s*",
+                "",
+                response_text,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            response_text = re.sub(r"\s*```\s*$", "", response_text)
             
             # Extract JSON content between braces (fallback method)
             if not response_text or response_text.find('{') == -1:

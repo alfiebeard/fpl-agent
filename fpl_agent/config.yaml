@@ -38,7 +38,7 @@ llm:
   lightweight:
     provider: "gemini"
     model: "gemini-2.5-flash-lite"  # Cost-effective for team analysis
-    max_output_tokens: 16384
+    max_output_tokens: 65536
     temperature: 0.2
     top_p: 0.8
     top_k: 25
@@ -48,7 +48,8 @@ llm:
   lightweight_openrouter:
     provider: "openrouter"
     model: "google/gemini-2.5-flash-lite"  # Cost-effective for team analysis via OpenRouter
-    max_output_tokens: 16384
+    # Large JSON payloads (full squads + mixed injury batches) need headroom; 16k can truncate mid-object.
+    max_output_tokens: 65536
     temperature: 0.2
     top_p: 0.8
     top_k: 25

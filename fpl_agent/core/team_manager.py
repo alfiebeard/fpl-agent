@@ -6,7 +6,6 @@ Stores team data for each gameweek in JSON files
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
 import logging
 from fpl_agent.utils.fpl_calculations import calculate_fpl_sale_price
 
@@ -175,14 +174,13 @@ class TeamManager:
     def save_team(self, gameweek: int, team_data: Dict[str, Any]) -> None:
         """Save team data for a specific gameweek"""
         team_file = self._get_team_file(gameweek)
-        
-        # Add metadata - team_data now contains starting/substitutes directly
+
+        # Persist a single canonical wrapper shape: {"team": {...actual team...}}
+        # This avoids double-wrapping and keeps compatibility with older files.
         team_data_with_meta = {
-            "gameweek": gameweek,
-            "saved_at": datetime.now().isoformat(),
-            "team": team_data
+            "team": self._extract_team_payload(team_data)
         }
-        
+
         with open(team_file, 'w') as f:
             json.dump(team_data_with_meta, f, indent=2)
         
@@ -198,11 +196,35 @@ class TeamManager:
         try:
             with open(team_file, 'r') as f:
                 data = json.load(f)
+            normalized_data = {"team": self._extract_team_payload(data)}
             logger.info(f"Team data loaded for Gameweek {gameweek}")
-            return data
+            return normalized_data
         except (json.JSONDecodeError, IOError) as e:
             logger.error(f"Failed to load team data for Gameweek {gameweek}: {e}")
             return None
+
+    def _extract_team_payload(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the dict containing team fields (`starting`/`substitutes`) from mixed file shapes."""
+        if not isinstance(data, dict):
+            return {}
+
+        # Canonical team payload (raw team dict)
+        if 'starting' in data and 'substitutes' in data:
+            return data
+
+        team_candidate = data.get('team')
+        if isinstance(team_candidate, dict):
+            # Single wrapper: {"team": {...raw team...}}
+            if 'starting' in team_candidate and 'substitutes' in team_candidate:
+                return team_candidate
+
+            # Double wrapper/frontmatter shape: {"gameweek":..., "team": {"team": {...raw team...}}}
+            nested_team = team_candidate.get('team')
+            if isinstance(nested_team, dict) and 'starting' in nested_team and 'substitutes' in nested_team:
+                return nested_team
+
+        # Unknown shape - keep best effort fallback so callers can fail gracefully upstream.
+        return data
     
     def get_latest_gameweek(self) -> Optional[int]:
         """Get the latest gameweek number"""
