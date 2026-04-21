@@ -1,6 +1,6 @@
 # FPL Agent - AI-Powered Fantasy Premier League Manager
 
-FPL Agent is my experiment in getting AI to manage my FPL team - building squads, firing off transfers and chips, and competing over a season while a custom RAG pipeline feeds them fixtures, player data and context each gameweek. For a detailed explanation please see the [project page](https://www.abeard.ai/projects/fpl-agent).
+FPL Agent is my experiment in getting AI to manage my FPL team - building squads, firing off transfers and chips, and competing over a season while a custom RAG pipeline feeds them fixtures, player data and context each gameweek. For a detailed explanation please see the [project page](https://www.abeard.ai/projects/fpl-arena).
 
 ### Using FPL Agent to Build a Team
 
