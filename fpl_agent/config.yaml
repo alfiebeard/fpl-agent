@@ -69,7 +69,7 @@ llm:
   
   openrouter_grok4:
     provider: "openrouter"
-    model: "x-ai/grok-4"
+    model: "x-ai/grok-4.20"
     team_directory: "Grok-4"
     web_search: true
     max_output_tokens: 100000
