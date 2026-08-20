@@ -139,8 +139,12 @@ embeddings:
     MID: 50
     FWD: 20
   
-  # Hybrid scoring configuration
+  # Ranking: two-stage (keyword tier first, cosine within tier).
+  # Must-haves always enter the shortlist even if over selection_counts.
+  # Cosine is min-max scaled 0–10 per position for display only.
+  ranking_mode: "two_stage"
   hybrid_scoring:
+    # Legacy weights kept for reference; two_stage ranking does not blend them.
     embedding_weight: 0.6
     keyword_weight: 0.4
     keyword_bonuses:

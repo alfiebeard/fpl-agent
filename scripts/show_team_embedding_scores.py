@@ -40,25 +40,37 @@ def main():
         print(f"Available teams: {', '.join(teams)}")
         sys.exit(1)
 
-    # Sort by position then by hybrid_score desc
+    # Sort by keyword tier then cosine (two-stage), fallback hybrid_score
     pos_order = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
-    team_players.sort(key=lambda x: (pos_order.get(x[1].get("position", ""), 99), -(x[1].get("hybrid_score") or 0)))
+    team_players.sort(
+        key=lambda x: (
+            pos_order.get(x[1].get("position", ""), 99),
+            x[1].get("keyword_tier", 2),
+            -(x[1].get("embedding_score") or 0),
+        )
+    )
 
-    print(f"Embedding scores for {club} (cosine = similarity to position query)")
-    print("=" * 70)
+    print(f"Embedding scores for {club} (two-stage: keyword tier → cosine)")
+    print("=" * 78)
     for name, p in team_players:
         pos = p.get("position", "?")
         emb = p.get("embedding_score")
+        scaled = p.get("embedding_score_scaled")
         kw = p.get("keyword_bonus")
+        tier = p.get("keyword_tier_name") or p.get("keyword_tier")
         hyb = p.get("hybrid_score")
         if emb is None and hyb is None:
             print(f"  {name} ({pos})  – no embedding scores (missing enrichments?)")
             continue
         emb_s = f"{emb:.3f}" if emb is not None else "N/A"
+        scaled_s = f"{scaled:.2f}" if scaled is not None else "N/A"
         kw_s = f"{kw:+.3f}" if kw is not None else "N/A"
         hyb_s = f"{hyb:.3f}" if hyb is not None else "N/A"
-        print(f"  {name:<28} {pos}  cosine={emb_s}  keyword_bonus={kw_s}  hybrid={hyb_s}")
-    print("=" * 70)
+        print(
+            f"  {name:<28} {pos}  tier={tier!s:<14} cosine={emb_s}  "
+            f"scaled={scaled_s}/10  keyword={kw_s}  sort={hyb_s}"
+        )
+    print("=" * 78)
     print(f"Total: {len(team_players)} players")
 
 if __name__ == "__main__":

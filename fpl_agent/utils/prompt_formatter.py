@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 import json
 
 from ..core.config import Config
+from .keyword_extractor import select_players_two_stage, TIER_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +76,21 @@ class PromptFormatter:
                         formatted_data.append(position.upper())
                         formatted_data.append("")  # Empty line between position heading
                     
-                    # Filter out players without hybrid scores
+                    # Filter out players without ranking scores
                     valid_players = [p for p in players if p.get('hybrid_score', -1) > -1]
                     
-                    # Sort players by hybrid embedding score (highest first) within each position
-                    sorted_players = sorted(valid_players, key=lambda p: p.get('hybrid_score', -1), reverse=True)
-                    
-                    # Filter to top K players for this position based on config selection_counts.
+                    # Two-stage shortlist: keyword tier → cosine; always keep must-haves
                     if use_ranking and selection_counts:
                         count = selection_counts.get(position, 0)
-                        sorted_players = sorted_players[:count]
+                        sorted_players = select_players_two_stage(valid_players, count)
+                    else:
+                        sorted_players = sorted(
+                            valid_players,
+                            key=lambda p: (
+                                p.get('keyword_tier', 2),
+                                -(p.get('embedding_score') or 0),
+                            ),
+                        )
                     
                     for i, player in enumerate(sorted_players):
                         # Add ranking number if requested
@@ -378,10 +384,23 @@ class PromptFormatter:
         # Add score line if including rankings
         if include_rankings:
             embedding_score = player_data.get('embedding_score', 0.0)
+            embedding_scaled = player_data.get('embedding_score_scaled')
             keyword_bonus = player_data.get('keyword_bonus', 0.0)
+            keyword_tier = player_data.get('keyword_tier')
+            tier_name = player_data.get('keyword_tier_name') or TIER_NAMES.get(keyword_tier, 'neutral')
             hybrid_score = player_data.get('hybrid_score', 0.0)
-            
-            score_line = f"[HYBRID EMBEDDING SCORE] {hybrid_score:.3f} (Embedding: {embedding_score:.3f}, Keyword Bonus: {keyword_bonus:+.3f})"
+
+            if embedding_scaled is not None:
+                emb_part = (
+                    f"Cosine: {embedding_score:.3f} → scaled {embedding_scaled:.2f}/10"
+                )
+            else:
+                emb_part = f"Cosine: {embedding_score:.3f}"
+
+            score_line = (
+                f"[RANK] tier={tier_name} | {emb_part} | "
+                f"Keyword Bonus: {keyword_bonus:+.3f} | sort={hybrid_score:.3f}"
+            )
             formatted_parts.append(score_line)
         
         if include_enrichments:
