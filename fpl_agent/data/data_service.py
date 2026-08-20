@@ -62,7 +62,8 @@ class DataService:
         
         return {
             'players': players,
-            'fixtures': gameweek_fixtures  # Raw fixture data for processing
+            'fixtures': gameweek_fixtures,  # Current gameweek fixtures
+            'all_fixtures': fixtures.get('fixtures', []) if fixtures else [],
         }
     
     def get_players(self, use_cached: bool = False, filter_unavailable_players_mode: str = "no_filter") -> Dict[str, Dict[str, Any]]:
@@ -489,11 +490,11 @@ class DataService:
         try:
             # Load existing enriched data from cache
             cached_data = self.store.load_player_data()
-            if not cached_data or use_cached:
-                logger.info("No enriched data available or force refresh requested")
+            if not cached_data:
+                logger.info("No player data available for team enrichments")
                 return {}
             
-            # Extract enrichments for the specific players
+            # Extract enrichments for the specific players (works with --cached-only too)
             enriched_data = {}
             for player_name in player_names:
                 player_enrichments = {}

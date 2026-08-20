@@ -5,7 +5,44 @@ Utility functions for team management and analysis.
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
+
+
+def extract_team_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return the dict containing team fields (`starting`/`substitutes`/chip/bank/...)
+    from mixed LLM / file shapes.
+
+    Accepted shapes:
+    - Raw team: {"captain": ..., "starting": ..., "substitutes": ...}
+    - Wrapped: {"team": { ... raw team ... }}
+    - Double-wrapped: {"team": {"team": { ... }}}
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    if 'starting' in data and 'substitutes' in data:
+        return data
+
+    team_candidate = data.get('team')
+    if isinstance(team_candidate, dict):
+        if 'starting' in team_candidate and 'substitutes' in team_candidate:
+            return team_candidate
+
+        nested_team = team_candidate.get('team')
+        if isinstance(nested_team, dict) and 'starting' in nested_team and 'substitutes' in nested_team:
+            return nested_team
+
+    return data
+
+
+def normalize_chip(chip: Any) -> Optional[str]:
+    """Normalize LLM chip values; treat null-like strings as unused."""
+    if chip is None:
+        return None
+    if isinstance(chip, str) and chip.strip().lower() in ('', 'null', 'none'):
+        return None
+    return chip
 
 
 def get_all_teams() -> List[str]:

@@ -5,6 +5,8 @@ Display utilities for FPL team results and data
 from typing import Dict, Any
 from datetime import datetime
 
+from .team_utils import extract_team_payload, normalize_chip
+
 
 def display_data_status(data_status: Dict[str, Any]) -> None:
     """
@@ -103,40 +105,23 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
     print("=" * 80)
     
     # Handle different data structures
-    # The result might be wrapped in 'team_data' or directly contain the team info
     if 'team_data' in result:
         team_data_wrapper = result['team_data']
     else:
         team_data_wrapper = result
     
-    # Extract team data - handle both nested and flat structures
-    if 'team' in team_data_wrapper:
-        # Nested structure: team_data_wrapper['team'] contains the actual team
-        team_data = team_data_wrapper['team']
-        # Captain, vice_captain, etc. are at the same level as 'team'
-        captain = team_data_wrapper.get('captain', 'Unknown')
-        vice_captain = team_data_wrapper.get('vice_captain', 'Unknown')
-        total_cost = team_data_wrapper.get('total_cost', 0.0)
-        bank = team_data_wrapper.get('bank', 0.0)
-        expected_points = team_data_wrapper.get('expected_points', 0.0)
-        chip = team_data_wrapper.get('chip')
-        chip_reason = team_data_wrapper.get('chip_reason', '')
-        transfers = team_data_wrapper.get('transfers', [])
-        captain_reason = team_data_wrapper.get('captain_reason', '')
-        vice_captain_reason = team_data_wrapper.get('vice_captain_reason', '')
-    else:
-        # Flat structure: everything is at the top level
-        team_data = team_data_wrapper
-        captain = team_data_wrapper.get('captain', 'Unknown')
-        vice_captain = team_data_wrapper.get('vice_captain', 'Unknown')
-        total_cost = team_data_wrapper.get('total_cost', 0.0)
-        bank = team_data_wrapper.get('bank', 0.0)
-        expected_points = team_data_wrapper.get('expected_points', 0.0)
-        chip = team_data_wrapper.get('chip')
-        chip_reason = team_data_wrapper.get('chip_reason', '')
-        transfers = team_data_wrapper.get('transfers', [])
-        captain_reason = team_data_wrapper.get('captain_reason', '')
-        vice_captain_reason = team_data_wrapper.get('vice_captain_reason', '')
+    # Always unwrap nested LLM/file shapes so captain/bank/chip read correctly
+    team_data = extract_team_payload(team_data_wrapper)
+    captain = team_data.get('captain', 'Unknown')
+    vice_captain = team_data.get('vice_captain', 'Unknown')
+    total_cost = team_data.get('total_cost', 0.0)
+    bank = team_data.get('bank', 0.0)
+    expected_points = team_data.get('expected_points', 0.0)
+    chip = normalize_chip(team_data.get('chip'))
+    chip_reason = team_data.get('chip_reason', '')
+    transfers = team_data.get('transfers', []) or []
+    captain_reason = team_data.get('captain_reason', '')
+    vice_captain_reason = team_data.get('vice_captain_reason', '')
     
     # Display basic info
     print("\n" + "=" * 80)
@@ -188,7 +173,7 @@ def display_comprehensive_team_result(result: Dict[str, Any]) -> None:
     print("=" * 80)
     
     # Display raw LLM response
-    raw_response = team_data_wrapper.get('raw_llm_response', '')
+    raw_response = team_data_wrapper.get('raw_llm_response', '') or team_data.get('raw_llm_response', '')
     if raw_response:
         print("\n" + "=" * 80)
         print("RAW LLM RESPONSE")

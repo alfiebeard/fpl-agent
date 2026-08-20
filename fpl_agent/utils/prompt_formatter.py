@@ -228,6 +228,60 @@ class PromptFormatter:
             raise ValueError("No substitutes found in team")
 
         return "\n".join(formatted)
+
+    @staticmethod
+    def format_owned_availability_alerts(
+        team: Dict[str, Any],
+        team_player_data: Dict[str, Dict[str, Any]],
+        chance_threshold: float = 75.0,
+    ) -> str:
+        """
+        Highlight owned players with low availability / injury flags.
+
+        These players are often filtered out of the transfer candidate list, so the
+        model must still see loud squad-level context here.
+        """
+        if not team:
+            return ""
+
+        alerts = []
+        for player in (team.get('starting') or []) + (team.get('substitutes') or []):
+            name = player.get('name', 'Unknown')
+            data = team_player_data.get(name, {})
+            chance = data.get('chance_of_playing')
+            if chance is None:
+                chance = 100
+            injury = data.get('injury_news') or ''
+            insights = data.get('expert_insights') or ''
+
+            injury_flag = bool(injury and injury != 'None')
+            low_chance = chance is not None and float(chance) < chance_threshold
+            if not (low_chance or injury_flag):
+                continue
+
+            lines = [
+                f"⚠ {name} ({player.get('position', '?')}, {player.get('team', '?')})",
+                f"  Availability: {chance}%",
+            ]
+            if injury_flag:
+                lines.append(f"  Injury news: {injury}")
+            if insights and insights != 'None':
+                lines.append(f"  Expert insights: {insights}")
+            alerts.append("\n".join(lines))
+
+        if not alerts:
+            return (
+                "OWNED PLAYER AVAILABILITY ALERTS:\n"
+                "None — all owned players look available "
+                f"(chance_of_playing ≥ {chance_threshold:.0f}% and no injury news)."
+            )
+
+        header = [
+            "OWNED PLAYER AVAILABILITY ALERTS:",
+            "Players below may be filtered out of the transfer list — treat these as high priority:",
+            "",
+        ]
+        return "\n".join(header + alerts)
     
     @staticmethod
     def format_player(player_data: Dict[str, Any], 
@@ -389,6 +443,77 @@ class PromptFormatter:
             formatted_lines.append("")
         
         return "\n".join(formatted_lines)
+
+    @staticmethod
+    def format_fixture_landscape(
+        fixtures_data: List[Dict[str, Any]],
+        start_gameweek: int,
+        horizon: int = 5,
+    ) -> str:
+        """
+        Summarise blanks/doubles and per-club fixture counts for upcoming gameweeks.
+
+        Args:
+            fixtures_data: Full season fixtures (not just the current GW)
+            start_gameweek: First gameweek to include
+            horizon: Number of gameweeks to include (inclusive of start)
+        """
+        if not fixtures_data:
+            return "FIXTURE LANDSCAPE:\nNo fixture data available."
+
+        end_gameweek = start_gameweek + horizon - 1
+        relevant = [
+            f for f in fixtures_data
+            if f.get('event') is not None and start_gameweek <= int(f['event']) <= end_gameweek
+        ]
+
+        # Count fixtures per club per GW
+        from collections import defaultdict
+        counts: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        clubs = set()
+        for fixture in relevant:
+            gw = int(fixture['event'])
+            home = fixture.get('team_h', 'Unknown')
+            away = fixture.get('team_a', 'Unknown')
+            counts[gw][home] += 1
+            counts[gw][away] += 1
+            clubs.add(home)
+            clubs.add(away)
+
+        lines = [
+            f"FIXTURE LANDSCAPE (GW{start_gameweek}–GW{end_gameweek}):",
+            "Use this for timing transfers, hits, and chips (blank/double weeks).",
+            "",
+        ]
+
+        for gw in range(start_gameweek, end_gameweek + 1):
+            gw_counts = counts.get(gw, {})
+            doubles = sorted([c for c, n in gw_counts.items() if n >= 2])
+            blanks = sorted([c for c in clubs if gw_counts.get(c, 0) == 0]) if clubs else []
+            lines.append(f"GW{gw}:")
+            if doubles:
+                lines.append(f"  Doubles: {', '.join(doubles)}")
+            else:
+                lines.append("  Doubles: none")
+            if blanks:
+                # Cap blank list length for prompt size
+                shown = blanks[:12]
+                suffix = f" (+{len(blanks) - 12} more)" if len(blanks) > 12 else ""
+                lines.append(f"  Blanks: {', '.join(shown)}{suffix}")
+            else:
+                lines.append("  Blanks: none")
+            lines.append("")
+
+        # Compact per-club run for next horizon (fixture count only)
+        lines.append("Club fixture counts over this window (higher = more games):")
+        club_totals = {
+            club: sum(counts[gw].get(club, 0) for gw in range(start_gameweek, end_gameweek + 1))
+            for club in clubs
+        }
+        for club, total in sorted(club_totals.items(), key=lambda x: (-x[1], x[0])):
+            lines.append(f"  {club}: {total}")
+
+        return "\n".join(lines)
         
     @staticmethod
     def format_chips(chips_data: Dict) -> str:

@@ -3,7 +3,7 @@ FPL team manager using LLM for comprehensive team management
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from ..core.config import Config
 from ..core.team_manager import TeamManager
@@ -11,6 +11,7 @@ from .base_strategy import BaseLLMStrategy
 from ..utils.validator import Validator
 from ..utils.prompt_formatter import PromptFormatter
 from ..utils.schemas import create_team_creation_schema, create_weekly_update_schema
+from ..utils.team_utils import extract_team_payload, normalize_chip
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,13 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         try:
             # Create the team creation prompt
             prompt = self._create_team_creation_prompt(
-                budget, gameweek, all_gameweek_data['players'], all_gameweek_data['fixtures'], use_enrichments, use_ranking
+                budget,
+                gameweek,
+                all_gameweek_data['players'],
+                all_gameweek_data['fixtures'],
+                use_enrichments,
+                use_ranking,
+                all_fixtures=all_gameweek_data.get('all_fixtures') or [],
             )
             
             if prompt_only:
@@ -70,6 +77,7 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Parse and validate LLM response
             team_data = self.validator.parse_llm_json_response(response)
+            team = extract_team_payload(team_data)
             
             # Validate team structure
             logger.info("Validating team structure...")
@@ -79,9 +87,14 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                 error_msg = "Team validation failed:\n" + "\n".join(f"- {error}" for error in validation_errors)
                 logger.error(error_msg)
                 raise ValueError(error_msg)
+
+            # Deterministic bank: budget remaining after squad cost
+            total_cost = float(team.get('total_cost', 0.0))
+            team['bank'] = round(max(0.0, float(budget) - total_cost), 1)
+            team['chip'] = normalize_chip(team.get('chip'))
             
-            # Return team data (NO SAVING)
-            return team_data
+            # Return canonical wrapped shape
+            return {'team': team}
             
         except Exception as e:
             logger.error(f"Failed to create team: {e}")
@@ -120,7 +133,8 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             prompt = self._create_weekly_update_prompt(
                 current_team, current_team_player_data, gameweek, chips_data, 
                 all_gameweek_data['players'], free_transfers, all_gameweek_data['fixtures'], 
-                team_budget, bank, use_enrichments, use_ranking
+                team_budget, bank, use_enrichments, use_ranking,
+                all_fixtures=all_gameweek_data.get('all_fixtures') or [],
             )
             
             if prompt_only:
@@ -134,15 +148,17 @@ class TeamBuildingStrategy(BaseLLMStrategy):
             
             # Parse and validate LLM response
             team_data = self.validator.parse_llm_json_response(response)
-            team = team_data.get('team', {})
-
-            # Validate team structure: use full-squad budget check only for wildcard/free hit
-            chip = team.get('chip')
+            team = extract_team_payload(team_data)
+            chip = normalize_chip(team.get('chip'))
+            team['chip'] = chip
             use_full_squad_budget_check = chip in ('wildcard', 'free_hit')
 
             if use_full_squad_budget_check:
                 logger.info("Validating team structure (full-squad budget check)...")
                 validation_errors = self.validator.validate_team_data(team_data, team_budget)
+                # Deterministic bank after full rebuild
+                total_cost = float(team.get('total_cost', 0.0))
+                team['bank'] = round(max(0.0, float(team_budget) - total_cost), 1)
             else:
                 # Normal weekly update: validate transfer affordability, then skip full-squad cost check
                 transfers = team.get('transfers') or []
@@ -154,12 +170,14 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                         "Transfers not affordable: bank + sale(outs) < cost(ins). "
                         "Check sale prices and player_in_price for the proposed transfers."
                     )
-                # Optional: ensure reported bank is consistent (tolerance 0.1)
                 reported_bank = team.get('bank', 0)
-                if abs(reported_bank - expected_bank) > 0.1:
+                if abs(float(reported_bank) - expected_bank) > 0.1:
                     logger.warning(
-                        f"Reported bank £{reported_bank}m differs from expected £{expected_bank}m after transfers"
+                        f"Reported bank £{reported_bank}m differs from expected £{expected_bank}m after transfers; "
+                        f"overwriting with calculated bank"
                     )
+                # Bank is truth from sale prices + transfer costs, not the LLM
+                team['bank'] = expected_bank
                 logger.info("Validating team structure (transfer-affordability only)...")
                 validation_errors = self.validator.validate_team_data(
                     team_data, team_budget, skip_full_squad_budget_check=True
@@ -170,8 +188,8 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
-            # Return team data with chip usage info (NO SAVING, NO BUSINESS LOGIC)
-            return team_data
+            # Return canonical wrapped shape (NO SAVING, NO BUSINESS LOGIC)
+            return {'team': team}
             
         except Exception as e:
             logger.error(f"Failed to update team: {e}")
@@ -181,16 +199,18 @@ class TeamBuildingStrategy(BaseLLMStrategy):
                                     players_data: Dict[str, Dict[str, Any]], 
                                     fixtures_data: List[Dict[str, Any]],
                                     use_enrichments: bool = True,
-                                    use_ranking: bool = True) -> str:
+                                    use_ranking: bool = True,
+                                    all_fixtures: Optional[List[Dict[str, Any]]] = None) -> str:
         """Create the team creation prompt
         
         Args:
             budget: The budget for the team
             gameweek: The gameweek to create the team for
             players_data: All player data for that week
-            fixtures_data: All fixture data for that week
+            fixtures_data: Fixture data for that week
             use_enrichments: Whether to use enrichments in the prompt
             use_ranking: Whether to use ranking in the prompt
+            all_fixtures: Full-season fixtures for landscape summary
 
         Returns:
             The team creation prompt
@@ -201,6 +221,11 @@ class TeamBuildingStrategy(BaseLLMStrategy):
         if use_ranking:
             embeddings_config = self.config.get_embeddings_config()
             selection_counts = embeddings_config.get('selection_counts')
+
+        landscape_source = all_fixtures if all_fixtures else fixtures_data
+        fixture_landscape = PromptFormatter.format_fixture_landscape(
+            landscape_source, gameweek, horizon=5
+        )
         
         return f"""You are a Fantasy Premier League (FPL) team building expert. Your task is to create the optimal FPL team for Gameweek {gameweek}.
 
@@ -218,6 +243,9 @@ You must strictly follow all official FPL rules and constraints when building th
 The fixtures this gameweek are:
 
 {PromptFormatter.format_fixtures(fixtures_data, gameweek)}
+
+{fixture_landscape}
+
 {self._get_prompt_intro(use_enrichments=use_enrichments)}
 
 {PromptFormatter.format_player_list(players_data, use_enrichments=use_enrichments, use_ranking=use_ranking, selection_counts=selection_counts)}
@@ -311,7 +339,8 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
                                      gameweek: int, chips_data: Dict, players_data: Dict[str, Dict[str, Any]], 
                                      free_transfers: float, fixtures_data: List[Dict[str, Any]], team_budget: float,
                                      bank: float, use_enrichments: bool = True,
-                                     use_ranking: bool = True
+                                     use_ranking: bool = True,
+                                     all_fixtures: Optional[List[Dict[str, Any]]] = None
                                    ) -> str:
         """Create the weekly update prompt
         
@@ -322,10 +351,11 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
             chips_data: All chip data for that week
             players_data: All player data for that week
             free_transfers: Number of free transfers available this week
-            fixtures_data: All fixture data for that week
+            fixtures_data: Fixture data for that week
             bank: The bank for the team
             use_enrichments: Whether to use enrichments in the prompt
             use_ranking: Whether to use ranking in the prompt
+            all_fixtures: Full-season fixtures for landscape summary
 
         Returns:
             The weekly update prompt
@@ -335,15 +365,25 @@ REMEMBER: Your response must be ONLY valid JSON. No markdown, no explanations, n
         if use_ranking:
             embeddings_config = self.config.get_embeddings_config()
             selection_counts = embeddings_config.get('selection_counts')
+
+        landscape_source = all_fixtures if all_fixtures else fixtures_data
+        fixture_landscape = PromptFormatter.format_fixture_landscape(
+            landscape_source, gameweek, horizon=5
+        )
+        availability_alerts = PromptFormatter.format_owned_availability_alerts(
+            current_team, current_team_player_data
+        )
         
         return f"""You are managing a Fantasy Premier League (FPL) team with the goal of maximizing points across the season.
 
         
 GAMEWEEK CONTEXT:
-Season: 2025/2026
+Season: 2026/2027
 Gameweek: {gameweek}
 
 {PromptFormatter.format_fixtures(fixtures_data, gameweek)}
+
+{fixture_landscape}
 
 If a team appears multiple times in the fixtures, it is because they are playing in a double gameweek. This could be advantageous for points, as some players will play twice, thus having a greater chance of scoring more points.
 
@@ -352,8 +392,10 @@ YOUR CURRENT TEAM:
 
 {PromptFormatter.format_team(current_team, current_team_player_data)}
 
-Current team budget is £{team_budget}m.
-Bank is £{bank}m.
+{availability_alerts}
+
+Current team budget (squad sale value + bank) is £{team_budget}m.
+Bank is £{bank}m. Treat bank as the cash available for transfers; player Sale Prices are what you receive when selling.
 
 
 PLAYER LIST:
@@ -375,7 +417,7 @@ DECISION MAKING CRITERIA:
 - Upcoming fixture difficulty
 - Likelihood of starting and playing 90 minutes
 - Rotation risk
-- Injury or suspension status
+- Injury or suspension status (see OWNED PLAYER AVAILABILITY ALERTS above)
 - Transfer rumours, international absences, or tactical shifts
 - Insights from expert sources, fantasy blogs, forums, news sites, and tipsters
 

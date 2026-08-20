@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 import logging
 from fpl_agent.utils.fpl_calculations import calculate_fpl_sale_price
+from fpl_agent.utils.team_utils import extract_team_payload, normalize_chip
 
 logger = logging.getLogger(__name__)
 
@@ -130,10 +131,11 @@ class TeamManager:
     
     def initialize_meta(self, gameweek: int, team_data: Dict[str, Any]) -> None:
         """Initialize the meta.json file with default values for a new team"""
+        payload = extract_team_payload(team_data)
         meta_data = {
             "current_gw": gameweek,
             "last_team_file": f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}",
-            "bank": team_data.get('bank', 0.0),
+            "bank": payload.get('bank', 0.0),
             "free_transfers_carried_over": self.DEFAULT_FREE_TRANSFERS,
             "chips_used": {
                 chip: False for chip in self.CHIP_NAMES
@@ -148,11 +150,12 @@ class TeamManager:
                    free_transfers_carried_over: Optional[int] = None) -> None:
         """Update the meta.json file with new team status"""
         meta_data = self._load_meta()
+        payload = extract_team_payload(team_data)
         
         # Update basic info
         meta_data["current_gw"] = gameweek
         meta_data["last_team_file"] = f"{self.TEAM_FILE_PREFIX}{gameweek:02d}{self.TEAM_FILE_SUFFIX}"
-        meta_data["bank"] = team_data.get('bank', meta_data.get('bank', 0.0))
+        meta_data["bank"] = payload.get('bank', meta_data.get('bank', 0.0))
         
         # Update free transfers if provided
         if free_transfers_carried_over is not None:
@@ -178,7 +181,7 @@ class TeamManager:
         # Persist a single canonical wrapper shape: {"team": {...actual team...}}
         # This avoids double-wrapping and keeps compatibility with older files.
         team_data_with_meta = {
-            "team": self._extract_team_payload(team_data)
+            "team": extract_team_payload(team_data)
         }
 
         with open(team_file, 'w') as f:
@@ -196,35 +199,16 @@ class TeamManager:
         try:
             with open(team_file, 'r') as f:
                 data = json.load(f)
-            normalized_data = {"team": self._extract_team_payload(data)}
+            normalized_data = {"team": extract_team_payload(data)}
             logger.info(f"Team data loaded for Gameweek {gameweek}")
             return normalized_data
         except (json.JSONDecodeError, IOError) as e:
             logger.error(f"Failed to load team data for Gameweek {gameweek}: {e}")
             return None
 
-    def _extract_team_payload(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Return the dict containing team fields (`starting`/`substitutes`) from mixed file shapes."""
-        if not isinstance(data, dict):
-            return {}
-
-        # Canonical team payload (raw team dict)
-        if 'starting' in data and 'substitutes' in data:
-            return data
-
-        team_candidate = data.get('team')
-        if isinstance(team_candidate, dict):
-            # Single wrapper: {"team": {...raw team...}}
-            if 'starting' in team_candidate and 'substitutes' in team_candidate:
-                return team_candidate
-
-            # Double wrapper/frontmatter shape: {"gameweek":..., "team": {"team": {...raw team...}}}
-            nested_team = team_candidate.get('team')
-            if isinstance(nested_team, dict) and 'starting' in nested_team and 'substitutes' in nested_team:
-                return nested_team
-
-        # Unknown shape - keep best effort fallback so callers can fail gracefully upstream.
-        return data
+    def extract_team_payload(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the dict containing team fields from mixed file/LLM shapes."""
+        return extract_team_payload(data)
     
     def get_latest_gameweek(self) -> Optional[int]:
         """Get the latest gameweek number"""
@@ -284,27 +268,27 @@ class TeamManager:
             Available budget
         """
         total_value = 0.0
-        
-        for player in team_data['starting'] + team_data['substitutes']:
-            # Find current player data by name
+        payload = extract_team_payload(team_data)
+
+        for player in payload.get('starting', []) + payload.get('substitutes', []):
             player_name = player['name']
-            current_player = None
-            
-            # Search for player in current players data (players are keyed by full name)
             current_player = current_players.get(player_name)
 
             if current_player:
-                current_price = current_player.get('current_price', 0.0)
-                purchase_price = current_player.get('purchase_price', 0.0)
-                
-                # Calculate sale price using FPL formula
+                if 'current_price' in current_player:
+                    current_price = float(current_player['current_price'])
+                elif 'now_cost' in current_player:
+                    now_cost = float(current_player['now_cost'])
+                    # FPL API stores tenths of millions (e.g. 55 = £5.5m)
+                    current_price = now_cost / 10.0 if now_cost > 20 else now_cost
+                else:
+                    current_price = float(player.get('price', 0.0))
+                purchase_price = float(current_player.get('purchase_price', player.get('price', 0.0)))
                 total_value += calculate_fpl_sale_price(current_price, purchase_price)
             else:
-                # Player not found, use purchase price as fallback
-                total_value += player['price']
-        
-        # Add bank to get total available budget
-        return total_value + team_data.get('bank', 0.0)
+                total_value += float(player.get('price', 0.0))
+
+        return total_value + float(payload.get('bank', 0.0))
 
     def transfers_are_affordable(
         self,
@@ -347,9 +331,10 @@ class TeamManager:
 
     def update_meta_from_response(self, gameweek: int, team_data: Dict[str, Any], current_meta: Dict[str, Any]) -> None:
         """Update meta.json based on the LLM response"""
+        payload = extract_team_payload(team_data)
         
         # Check if a chip was used
-        chip_used = team_data.get('chip')
+        chip_used = normalize_chip(payload.get('chip'))
         
         # Check for consecutive free hit usage (not allowed in FPL)
         if chip_used == 'free_hit':
@@ -361,11 +346,11 @@ class TeamManager:
         
         # Calculate new free transfers
         current_transfers = current_meta.get('free_transfers_carried_over', self.DEFAULT_FREE_TRANSFERS)
-        available_this_week = current_transfers + 1
-        transfers_made = len(team_data.get('transfers', []))
+        available_this_week = min(current_transfers + 1, self.MAX_FREE_TRANSFERS)
+        transfers_made = len(payload.get('transfers') or [])
         
         if chip_used == 'wildcard':
-            # Wildcard doesn't affect transfers - they remain unchanged
+            # Wildcard doesn't consume free transfers - they remain unchanged
             new_transfers = current_transfers
         elif chip_used == 'free_hit':
             # Free hit doesn't affect transfers
@@ -373,15 +358,17 @@ class TeamManager:
         else:
             # Normal transfers
             if transfers_made == 0:
-                # No transfers made, carry over 1 (max 1 for meta.json)
+                # Unused FT: carry 1 into next week (next week then grants +1 up to max 2)
                 new_transfers = 1
             else:
-                # Transfers made, calculate remaining
+                # Remaining FTs after this week's usage (hits do not create negative carry)
                 new_transfers = max(0, available_this_week - transfers_made)
+                # Cap carry-over so next week's +1 cannot exceed MAX_FREE_TRANSFERS
+                new_transfers = min(new_transfers, self.MAX_FREE_TRANSFERS - 1)
         
         # Handle chip usage and reset on Gameweek 20
         chips_used = None
-        if chip_used and chip_used != 'null':
+        if chip_used:
             chips_used = {chip_used: True}
         
         # Reset all chips on Gameweek 20 (second half of season)
@@ -391,10 +378,10 @@ class TeamManager:
             }
             logger.info("Gameweek 20: All chips reset for second half of season")
         
-        # Update meta.json
+        # Update meta.json (payload has bank/chip/transfers at the correct level)
         self._update_meta(
             gameweek=gameweek,
-            team_data=team_data,
+            team_data=payload,
             chips_used=chips_used,
             free_transfers_carried_over=new_transfers
         )
@@ -412,12 +399,7 @@ class TeamManager:
             if chips_used.get(chip, False):
                 used_chips.append({'name': chip})
             else:
-                # Special case: Free hit cannot be used in consecutive gameweeks
-                if chip == 'free_hit' and chips_used.get('free_hit', False):
-                    # Free hit was used, so it's not available
-                    used_chips.append({'name': chip})
-                else:
-                    available_chips.append(chip)
+                available_chips.append(chip)
         
         return {
             'used': used_chips,
@@ -427,12 +409,17 @@ class TeamManager:
     def get_available_transfers_from_meta(self, meta_data: Dict[str, Any]) -> Dict[str, Any]:
         """Get available transfer information from meta data"""
         current_gw = meta_data.get('current_gw', 1)
-        free_transfers_carried_over = meta_data.get('free_transfers_carried_over', self.DEFAULT_FREE_TRANSFERS)
+        free_transfers_carried_over = meta_data.get(
+            'free_transfers_carried_over', self.DEFAULT_FREE_TRANSFERS
+        )
+        available_this_week = min(free_transfers_carried_over + 1, self.MAX_FREE_TRANSFERS)
         
         return {
             'current_gw': current_gw,
             'free_transfers_carried_over': free_transfers_carried_over,
-            'can_make_transfers': free_transfers_carried_over > 0
+            'free_transfers_available': available_this_week,
+            # Always true once a season week has started (0 carried still means 1 this week)
+            'can_make_transfers': available_this_week > 0
         }
     
     def get_team_context(self, gameweek: int) -> Dict[str, Any]:
@@ -479,23 +466,40 @@ class TeamManager:
             team_result: Team result from LLM strategy
             team_context: Current team context
         """
+        payload = extract_team_payload(team_result)
         # Save team using existing method
-        self.save_team(team_context['gameweek'], team_result)
+        self.save_team(team_context['gameweek'], payload)
         
         # Update meta using existing method
-        self.update_meta_from_response(team_context['gameweek'], team_result, self.get_meta())
+        self.update_meta_from_response(team_context['gameweek'], payload, self.get_meta())
 
-    def save_new_team(self, team_result: Dict[str, Any], gameweek: int) -> None:
+    def save_new_team(self, team_result: Dict[str, Any], gameweek: int, reset_meta: bool = False) -> None:
         """
-        Save new team and initialize meta.
-        Moved from main.py to consolidate team save operations.
-        
+        Save new team and initialize or preserve meta.
+
         Args:
             team_result: Team result from LLM strategy
             gameweek: Gameweek number
+            reset_meta: If True, wipe chips/FTs (fresh season start). If False, preserve
+                existing meta when present (e.g. wildcard/free-hit rebuild via build-team).
         """
-        # Save team using existing method
-        self.save_team(gameweek, team_result)
-        
-        # Initialize meta using existing method
-        self.initialize_meta(gameweek, team_result)
+        payload = extract_team_payload(team_result)
+        self.save_team(gameweek, payload)
+
+        existing_meta = self._load_meta()
+        has_existing = bool(existing_meta and existing_meta.get('last_team_file'))
+
+        if reset_meta or not has_existing:
+            self.initialize_meta(gameweek, payload)
+            # If this fresh build includes a chip (unusual for GW1), mark it
+            chip = normalize_chip(payload.get('chip'))
+            if chip:
+                self._update_meta(gameweek, payload, chips_used={chip: True})
+        else:
+            # Preserve chips_used and free_transfers_carried_over; apply response side-effects
+            self.update_meta_from_response(gameweek, payload, existing_meta)
+            logger.info(
+                "Preserved existing meta for '%s' while saving gameweek %s team",
+                self.team_name,
+                gameweek,
+            )

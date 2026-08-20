@@ -11,7 +11,7 @@ from .core.config import Config
 from .core.team_manager import TeamManager
 from .data import DataService
 from .data.data_store import DataStore
-from .utils.team_utils import group_players_by_team, get_team_fixture_info, get_all_teams, get_all_model_configs
+from .utils.team_utils import group_players_by_team, get_team_fixture_info, get_all_teams, get_all_model_configs, extract_team_payload, normalize_chip
 from .strategies.team_analysis_strategy import TeamAnalysisStrategy
 from .strategies import TeamBuildingStrategy
 from .utils.display import display_comprehensive_team_result, display_fetch_results, display_data_status, display_detailed_players_status, display_team_status
@@ -482,7 +482,9 @@ class FPLAgent:
             if save_team:
                 # Create team manager for this specific team
                 team_manager = TeamManager(team_name=team_name, auto_create=True)
-                team_manager.save_new_team(team_result, gameweek)
+                # GW1 (or missing GW) = fresh season start → reset meta; otherwise preserve chips/FTs
+                reset_meta = gameweek is None or gameweek == 1
+                team_manager.save_new_team(team_result, gameweek or 1, reset_meta=reset_meta)
                 print("✅ Team saved successfully!")
             else:
                 print("✅ Team building complete (not saved)")
@@ -580,7 +582,13 @@ class FPLAgent:
                 return team_result
             
             # Process team update and get final team
-            final_team_result = self._handle_chip_usage(team_result, team_context)
+            final_team_result = self._handle_chip_usage(
+                team_result,
+                team_context,
+                all_gameweek_data=all_gameweek_data,
+                use_enrichments=use_enrichments,
+                use_ranking=use_ranking,
+            )
             
             # Handle persistence if requested
             if save_team:
@@ -597,61 +605,65 @@ class FPLAgent:
             print(f"❌ Weekly update failed: {e}")
             raise
      
-    def _handle_chip_usage(self, team_result: Dict[str, Any], team_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle chip usage"""
-        
-        # Start with the original team
-        updated_team = team_result.copy()
-        
-        # Handle chip usage - this might return a completely new team
-        if team_result.get('chip'):
-            chip_type = team_result['chip']
-            
-            # Validate chip availability before using it
-            available_chips = team_context['chips']['available']
-            if chip_type not in available_chips:
-                print(f"❌ {chip_type.title()} chip is not available!")
-                print(f"Available chips: {', '.join(available_chips) if available_chips else 'None'}")
-                print(f"Used chips: {', '.join(chip['name'] for chip in team_context['chips']['used'])}")
-                raise ValueError(f"{chip_type.title()} chip is not available for use")
-            
-            if chip_type in ['wildcard', 'free_hit']:
-                print(f"✅ {chip_type.title()} chip is available - proceeding with team rebuild...")
-                
-                # Get budget from current team
-                available_budget = self.team_manager.calculate_team_budget(
-                    team_context['team'], 
-                    self.data_service.get_players(force_refresh=False)
-                )
-                print(f"🔄 {chip_type.title()} applied - building new team with £{available_budget}m budget...")
-                
-                # Build new team using existing build_team method
-                new_team_result = self.build_team(
-                    budget=available_budget,
-                    gameweek=team_context['gameweek'],
-                    save_team=False
-                )
-                
-                # Add chip information to the new team
-                new_team_result['chip'] = chip_type
-                
-                # Replace with the new team
-                updated_team = new_team_result
-            
-            elif chip_type == 'bench_boost':
-                print(f"✅ {chip_type.title()} chip is available - proceeding...")
-                print("🔄 Bench Boost applied - all 15 players will score")
-                updated_team['chip'] = 'bench_boost'
-                
-            elif chip_type == 'triple_captain':
-                print(f"✅ {chip_type.title()} chip is available - proceeding...")
-                print("🔄 Triple Captain applied - captain points tripled")
-                updated_team['chip'] = 'triple_captain'
-            
-            # Preserve the LLM's chip_reason
-            updated_team['chip_reason'] = team_result['chip_reason']
-        
-        return updated_team
+    def _handle_chip_usage(
+        self,
+        team_result: Dict[str, Any],
+        team_context: Dict[str, Any],
+        all_gameweek_data: Optional[Dict[str, Any]] = None,
+        use_enrichments: bool = True,
+        use_ranking: bool = True,
+    ) -> Dict[str, Any]:
+        """Handle chip usage. Always returns canonical {"team": {...}} shape."""
+        payload = extract_team_payload(team_result)
+        chip_type = normalize_chip(payload.get('chip'))
+        chip_reason = payload.get('chip_reason', '')
+
+        if not chip_type:
+            payload['chip'] = None
+            return {'team': payload}
+
+        available_chips = team_context['chips']['available']
+        if chip_type not in available_chips:
+            print(f"❌ {chip_type.title()} chip is not available!")
+            print(f"Available chips: {', '.join(available_chips) if available_chips else 'None'}")
+            print(f"Used chips: {', '.join(chip['name'] for chip in team_context['chips']['used'])}")
+            raise ValueError(f"{chip_type.title()} chip is not available for use")
+
+        if chip_type in ['wildcard', 'free_hit']:
+            print(f"✅ {chip_type.title()} chip is available - proceeding with team rebuild...")
+
+            team_for_budget = dict(team_context['team'] or {})
+            team_for_budget['bank'] = team_context.get('bank', team_for_budget.get('bank', 0.0))
+            current_players = team_context.get('current_team_player_data') or {}
+            available_budget = TeamManager().calculate_team_budget(team_for_budget, current_players)
+            print(f"🔄 {chip_type.title()} applied - building new team with £{available_budget}m budget...")
+
+            if all_gameweek_data is None:
+                raise ValueError("all_gameweek_data is required to rebuild on wildcard/free hit")
+
+            new_team_result = self.llm_strategy.create_team(
+                budget=available_budget,
+                gameweek=team_context['gameweek'],
+                all_gameweek_data=all_gameweek_data,
+                use_enrichments=use_enrichments,
+                use_ranking=use_ranking,
+                prompt_only=False,
+            )
+            new_payload = extract_team_payload(new_team_result)
+            new_payload['chip'] = chip_type
+            new_payload['chip_reason'] = chip_reason
+            return {'team': new_payload}
+
+        if chip_type == 'bench_boost':
+            print(f"✅ {chip_type.title()} chip is available - proceeding...")
+            print("🔄 Bench Boost applied - all 15 players will score")
+        elif chip_type == 'triple_captain':
+            print(f"✅ {chip_type.title()} chip is available - proceeding...")
+            print("🔄 Triple Captain applied - captain points tripled")
+
+        payload['chip'] = chip_type
+        payload['chip_reason'] = chip_reason
+        return {'team': payload}
 
     def show_data(self):
         """Show current data status"""
