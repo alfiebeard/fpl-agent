@@ -69,14 +69,17 @@ class OpenRouterEngine:
         for attempt in range(max_retries + 1):
             try:
                 # Prepare the request payload
+                # OpenRouter alpha/responses → xAI expects max_output_tokens (not max_tokens)
                 payload = {
                     "model": self.model_name,
                     "input": prompt,
-                    "max_tokens": self.llm_config.get('max_output_tokens', 8192),
+                    "max_output_tokens": self.llm_config.get('max_output_tokens', 8192),
                     "temperature": self.llm_config.get('temperature', 0.3),
                     "top_p": self.llm_config.get('top_p', 0.8),
-                    "top_k": self.llm_config.get('top_k', 25),
                 }
+                # top_k is chat-completions oriented; only send if configured and non-null
+                if self.llm_config.get('top_k') is not None:
+                    payload["top_k"] = self.llm_config.get('top_k')
                 
                 # Check payload size (OpenRouter has stricter limits than Gemini API)
                 import json
@@ -127,6 +130,20 @@ class OpenRouterEngine:
                 return text_response
                 
             except requests.exceptions.HTTPError as e:
+                # Prefer provider error body over bare status (e.g. xAI field validation)
+                detail = str(e)
+                if e.response is not None:
+                    try:
+                        body = e.response.json()
+                        raw = (
+                            body.get('error', {}).get('metadata', {}).get('raw')
+                            or body.get('error', {}).get('message')
+                            or body
+                        )
+                        detail = f"{e} | {raw}"
+                    except Exception:
+                        detail = f"{e} | {e.response.text[:500]}"
+
                 # Handle 413 Payload Too Large specifically
                 if e.response is not None and e.response.status_code == 413:
                     payload_size = len(json.dumps({"input": prompt}).encode('utf-8'))
@@ -139,11 +156,11 @@ class OpenRouterEngine:
                     logger.error(error_msg)
                     return f"Error: {error_msg}"
                 elif attempt < max_retries:
-                    logger.warning(f"OpenRouter query failed (attempt {attempt + 1}/{max_retries + 1}), retrying... Error: {e}")
+                    logger.warning(f"OpenRouter query failed (attempt {attempt + 1}/{max_retries + 1}), retrying... Error: {detail}")
                     continue
                 else:
-                    logger.error(f"OpenRouter query failed after {max_retries + 1} attempts: {e}")
-                    return f"Error: {e}"
+                    logger.error(f"OpenRouter query failed after {max_retries + 1} attempts: {detail}")
+                    return f"Error: {detail}"
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries:
                     logger.warning(f"OpenRouter query failed (attempt {attempt + 1}/{max_retries + 1}), retrying... Error: {e}")
@@ -198,6 +215,12 @@ class OpenRouterEngine:
                         text_pieces.append(content.strip())
             
             if not text_pieces:
+                # Surface provider failures (e.g. capacity) instead of a vague empty-output error
+                err = response_data.get("error") or {}
+                if isinstance(err, dict) and err.get("message"):
+                    return f"Error: {err.get('code', 'provider_error')}: {err['message']}"
+                if response_data.get("status") == "failed":
+                    return f"Error: OpenRouter response status=failed: {response_data}"
                 return "Error: No text found in model response"
 
             # Concatenate all pieces and return
