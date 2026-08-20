@@ -240,6 +240,10 @@ You must strictly follow all official FPL rules and constraints when building th
 * Favour players with strong upcoming fixtures and minimal rotation risk.
 * Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
 
+SEASON ENGINE NOTES (2026/27):
+* BPS: centre-back clearances/blocks/interceptions now score 1 BPS per 3 actions (was per 2). Direct attackers are no longer penalised for lost tackles — weigh attacking returns accordingly.
+* Price rises/falls finalize daily. Gameweek rankings and player points do not lock until 09:00 UK time the morning after the final fixture of the gameweek.
+
 The fixtures this gameweek are:
 
 {PromptFormatter.format_fixtures(fixtures_data, gameweek)}
@@ -443,12 +447,14 @@ The price of the players in your current team may be different to the price of t
 If a player is injured, suspended or has a low likelihood of playing, you must be careful to check the reasoning behind this and if they are not going to play not select them, since this will result in a loss of points.
 
 Transfer rules:
-* You have {free_transfers} free transfers this week.
-* If unused, 1 transfer can be carried over (maximum 2).
-* Additional transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
+* You have {free_transfers} free transfers available.
+* You get one free transfer each week.
+* You can save up to 5 free transfers to carry over to subsequent gameweeks.
+* Playing a Wildcard or Free Hit chip does not reset your saved free transfers.
+* Additional transfers beyond your free transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
 * To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).
 
-You don't have to use a transfer or all your free transfers for a gameweek, you may be happy with your team and leave it as it is. It may be tactical to not use a transfer, so that you have an extra transfer next week you can use to make a bigger change.
+You don't have to use a transfer or all your free transfers for a gameweek. Banking transfers toward 4 or 5 has high strategic value: multi-transfer moves enable structural team pivots without taking hit penalties. Weigh that against immediate points from a one-off upgrade.
 If you consider this to be important you should consider the fixtures for players in the upcoming weeks too.
 
 At the moment you have access to the following chips and wildcards: {PromptFormatter.format_chips(chips_data)}
@@ -457,14 +463,19 @@ Chip and wildcard rules:
 * You can use one chip or wildcard per gameweek.
 * First half of season (GW1–19): 1 wildcard + 1 of each chip (Triple Captain, Bench Boost, Free Hit)
 * Second half (GW20+): another wildcard + reset of each chip
+* Playing a Wildcard or Free Hit does not wipe or reset your accumulated saved free transfers — you retain them going into the following gameweek.
 * Chips:
-    * Wildcard: unlimited free transfers for the current week (permanent team change)
-    * Free Hit: unlimited free transfers this gameweek only (team reverts next week)
+    * Wildcard: unlimited free transfers for the current week (permanent team change); saved free transfers are preserved
+    * Free Hit: unlimited free transfers this gameweek only (team reverts next week); saved free transfers are preserved
     * Bench Boost: all 15 players score points
     * Triple Captain: captain's points are tripled instead of doubled
 
 A wildcard or chip is a great way to shake up a team that's struggling or could be better with many transfers or to build extra points if a player is likely to score highly (e.g., double gameweek) or the bench players will score many points too (e.g., on a double gameweek).
 If you plan to use a chip or wildcard this week, clearly state which one. If using Wildcard or Free Hit, you may omit transfers (since they are handled via chip activation). There's no point in not using a chip if you have one available, letting one expire is a waste of a free points, but these should be used sparingly and where appropriate.
+
+SEASON ENGINE NOTES (2026/27):
+* BPS: centre-back clearances/blocks/interceptions now score 1 BPS per 3 actions (was per 2). Direct attackers are no longer penalised for lost tackles — favour attackers with high involvement over pure defensive BPS magnets where relevant.
+* Price rises/falls finalize daily. Gameweek rankings and player points do not lock until 09:00 UK time the morning after the final fixture of the gameweek.
 
 After completing your analysis:
 1. Decide whether to use a wildcard or chip

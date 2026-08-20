@@ -18,7 +18,7 @@ class TeamManager:
     
     # FPL Game Rules
     DEFAULT_FREE_TRANSFERS = 0  # 0 transfers carried over at the start, gets 1 free transfer at the start of the next gameweek
-    MAX_FREE_TRANSFERS = 2
+    MAX_FREE_TRANSFERS = 5  # Can bank up to 5 free transfers
     CHIP_RESET_GAMEWEEK = 20
     DEFAULT_BUDGET = 100.0
     
@@ -349,22 +349,14 @@ class TeamManager:
         available_this_week = min(current_transfers + 1, self.MAX_FREE_TRANSFERS)
         transfers_made = len(payload.get('transfers') or [])
         
-        if chip_used == 'wildcard':
-            # Wildcard doesn't consume free transfers - they remain unchanged
-            new_transfers = current_transfers
-        elif chip_used == 'free_hit':
-            # Free hit doesn't affect transfers
+        if chip_used in ('wildcard', 'free_hit'):
+            # WC/FH do not consume or reset banked free transfers
             new_transfers = current_transfers
         else:
-            # Normal transfers
-            if transfers_made == 0:
-                # Unused FT: carry 1 into next week (next week then grants +1 up to max 2)
-                new_transfers = 1
-            else:
-                # Remaining FTs after this week's usage (hits do not create negative carry)
-                new_transfers = max(0, available_this_week - transfers_made)
-                # Cap carry-over so next week's +1 cannot exceed MAX_FREE_TRANSFERS
-                new_transfers = min(new_transfers, self.MAX_FREE_TRANSFERS - 1)
+            # Remaining FTs after this week's usage (hits do not create negative carry).
+            # Cap at MAX-1 so next week's +1 grant cannot exceed MAX_FREE_TRANSFERS.
+            new_transfers = max(0, available_this_week - transfers_made)
+            new_transfers = min(new_transfers, self.MAX_FREE_TRANSFERS - 1)
         
         # Handle chip usage and reset on Gameweek 20
         chips_used = None
@@ -444,16 +436,16 @@ class TeamManager:
             if latest_gw:
                 team_data = self.load_team(latest_gw)
         
-        # Calculate current week's available transfers
-        stored_transfers = meta_data.get('free_transfers_carried_over', 0)  # What's in meta.json (0 or 1)
-        current_week_transfers = min(stored_transfers + 1, self.MAX_FREE_TRANSFERS)  # 0+1=1 or 1+1=2
+        # Calculate current week's available transfers (carried + 1 weekly grant, capped at 5)
+        stored_transfers = meta_data.get('free_transfers_carried_over', 0)
+        current_week_transfers = min(stored_transfers + 1, self.MAX_FREE_TRANSFERS)
         
         return {
             'team': team_data['team'] if team_data else None,  # Return team data, not file wrapper
             'chips': self.get_available_chips_from_meta(meta_data),
             'transfers': self.get_available_transfers_from_meta(meta_data),
             'bank': meta_data.get('bank', 0.0),
-            'free_transfers': current_week_transfers,  # What LLM sees in prompt (1 or 2)
+            'free_transfers': current_week_transfers,  # What LLM sees in prompt (1–5)
             'gameweek': gameweek
         }
 

@@ -165,6 +165,52 @@ class MetaAndTransferTests(unittest.TestCase):
         self.assertEqual(info["free_transfers_available"], 1)
         self.assertTrue(info["can_make_transfers"])
 
+    def test_free_transfers_bank_up_to_five(self):
+        """Unused FTs roll over; available is capped at 5."""
+        self.assertEqual(TeamManager.MAX_FREE_TRANSFERS, 5)
+
+        # Carry 3 → available 4; use none → carry min(4, 4) = 4
+        self.manager._save_meta({
+            "current_gw": 5,
+            "last_team_file": "gw05.json",
+            "bank": 0.5,
+            "free_transfers_carried_over": 3,
+            "chips_used": {c: False for c in TeamManager.CHIP_NAMES},
+        })
+        self.manager.update_meta_from_response(
+            6, {"team": _sample_team(transfers=[])}, self.manager.get_meta()
+        )
+        self.assertEqual(self.manager.get_meta()["free_transfers_carried_over"], 4)
+
+        # Carry 4 → available 5; use none → carry capped at MAX-1 = 4
+        self.manager._save_meta({
+            **self.manager.get_meta(),
+            "free_transfers_carried_over": 4,
+        })
+        self.manager.update_meta_from_response(
+            7, {"team": _sample_team(transfers=[])}, self.manager.get_meta()
+        )
+        self.assertEqual(self.manager.get_meta()["free_transfers_carried_over"], 4)
+        info = self.manager.get_available_transfers_from_meta(self.manager.get_meta())
+        self.assertEqual(info["free_transfers_available"], 5)
+
+    def test_free_hit_preserves_banked_transfers(self):
+        self.manager._save_meta({
+            "current_gw": 8,
+            "last_team_file": "gw08.json",
+            "bank": 0.5,
+            "free_transfers_carried_over": 3,
+            "chips_used": {c: False for c in TeamManager.CHIP_NAMES},
+        })
+        self.manager.update_meta_from_response(
+            9,
+            {"team": _sample_team(chip="free_hit", transfers=[])},
+            self.manager.get_meta(),
+        )
+        meta = self.manager.get_meta()
+        self.assertTrue(meta["chips_used"]["free_hit"])
+        self.assertEqual(meta["free_transfers_carried_over"], 3)
+
     def test_transfers_are_affordable_bank(self):
         ok, expected = self.manager.transfers_are_affordable(
             transfers=[{"player_out": "Player A", "player_in_price": 8.5}],
@@ -173,6 +219,16 @@ class MetaAndTransferTests(unittest.TestCase):
         )
         self.assertTrue(ok)
         self.assertEqual(expected, 0.5)
+
+
+class FormationConstraintTests(unittest.TestCase):
+    def test_mid_minimum_is_three(self):
+        from fpl_agent.core.config import Config
+
+        constraints = Config().get_formation_constraints()
+        self.assertEqual(constraints["MID"], [3, 5])
+        self.assertEqual(constraints["DEF"], [3, 5])
+        self.assertEqual(constraints["FWD"], [1, 3])
 
 
 class PromptHelperTests(unittest.TestCase):
