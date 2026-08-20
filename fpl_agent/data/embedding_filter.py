@@ -12,7 +12,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 
 from ..core.config import Config
-from ..utils.keyword_extractor import extract_expert_bonus
+from ..utils.keyword_extractor import (
+    extract_expert_bonus,
+    extract_expert_tier,
+    scale_scores_0_to_10,
+    TIER_AVOID,
+    TIER_NAMES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -294,33 +300,58 @@ class EmbeddingFilter:
         return similarities
     
     def _calculate_hybrid_scores(self, similarities: Dict[str, List[Tuple[str, float]]], 
-                               structured_data: Dict) -> Dict[str, List[Tuple[str, float, float, float]]]:
-        """Calculate hybrid scores combining embeddings with keyword bonuses"""
+                               structured_data: Dict) -> Dict[str, List[Tuple[str, float, float, float, int, float]]]:
+        """
+        Rank players with two-stage priority: keyword tier, then raw cosine within tier.
+
+        Display scaling (0–10) is computed per position for readability only and does not
+        drive the primary sort order (raw cosine does, within tier).
+
+        Returns per position a list of:
+          (name, sort_score, raw_cosine, keyword_bonus, keyword_tier, scaled_cosine_0_10)
+        where sort_score preserves two-stage order for callers that sort by hybrid_score.
+        """
         hybrid_scores = {}
-        
+        # Enough headroom between tiers that scaled cosine (0–10) cannot cross tiers
+        tier_span = 100.0
+
         for position, player_scores in similarities.items():
+            if not player_scores:
+                hybrid_scores[position] = []
+                continue
+
+            raw_cosines = [float(score) for _, score in player_scores]
+            scaled_cosines = scale_scores_0_to_10(raw_cosines)
+
             hybrid_position_scores = []
-            
-            for player_name, embedding_score in player_scores:
-                # Get keyword bonus from expert_insights
+            for (player_name, embedding_score), scaled in zip(player_scores, scaled_cosines):
                 keyword_bonus = extract_expert_bonus(player_name, structured_data)
-                
-                # Calculate final hybrid score using configurable weights
-                embeddings_config = self.config.get_embeddings_config()
-                hybrid_config = embeddings_config.get('hybrid_scoring', {})
-                embedding_weight = hybrid_config.get('embedding_weight', 0.6)
-                keyword_weight = hybrid_config.get('keyword_weight', 0.4)
-                
-                final_score = embedding_weight * embedding_score + keyword_weight * keyword_bonus
-                
-                hybrid_position_scores.append((player_name, final_score, embedding_score, keyword_bonus))
-            
-            # Sort by hybrid score (descending)
-            hybrid_position_scores.sort(key=lambda x: x[1], reverse=True)
+                keyword_tier = extract_expert_tier(player_name, structured_data)
+                # Lower tier = higher priority; within tier higher scaled cosine sorts higher
+                sort_score = (TIER_AVOID - keyword_tier) * tier_span + scaled
+
+                hybrid_position_scores.append(
+                    (
+                        player_name,
+                        float(sort_score),
+                        float(embedding_score),
+                        float(keyword_bonus),
+                        int(keyword_tier),
+                        float(scaled),
+                    )
+                )
+
+            # Two-stage: tier ascending, then raw cosine descending (scaled used in sort_score)
+            hybrid_position_scores.sort(
+                key=lambda row: (row[4], -row[2])
+            )
             hybrid_scores[position] = hybrid_position_scores
-            
-            logger.info(f"Calculated hybrid scores for {position}: {len(hybrid_position_scores)} players")
-        
+
+            logger.info(
+                f"Two-stage ranked {position}: {len(hybrid_position_scores)} players "
+                f"(keyword tier → cosine)"
+            )
+
         return hybrid_scores
     
     def calculate_player_embeddings(self, players_data: Dict[str, Dict[str, Any]], use_cached: bool = False) -> Dict[str, np.ndarray]:
@@ -414,7 +445,7 @@ class EmbeddingFilter:
             # Calculate similarities between players and position queries
             similarities = self._calculate_similarities(player_embeddings, query_embeddings, player_positions)
             
-            # Calculate hybrid scores
+            # Two-stage rank: keyword tier → cosine (scaled cosine for display only)
             hybrid_scores = self._calculate_hybrid_scores(similarities, enriched_players)
             
             # Format and return results
@@ -422,12 +453,24 @@ class EmbeddingFilter:
             scores_added = 0
             
             for ranked_players in hybrid_scores.values():
-                for rank, (player_name, hybrid_score, embedding_score, keyword_bonus) in enumerate(ranked_players, 1):
+                for rank, (
+                    player_name,
+                    hybrid_score,
+                    embedding_score,
+                    keyword_bonus,
+                    keyword_tier,
+                    embedding_score_scaled,
+                ) in enumerate(ranked_players, 1):
                     if player_name in players_data:
                         player_scores[player_name] = {
                             'embedding_score': float(embedding_score),
+                            'embedding_score_scaled': float(embedding_score_scaled),
                             'keyword_bonus': float(keyword_bonus),
-                            'hybrid_score': float(hybrid_score)
+                            'keyword_tier': int(keyword_tier),
+                            'keyword_tier_name': TIER_NAMES.get(keyword_tier, 'neutral'),
+                            # sort_score: preserves two-stage order for hybrid_score consumers
+                            'hybrid_score': float(hybrid_score),
+                            'position_rank': rank,
                         }
                         scores_added += 1
             

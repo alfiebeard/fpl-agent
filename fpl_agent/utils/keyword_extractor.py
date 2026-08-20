@@ -4,9 +4,32 @@ Used by both DataProcessor and EmbeddingFilter to avoid code duplication.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
+
+# Lower tier = higher priority in two-stage ranking
+TIER_MUST_HAVE = 0
+TIER_RECOMMENDED = 1
+TIER_NEUTRAL = 2
+TIER_ROTATION_RISK = 3
+TIER_AVOID = 4
+
+TIER_NAMES = {
+    TIER_MUST_HAVE: "must-have",
+    TIER_RECOMMENDED: "recommended",
+    TIER_NEUTRAL: "neutral",
+    TIER_ROTATION_RISK: "rotation risk",
+    TIER_AVOID: "avoid",
+}
+
+# Default bonuses (also used when config is unavailable)
+DEFAULT_KEYWORD_BONUSES = {
+    "must-have": 0.5,
+    "recommended": 0.3,
+    "rotation risk": -0.2,
+    "avoid": -0.5,
+}
 
 
 def extract_keyword_status(player_name: str, structured_data: Dict, 
@@ -70,11 +93,66 @@ def extract_expert_bonus(player_name: str, structured_data: Dict) -> float:
     Returns:
         Float bonus value based on expert keywords, 0.0 if no match
     """
-    keyword_map = {
-        "must-have": 0.5,
-        "recommended": 0.3,
-        "rotation risk": -0.2,
-        "avoid": -0.5
-    }
-    result = extract_keyword_status(player_name, structured_data, 'expert_insights', keyword_map)
+    result = extract_keyword_status(
+        player_name, structured_data, 'expert_insights', DEFAULT_KEYWORD_BONUSES
+    )
     return result if result is not None else 0.0
+
+
+def extract_expert_tier(player_name: str, structured_data: Dict) -> int:
+    """
+    Extract keyword priority tier from expert_insights for two-stage ranking.
+
+    Returns:
+        Tier int where lower is better priority (must-have=0 ... avoid=4).
+        Neutral (2) when no keyword matches.
+    """
+    tier_map = {
+        "must-have": TIER_MUST_HAVE,
+        "recommended": TIER_RECOMMENDED,
+        "rotation risk": TIER_ROTATION_RISK,
+        "avoid": TIER_AVOID,
+    }
+    result = extract_keyword_status(player_name, structured_data, 'expert_insights', tier_map)
+    return result if result is not None else TIER_NEUTRAL
+
+
+def scale_scores_0_to_10(scores: List[float]) -> List[float]:
+    """Min-max scale a list of floats to 0–10 (display / tie-break readability)."""
+    if not scores:
+        return []
+    lo = min(scores)
+    hi = max(scores)
+    if hi - lo < 1e-12:
+        return [5.0 for _ in scores]
+    return [((s - lo) / (hi - lo)) * 10.0 for s in scores]
+
+
+def select_players_two_stage(
+    players: List[Dict[str, Any]],
+    count: int,
+    tier_key: str = "keyword_tier",
+    cosine_key: str = "embedding_score",
+) -> List[Dict[str, Any]]:
+    """
+    Select players for a shortlist: keyword tier first, cosine within tier.
+
+    Must-haves (tier 0) are always included even if that exceeds ``count``.
+    """
+    sorted_players = sorted(
+        players,
+        key=lambda p: (
+            p.get(tier_key, TIER_NEUTRAL),
+            -(p.get(cosine_key) if p.get(cosine_key) is not None else float("-inf")),
+        ),
+    )
+    must_haves = [p for p in sorted_players if p.get(tier_key, TIER_NEUTRAL) == TIER_MUST_HAVE]
+    rest = [p for p in sorted_players if p.get(tier_key, TIER_NEUTRAL) != TIER_MUST_HAVE]
+
+    if count <= 0:
+        return list(must_haves)
+
+    if len(must_haves) >= count:
+        return list(must_haves)
+
+    return must_haves + rest[: max(0, count - len(must_haves))]
