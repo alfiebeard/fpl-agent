@@ -229,7 +229,7 @@ class TeamAnalysisStrategy(BaseLLMStrategy):
 
         
 GAMEWEEK CONTEXT:
-- Season: 2025/2026
+- Season: 2026/2027
 - Gameweek: {current_gameweek}
 - Team: {team_name}
 - Fixture: {team_name} are {fixture_str}
@@ -308,7 +308,7 @@ Before returning your answer, double-check that your output is valid JSON, that 
 
         
 GAMEWEEK CONTEXT:
-- Season: 2025/2026
+- Season: 2026/2027
 - Gameweek: {current_gameweek}
 - Team: {team_name}
 - Fixture: {team_name} are {fixture_str}
@@ -377,7 +377,7 @@ Before returning your answer, double-check that your output is valid JSON, that 
 
         
 GAMEWEEK CONTEXT:
-- Season: 2025/2026
+- Season: 2026/2027
 - Gameweek: {current_gameweek}
 
 {PromptFormatter.format_fixtures(fixtures_data, current_gameweek)}
@@ -444,7 +444,7 @@ Before returning your answer, double-check that your output is valid JSON, that 
 
         
 GAMEWEEK CONTEXT:
-- Season: 2025/2026
+- Season: 2026/2027
 - Gameweek: {current_gameweek}
 
 {PromptFormatter.format_fixtures(fixtures_data, current_gameweek)}

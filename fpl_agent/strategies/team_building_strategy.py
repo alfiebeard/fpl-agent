@@ -233,12 +233,16 @@ CRITICAL INSTRUCTION: You MUST respond with ONLY valid JSON. Do not include any 
 
 You must research and analyse the top Fantasy Premier League (FPL) strategies, tips, and recommendations for the upcoming gameweeks. Use a wide range of sources, including expert predictions, blogs, community forums, news articles, fixture difficulty analysis, and pre-season form. Identify underpriced players, strong upcoming fixtures, expected starters, set-piece takers, and hidden value. Your goal is to build the best possible squad for Gameweek {gameweek} and beyond.
 
+GAMEWEEK CONTEXT:
+Season: 2026/2027
+Gameweek: {gameweek}
+
 You must strictly follow all official FPL rules and constraints when building the team:
 * The total budget must not exceed £{budget}m.
 {PromptFormatter.format_team_constraints(self.config)}
 * A maximum of 3 players are allowed from any single Premier League club.
 * Favour players with strong upcoming fixtures and minimal rotation risk.
-* Consider potential international absences in the upcoming gameweeks(e.g., AFCON), injury risks, or likely minutes played.
+* Consider injury risks, suspension, rotation, and likely minutes played.
 
 SEASON ENGINE NOTES (2026/27):
 * BPS: centre-back clearances/blocks/interceptions now score 1 BPS per 3 actions (was per 2). Direct attackers are no longer penalised for lost tackles — weigh attacking returns accordingly.
@@ -454,7 +458,7 @@ Transfer rules:
 * Additional transfers beyond your free transfers cost -4 points each, and should only be used if they are likely to generate greater points by using them.
 * To make a transfer you must select a player in the starting 11 or substitutes and replace them with a player from the list of available players (excluding players that are already in your starting 11 or substitutes).
 
-You don't have to use a transfer or all your free transfers for a gameweek. Banking transfers toward 4 or 5 has high strategic value: multi-transfer moves enable structural team pivots without taking hit penalties. Weigh that against immediate points from a one-off upgrade.
+You don't have to use a transfer or all your free transfers for a gameweek. Banking transfers toward 4 or 5 could have high strategic value: multi-transfer moves enable structural team pivots without taking hit penalties. Weigh that against immediate points from a one-off upgrade.
 If you consider this to be important you should consider the fixtures for players in the upcoming weeks too.
 
 At the moment you have access to the following chips and wildcards: {PromptFormatter.format_chips(chips_data)}
