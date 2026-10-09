@@ -25,7 +25,7 @@ class DataProcessor:
         self.config = config
         self.fetcher = FPLDataFetcher(config)
     
-    def process_fpl_data(self, bootstrap_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def process_fpl_data(self, bootstrap_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process raw FPL bootstrap data into structured player data.
         
@@ -33,12 +33,16 @@ class DataProcessor:
             bootstrap_data: Raw data from FPL bootstrap-static endpoint
             
         Returns:
-            Dictionary of processed player data keyed by full name
+            Dict with:
+              - players: processed player data keyed by full name
+              - fpl_current_gameweek / fpl_next_gameweek: event IDs from bootstrap
+                (used later to resolve chance_of_playing for a CLI --gameweek)
         """
         logger.info("Processing FPL bootstrap data...")
         
         # Create team ID to name mapping
         team_mapping = self._create_team_mapping(bootstrap_data)
+        availability_context = self.get_availability_context(bootstrap_data)
         
         # Process players
         processed_players = {}
@@ -51,7 +55,92 @@ class DataProcessor:
                 continue
         
         logger.info(f"Processed {len(processed_players)} players")
-        return processed_players
+        return {
+            'players': processed_players,
+            'fpl_current_gameweek': availability_context['fpl_current_gameweek'],
+            'fpl_next_gameweek': availability_context['fpl_next_gameweek'],
+        }
+
+    @staticmethod
+    def get_availability_context(bootstrap_data: Dict[str, Any]) -> Dict[str, Optional[int]]:
+        """Extract FPL current/next gameweek IDs from bootstrap events."""
+        current_gw = None
+        next_gw = None
+        for event in bootstrap_data.get('events', []):
+            if event.get('is_current'):
+                current_gw = event.get('id')
+            if event.get('is_next'):
+                next_gw = event.get('id')
+        return {
+            'fpl_current_gameweek': current_gw,
+            'fpl_next_gameweek': next_gw,
+        }
+
+    @staticmethod
+    def normalize_chance_value(value: Optional[Any]) -> Optional[float]:
+        """Normalize an FPL chance_of_playing_* field to float or None."""
+        if value is None or value == '':
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def resolve_chance_of_playing(
+        self,
+        this_round: Optional[Any],
+        next_round: Optional[Any],
+        gameweek: Optional[int] = None,
+        fpl_current_gameweek: Optional[int] = None,
+        fpl_next_gameweek: Optional[int] = None,
+        fallback_chance: Optional[Any] = None,
+    ) -> float:
+        """
+        Resolve a single chance_of_playing % for a target gameweek.
+
+        FPL only exposes this_round / next_round. We map the CLI --gameweek onto
+        those fields using the bootstrap current/next event IDs captured at fetch.
+        """
+        this_val = self.normalize_chance_value(this_round)
+        next_val = self.normalize_chance_value(next_round)
+        fallback_val = self.normalize_chance_value(fallback_chance)
+
+        if gameweek is not None and fpl_current_gameweek is not None and gameweek == fpl_current_gameweek:
+            preferred, secondary = this_val, next_val
+        elif gameweek is not None and fpl_next_gameweek is not None and gameweek == fpl_next_gameweek:
+            preferred, secondary = next_val, this_val
+        elif gameweek is not None and fpl_next_gameweek is not None and gameweek > fpl_next_gameweek:
+            # Best forward-looking estimate FPL gives us
+            preferred, secondary = next_val, this_val
+        elif gameweek is not None and fpl_current_gameweek is not None and gameweek < fpl_current_gameweek:
+            preferred, secondary = this_val, next_val
+        else:
+            # No usable mapping (old cache / missing context): prefer next for planning
+            preferred, secondary = next_val, this_val
+
+        for value in (preferred, secondary, fallback_val):
+            if value is not None:
+                return value
+        return 100.0
+
+    def apply_chance_of_playing_for_gameweek(
+        self,
+        players_data: Dict[str, Dict[str, Any]],
+        gameweek: Optional[int],
+        fpl_current_gameweek: Optional[int] = None,
+        fpl_next_gameweek: Optional[int] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Set chance_of_playing on each player for the given gameweek (in place)."""
+        for player_data in players_data.values():
+            player_data['chance_of_playing'] = self.resolve_chance_of_playing(
+                this_round=player_data.get('chance_of_playing_this_round'),
+                next_round=player_data.get('chance_of_playing_next_round'),
+                gameweek=gameweek,
+                fpl_current_gameweek=fpl_current_gameweek,
+                fpl_next_gameweek=fpl_next_gameweek,
+                fallback_chance=player_data.get('chance_of_playing'),
+            )
+        return players_data
 
     def process_fixtures_data(self, raw_fixtures: List[Dict[str, Any]], teams_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -120,10 +209,18 @@ class DataProcessor:
         team_id = player_data['team']
         team_info = team_mapping.get(team_id, {'name': 'Unknown Team', 'short_name': 'UNK'})
         
-        # Calculate chance of playing
-        chance_of_playing = self._calculate_chance_of_playing(
-            player_data.get('chance_of_playing_this_round'),
+        # Store both FPL chance fields; resolve to a single chance_of_playing later
+        # once we know which --gameweek the caller is planning for.
+        chance_this = self.normalize_chance_value(
+            player_data.get('chance_of_playing_this_round')
+        )
+        chance_next = self.normalize_chance_value(
             player_data.get('chance_of_playing_next_round')
+        )
+        # Provisional value until apply_chance_of_playing_for_gameweek runs
+        chance_of_playing = self.resolve_chance_of_playing(
+            this_round=chance_this,
+            next_round=chance_next,
         )
         
         # Process form data
@@ -161,6 +258,8 @@ class DataProcessor:
             'threat': player_data['threat'],
             'ict_index': player_data['ict_index'],
             'status': player_data['status'],
+            'chance_of_playing_this_round': chance_this,
+            'chance_of_playing_next_round': chance_next,
             'chance_of_playing': chance_of_playing,
             'news': player_data.get('news', ''),
             'transfers_in': player_data['transfers_in'],
@@ -173,25 +272,6 @@ class DataProcessor:
         }
         
         return processed_player
-    
-    def _calculate_chance_of_playing(self, this_round: Optional[Any], next_round: Optional[Any]) -> float:
-        """
-        Calculate chance of playing based on FPL data.
-        
-        Args:
-            this_round: Chance of playing this round
-            next_round: Chance of playing next round
-            
-        Returns:
-            Chance of playing as a percentage (0-100)
-        """
-        # Use this round if available, otherwise next round, otherwise 100%
-        if this_round is not None and this_round != '':
-            return float(this_round)
-        elif next_round is not None and next_round != '':
-            return float(next_round)
-        else:
-            return 100.0
     
     def _process_form(self, form_str: str) -> float:
         """

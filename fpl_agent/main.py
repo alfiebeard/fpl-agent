@@ -226,11 +226,17 @@ class FPLAgent:
                 else:
                     print("⚠️  No embedding scores calculated")
 
-            # Save enriched data
+            # Save enriched data (preserve FPL availability context from fetch)
+            existing = self.data_service.store.load_player_data() or {}
             enriched_data = {
                 'players': all_gameweek_data['players'],
-                'enrichment_timestamp': datetime.now().isoformat()
+                'enrichment_timestamp': datetime.now().isoformat(),
             }
+            for key in ('fpl_current_gameweek', 'fpl_next_gameweek'):
+                if key in existing:
+                    enriched_data[key] = existing[key]
+                elif key in all_gameweek_data:
+                    enriched_data[key] = all_gameweek_data[key]
 
             self.data_service.store.save_player_data(enriched_data)
             
@@ -556,7 +562,8 @@ class FPLAgent:
             current_team_player_data = self.data_service.get_current_team_player_data(
                 current_team=team_context['team'],
                 use_enrichments=use_enrichments,
-                use_cached=cached_only
+                use_cached=cached_only,
+                gameweek=gameweek,
             )
             print(f"✅ Current team player data loaded")
 

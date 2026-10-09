@@ -284,7 +284,9 @@ class PromptFormatter:
 
         header = [
             "OWNED PLAYER AVAILABILITY ALERTS:",
-            "Players below may be filtered out of the transfer list — treat these as high priority:",
+            "Players below will not appear as part of the transfer list, since they are unavailable so you will miss any information on them. What you do about this",
+            "is up to you, you could bench the player if you feel they will come good or be useful later or you could swap them out if there is an improvement to be made." 
+            "The challenge is to not waste a transfer on a player who is temporarily unavailable or swap them for the sake of it for another similar player who might not score many points:",
             "",
         ]
         return "\n".join(header + alerts)

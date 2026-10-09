@@ -8,7 +8,7 @@ fetch → process → store → retrieve
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from ..core.config import Config
 from .fetch_fpl import FPLDataFetcher
@@ -50,7 +50,8 @@ class DataService:
         """
         players = self.get_players(
             use_cached=use_cached,      # Use cache when use_cached is True
-            filter_unavailable_players_mode=filter_unavailable_players_mode  # Pass through filtering preference
+            filter_unavailable_players_mode=filter_unavailable_players_mode,  # Pass through filtering preference
+            gameweek=gameweek,
         )
         
         # Get raw fixtures data for the gameweek
@@ -60,19 +61,29 @@ class DataService:
         else:
             gameweek_fixtures = []
         
+        stored_data = self.store.load_player_data() or {}
         return {
             'players': players,
             'fixtures': gameweek_fixtures,  # Current gameweek fixtures
             'all_fixtures': fixtures.get('fixtures', []) if fixtures else [],
+            'fpl_current_gameweek': stored_data.get('fpl_current_gameweek'),
+            'fpl_next_gameweek': stored_data.get('fpl_next_gameweek'),
         }
     
-    def get_players(self, use_cached: bool = False, filter_unavailable_players_mode: str = "no_filter") -> Dict[str, Dict[str, Any]]:
+    def get_players(
+        self,
+        use_cached: bool = False,
+        filter_unavailable_players_mode: str = "no_filter",
+        gameweek: Optional[int] = None,
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Get players data with smart caching.
         
         Args:
             use_cached: If True, use only cached data. If False, fetch fresh data.
             filter_unavailable_players_mode: If "fpl_data_and_enrichments", apply availability filters using both FPL data and enrichments. If "fpl_data_only", apply availability filters using FPL data only. If "no_filter", return all players.
+            gameweek: Target gameweek (from CLI --gameweek). Used to resolve
+                chance_of_playing from this_round vs next_round.
             
         Returns:
             Dictionary of processed player data keyed by player name
@@ -84,11 +95,18 @@ class DataService:
                 logger.info("Fetching fresh FPL data...")
                 # Fetch fresh data from API
                 bootstrap_data = self.fetcher.get_fpl_static_data()
-                # Process the raw data
-                fresh_player_data = self.processor.process_fpl_data(bootstrap_data)
-                # Save the fresh data to the store
-                self.store.save_player_data(fresh_player_data)
-                logger.info("Fresh FPL data fetched and saved to store")
+                # Process the raw data (players + current/next GW context)
+                processed = self.processor.process_fpl_data(bootstrap_data)
+                self.store.save_player_data({
+                    'players': processed['players'],
+                    'fpl_current_gameweek': processed['fpl_current_gameweek'],
+                    'fpl_next_gameweek': processed['fpl_next_gameweek'],
+                })
+                logger.info(
+                    "Fresh FPL data fetched and saved to store "
+                    f"(current_gw={processed['fpl_current_gameweek']}, "
+                    f"next_gw={processed['fpl_next_gameweek']})"
+                )
             except Exception as e:
                 logger.error(f"Failed to fetch fresh FPL data: {e}")
                 raise
@@ -96,13 +114,21 @@ class DataService:
             logger.warning("Returning cached FPL data due to use_cached flag")
         
         # Step 2: Load player data for processing
-        players_data = self.store.load_player_data()
-        if not players_data:
+        stored_data = self.store.load_player_data()
+        if not stored_data:
             raise ValueError("No player data available. Run 'fetch' command first.")
         
-        players_data = players_data['players']
+        players_data = stored_data['players']
 
-        # Step 3: Filter players if requested
+        # Step 3: Resolve availability for the target gameweek
+        self.processor.apply_chance_of_playing_for_gameweek(
+            players_data,
+            gameweek=gameweek,
+            fpl_current_gameweek=stored_data.get('fpl_current_gameweek'),
+            fpl_next_gameweek=stored_data.get('fpl_next_gameweek'),
+        )
+
+        # Step 4: Filter players if requested
         filtered_players = self._filter_out_unavailable_players(players_data, filter_unavailable_players_mode)
         
         return filtered_players
@@ -370,7 +396,8 @@ class DataService:
 
     def get_current_team_player_data(self, current_team: Dict[str, Any], 
                                     use_enrichments: bool = False,
-                                    use_cached: bool = False) -> Dict[str, Dict[str, Any]]:
+                                    use_cached: bool = False,
+                                    gameweek: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
         """
         Get comprehensive data for all players in the current team.
         
@@ -378,6 +405,7 @@ class DataService:
             current_team: Current team data from gwNN.json
             use_enrichments: Whether to include expert insights and injury news
             use_cached: Whether to use cached data only
+            gameweek: Target gameweek for availability resolution
             
         Returns:
             Dictionary of player data indexed by full name, including:
@@ -396,7 +424,7 @@ class DataService:
             player_names = [player['name'] for player in team_players]
             
             # 2. Get current market data for these specific players
-            all_players_data = self.get_players(use_cached=use_cached)
+            all_players_data = self.get_players(use_cached=use_cached, gameweek=gameweek)
             current_market_data = {
                 name: all_players_data[name] 
                 for name in player_names 

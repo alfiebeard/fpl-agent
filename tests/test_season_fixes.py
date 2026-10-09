@@ -17,6 +17,8 @@ from fpl_agent.utils.team_utils import extract_team_payload, normalize_chip
 from fpl_agent.utils.display import display_comprehensive_team_result
 from fpl_agent.utils.prompt_formatter import PromptFormatter
 from fpl_agent.core.team_manager import TeamManager
+from fpl_agent.core.config import Config
+from fpl_agent.data.data_processor import DataProcessor
 
 
 def _sample_team(**overrides):
@@ -260,6 +262,69 @@ class PromptHelperTests(unittest.TestCase):
         self.assertIn("GW1:", text)
         self.assertIn("GW2:", text)
         self.assertIn("Club fixture counts", text)
+
+
+class ChanceOfPlayingResolutionTests(unittest.TestCase):
+    """Gakpo-style case: this_round=100, next_round=0 between finished current and next GW."""
+
+    def setUp(self):
+        self.processor = DataProcessor(Config())
+
+    def test_next_gameweek_uses_next_round(self):
+        chance = self.processor.resolve_chance_of_playing(
+            this_round=100,
+            next_round=0,
+            gameweek=6,
+            fpl_current_gameweek=5,
+            fpl_next_gameweek=6,
+        )
+        self.assertEqual(chance, 0.0)
+
+    def test_current_gameweek_uses_this_round(self):
+        chance = self.processor.resolve_chance_of_playing(
+            this_round=100,
+            next_round=0,
+            gameweek=5,
+            fpl_current_gameweek=5,
+            fpl_next_gameweek=6,
+        )
+        self.assertEqual(chance, 100.0)
+
+    def test_apply_for_gameweek_updates_players(self):
+        players = {
+            "Cody Gakpo": {
+                "chance_of_playing_this_round": 100.0,
+                "chance_of_playing_next_round": 0.0,
+                "chance_of_playing": 100.0,
+            }
+        }
+        self.processor.apply_chance_of_playing_for_gameweek(
+            players,
+            gameweek=6,
+            fpl_current_gameweek=5,
+            fpl_next_gameweek=6,
+        )
+        self.assertEqual(players["Cody Gakpo"]["chance_of_playing"], 0.0)
+
+    def test_null_chances_default_to_100(self):
+        chance = self.processor.resolve_chance_of_playing(
+            this_round=None,
+            next_round=None,
+            gameweek=6,
+            fpl_current_gameweek=5,
+            fpl_next_gameweek=6,
+        )
+        self.assertEqual(chance, 100.0)
+
+    def test_availability_context_from_bootstrap(self):
+        ctx = DataProcessor.get_availability_context({
+            "events": [
+                {"id": 5, "is_current": True, "is_next": False},
+                {"id": 6, "is_current": False, "is_next": True},
+            ]
+        })
+        self.assertEqual(ctx["fpl_current_gameweek"], 5)
+        self.assertEqual(ctx["fpl_next_gameweek"], 6)
 
 
 if __name__ == "__main__":
